@@ -20,6 +20,43 @@ market_bp = Blueprint("market", __name__)
 logger = logging.getLogger(__name__)
 
 
+@market_bp.route("/cache-status", methods=["GET"])
+def get_cache_status():
+    """Get metadata for all cached market data files."""
+    try:
+        fetcher = DataFetcher(request.headers)
+        status = fetcher.get_cache_status()
+        return jsonify(status), 200
+    except Exception as exc:
+        logger.error(f"Cache status error: {exc}", exc_info=True)
+        return jsonify({"status": "error", "message": "Failed to get cache status"}), 500
+
+
+@market_bp.route("/fetch", methods=["POST"])
+def fetch_data():
+    """Trigger a data fetch and cache for a symbol."""
+    try:
+        data = request.json or {}
+        symbol = data.get("symbol")
+        timeframe = data.get("timeframe", "1d")
+        from_date = data.get("from_date")
+        to_date = data.get("to_date")
+
+        if not symbol:
+            return jsonify({"status": "error", "message": "symbol is required"}), 400
+
+        fetcher = DataFetcher(request.headers)
+        df = fetcher.fetch_historical_data(symbol, timeframe, from_date, to_date)
+        
+        if df is None or df.empty:
+            return jsonify({"status": "error", "message": "Failed to fetch data"}), 404
+
+        return jsonify({"status": "success", "rows": len(df)}), 200
+    except Exception as exc:
+        logger.error(f"Fetch data error: {exc}", exc_info=True)
+        return jsonify({"status": "error", "message": "Fetch failed"}), 500
+
+
 @market_bp.route("/option-chain", methods=["POST"])
 def option_chain():
     """Fetch option chain data for a symbol and expiry.

@@ -105,6 +105,7 @@ def auto_tune():
         from datetime import datetime
         from dateutil.relativedelta import relativedelta
         import pandas as pd
+        import numpy as np
         from services.data_fetcher import DataFetcher
 
         data = request.json or {}
@@ -154,16 +155,23 @@ def auto_tune():
         
         # 3. Get the score for best params
         # (Re-running briefly to get actual score value)
-        from services.strategies import StrategyFactory
+        from strategies import StrategyFactory
         import vectorbt as vbt
         strategy = StrategyFactory.get_strategy(strategy_id, best_params)
         entries, exits = strategy.generate_signals(is_df)
         pf = vbt.Portfolio.from_signals(is_df["Close"], entries, exits, freq="1D")
         
-        if metric == "total_return": score = pf.total_return()
-        elif metric == "calmar": score = pf.calmar_ratio() if callable(pf.calmar_ratio) else pf.calmar_ratio
-        elif metric == "drawdown": score = -abs(pf.max_drawdown())
-        else: score = pf.sharpe_ratio()
+        if metric == "total_return":
+             score = pf.total_return()
+        elif metric == "calmar":
+             score = pf.calmar_ratio() if callable(pf.calmar_ratio) else pf.calmar_ratio
+        elif metric == "drawdown":
+             score = -abs(pf.max_drawdown())
+        else:
+             score = pf.sharpe_ratio() if callable(pf.sharpe_ratio) else pf.sharpe_ratio
+
+        if np.isnan(score):
+            score = 0.0
 
         return jsonify({
             "bestParams": best_params,

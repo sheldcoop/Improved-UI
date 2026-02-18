@@ -129,6 +129,55 @@ class DataFetcher:
         # If fetch failed but we have cache, return cache as fallback
         return cached_df if cached_df is not None else None
 
+    def get_cache_status(self) -> list[dict]:
+        """Scan cache directory and return metadata for all cached datasets.
+
+        Returns:
+            List of dicts with keys: symbol, timeframe, startDate, lastUpdated, size, health.
+        """
+        results = []
+        if not CACHE_DIR.exists():
+            return results
+
+        for p in CACHE_DIR.glob("*.parquet"):
+            try:
+                # Cache keys are usually symbol_timeframe.parquet
+                stem = p.stem
+                parts = stem.split("_")
+                if len(parts) >= 2:
+                    symbol = parts[0]
+                    timeframe = parts[1]
+                else:
+                    symbol = stem
+                    timeframe = "unknown"
+
+                # Read only index to get start/end dates (efficient)
+                # Note: We use engine='pyarrow' if available for better performance
+                df_meta = pd.read_parquet(p, columns=[])
+                
+                start_date = "-"
+                end_date = "-"
+                if not df_meta.empty:
+                    start_date = str(df_meta.index.min().date())
+                    end_date = str(df_meta.index.max().date())
+
+                size_mb = p.stat().st_size / (1024 * 1024)
+                
+                results.append({
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "startDate": start_date,
+                    "lastUpdated": end_date,
+                    "size": f"{size_mb:.1f} MB",
+                    "health": "GOOD", # Default, validate route will refine this
+                    "dataAvailable": True
+                })
+            except Exception as exc:
+                logger.warning(f"Failed to read metadata for {p.name}: {exc}")
+                continue
+
+        return results
+
     def fetch_option_chain(self, symbol: str, expiry: str) -> list:
         """Fetch option chain data for a symbol and expiry date.
 
