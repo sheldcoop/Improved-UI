@@ -1,3 +1,4 @@
+
 import pandas as pd
 import numpy as np
 import requests
@@ -5,7 +6,11 @@ import yfinance as yf
 from datetime import datetime, timedelta
 import logging
 import vectorbt as vbt
+import optuna
 from strategies import StrategyFactory
+
+# Set Optuna logging to warning to avoid console spam
+optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +54,6 @@ class DataEngine:
 
     def _fetch_universe(self, universe_id, timeframe):
         # Simulate Multi-Asset Data
-        # Returns a DataFrame where Close is (Time, Ticker) if we constructed it manually, 
-        # but to fit into the 'df' structure expected by strategies, 
-        # we will return a dictionary of DataFrames or a MultiIndex DataFrame.
-        # VectorBT handles MultiIndex columns gracefully.
-        
         tickers = []
         if universe_id == 'NIFTY_50': tickers = ['REL.NS', 'TCS.NS', 'HDFC.NS', 'INFY.NS', 'ICICI.NS']
         elif universe_id == 'BANK_NIFTY': tickers = ['HDFCBANK.NS', 'ICICIBANK.NS', 'SBIN.NS', 'AXISBANK.NS']
@@ -61,7 +61,6 @@ class DataEngine:
         
         logger.info(f"Generating Universe Data for {universe_id} ({len(tickers)} assets)")
         
-        # Generating synthetic correlated data for the universe
         periods = 200
         dates = pd.date_range(end=datetime.now(), periods=periods, freq='D')
         
@@ -73,12 +72,7 @@ class DataEngine:
             close_data[t] = price
             
         close_df = pd.DataFrame(close_data, index=dates)
-        
-        # Construct a structure that strategies can use.
-        # Strategies typically access df['Close'].
-        # We will return a DataFrame where columns are tickers, and we 'patch' it so df['Close'] returns itself.
-        # However, cleaner way for VBT is:
-        return {'Close': close_df, 'Volume': close_df * 1000} # Simplified dict access
+        return {'Close': close_df, 'Volume': close_df * 1000}
 
     def _generate_synthetic(self, symbol, interval):
         periods = 200 if interval == '1d' else 1000
@@ -107,27 +101,42 @@ class BacktestEngine:
         slippage = float(config.get('slippage', 0.05)) / 100.0
         initial_capital = float(config.get('initial_capital', 100000.0))
         fees = float(config.get('commission', 20.0)) / initial_capital
+        
+        # CRITICAL FIX: Parse Stop Loss and Take Profit
+        sl_pct = float(config.get('stopLossPct', 0)) / 100.0
+        tp_pct = float(config.get('takeProfitPct', 0)) / 100.0
 
         strategy = StrategyFactory.get_strategy(strategy_id, config)
         entries, exits = strategy.generate_signals(df)
         
-        close_price = df['Close']
+        # Handle dict-based DF (Universe) vs Standard DF
+        if isinstance(df, dict):
+            close_price = df['Close']
+        else:
+            close_price = df['Close']
         
-        pf = vbt.Portfolio.from_signals(
-            close_price, entries, exits,
-            init_cash=initial_capital, fees=fees, slippage=slippage, freq='1D'
-        )
+        # Configure VBT Portfolio arguments
+        pf_kwargs = {
+            'init_cash': initial_capital,
+            'fees': fees,
+            'slippage': slippage,
+            'freq': '1D'
+        }
+        
+        # Apply SL/TP if they exist (VBT handles these as % away from entry)
+        if sl_pct > 0: pf_kwargs['sl_stop'] = sl_pct
+        if tp_pct > 0: pf_kwargs['tp_stop'] = tp_pct
+        
+        pf = vbt.Portfolio.from_signals(close_price, entries, exits, **pf_kwargs)
 
         return BacktestEngine._extract_results(pf)
 
     @staticmethod
     def _extract_results(pf):
-        # Handle Universe (Multi-Column) vs Single Asset
+        # Check if result is a Series (Single) or DataFrame (Universe)
         is_universe = isinstance(pf.wrapper.columns, pd.Index) and len(pf.wrapper.columns) > 1
         
         if is_universe:
-            # Aggregate Portfolio Stats
-            # Combine all assets into one equity curve
             total_value = pf.value().sum(axis=1)
             total_return = (total_value.iloc[-1] - total_value.iloc[0]) / total_value.iloc[0]
             
@@ -136,17 +145,16 @@ class BacktestEngine:
                 for d, v in total_value.items()
             ]
             
-            # Simplified metrics for Universe
             metrics = {
                 "totalReturnPct": round(total_return * 100, 2),
-                "sharpeRatio": round(pf.sharpe_ratio().mean(), 2), # Avg Sharpe of assets
+                "sharpeRatio": round(pf.sharpe_ratio().mean(), 2),
                 "maxDrawdownPct": round(abs(pf.max_drawdown().max()) * 100, 2),
                 "winRate": round(pf.win_rate().mean() * 100, 1),
                 "profitFactor": round(pf.profit_factor().mean(), 2),
                 "totalTrades": int(pf.trades.count().sum()),
                 "alpha": 0, "beta": 0, "volatility": 0, "cagr": 0, "sortinoRatio": 0, "calmarRatio": 0, "expectancy": 0, "consecutiveLosses": 0, "kellyCriterion": 0, "avgDrawdownDuration": "0d"
             }
-            trades = [] # Too many trades to list for universe
+            trades = [] 
         else:
             stats = pf.stats()
             equity = pf.value()
@@ -158,18 +166,19 @@ class BacktestEngine:
             ]
 
             trades = []
-            for i, row in pf.trades.records_readable.iterrows():
-                trades.append({
-                    "id": f"t-{i}",
-                    "entryDate": str(row['Entry Timestamp']),
-                    "exitDate": str(row['Exit Timestamp']),
-                    "side": "LONG" if row['Direction'] == 'Long' else "SHORT",
-                    "entryPrice": round(row['Entry Price'], 2),
-                    "exitPrice": round(row['Exit Price'], 2),
-                    "pnl": round(row['PnL'], 2),
-                    "pnlPct": round(row['Return'] * 100, 2),
-                    "status": "WIN" if row['PnL'] > 0 else "LOSS"
-                })
+            if hasattr(pf.trades, 'records_readable'):
+                for i, row in pf.trades.records_readable.iterrows():
+                    trades.append({
+                        "id": f"t-{i}",
+                        "entryDate": str(row['Entry Timestamp']),
+                        "exitDate": str(row['Exit Timestamp']),
+                        "side": "LONG" if row['Direction'] == 'Long' else "SHORT",
+                        "entryPrice": round(row['Entry Price'], 2),
+                        "exitPrice": round(row['Exit Price'], 2),
+                        "pnl": round(row['PnL'], 2),
+                        "pnlPct": round(row['Return'] * 100, 2),
+                        "status": "WIN" if row['PnL'] > 0 else "LOSS"
+                    })
             
             metrics = {
                 "totalReturnPct": round(pf.total_return() * 100, 2),
@@ -196,77 +205,137 @@ class BacktestEngine:
 
 class OptimizationEngine:
     @staticmethod
-    def run(symbol, strategy_id, ranges):
+    def run_optuna(symbol, strategy_id, ranges, n_trials=30):
         data_engine = DataEngine({})
         df = data_engine.fetch_historical_data(symbol)
         if df.empty: return {"error": "No data"}
 
-        grid_results = []
-        r_period = ranges.get('rsi_period', {'min': 14, 'max': 14, 'step': 1})
-        r_lower = ranges.get('rsi_lower', {'min': 30, 'max': 30, 'step': 5})
-        
-        periods = np.arange(int(r_period['min']), int(r_period['max']) + 1, int(r_period['step']))
-        lowers = np.arange(int(r_lower['min']), int(r_lower['max']) + 1, int(r_lower['step']))
-        
-        for p in periods:
-            for l in lowers:
-                rsi = vbt.RSI.run(df['Close'], window=int(p))
-                entries = rsi.rsi_crossed_below(int(l))
-                exits = rsi.rsi_crossed_above(70)
+        # Define Objective Function for Optuna
+        def objective(trial):
+            # Construct config dynamically from ranges
+            config = {}
+            for param, constraints in ranges.items():
+                p_min = int(constraints.get('min', 10))
+                p_max = int(constraints.get('max', 50))
+                p_step = int(constraints.get('step', 1))
+                
+                # Optuna suggests a value for this parameter
+                config[param] = trial.suggest_int(param, p_min, p_max, step=p_step)
+            
+            # Run Backtest with this config
+            strategy = StrategyFactory.get_strategy(strategy_id, config)
+            try:
+                entries, exits = strategy.generate_signals(df)
                 pf = vbt.Portfolio.from_signals(df['Close'], entries, exits, freq='1D', fees=0.001)
                 
-                grid_results.append({
-                    "paramSet": {"rsi": int(p), "lower": int(l)},
-                    "sharpe": round(pf.sharpe_ratio(), 2),
-                    "returnPct": round(pf.total_return() * 100, 2),
-                    "drawdown": round(abs(pf.max_drawdown()) * 100, 2)
-                })
+                # Metric to Maximize: Sharpe Ratio
+                sharpe = pf.sharpe_ratio()
+                return -999 if np.isnan(sharpe) else sharpe
+            except Exception as e:
+                return -999
+
+        # Run Study
+        study = optuna.create_study(direction='maximize')
+        study.optimize(objective, n_trials=n_trials)
+
+        # Collect Results
+        grid_results = []
+        for t in study.trials:
+            if t.value is None or t.value == -999: continue
+            
+            # Re-run to get other metrics (Return, DD) 
+            # Note: In production, we would cache this to avoid re-running
+            config = t.params
+            strategy = StrategyFactory.get_strategy(strategy_id, config)
+            entries, exits = strategy.generate_signals(df)
+            pf = vbt.Portfolio.from_signals(df['Close'], entries, exits, freq='1D', fees=0.001)
+            
+            grid_results.append({
+                "paramSet": t.params,
+                "sharpe": round(pf.sharpe_ratio(), 2),
+                "returnPct": round(pf.total_return() * 100, 2),
+                "drawdown": round(abs(pf.max_drawdown()) * 100, 2)
+            })
 
         return {"grid": grid_results, "wfo": []}
 
     @staticmethod
-    def run_wfo(symbol, strategy_id, config):
-        # Walk Forward Optimization Logic
+    def run_wfo(symbol, strategy_id, ranges, wfo_config):
+        # REAL Walk Forward Optimization
         data_engine = DataEngine({})
         df = data_engine.fetch_historical_data(symbol)
         
-        train_len = int(config.get('trainWindow', 100))
-        test_len = int(config.get('testWindow', 30))
+        train_window = int(wfo_config.get('trainWindow', 100))
+        test_window = int(wfo_config.get('testWindow', 30))
         
-        close = df['Close']
-        total_len = len(close)
-        
+        total_len = len(df)
+        if total_len < train_window + test_window:
+            return {"error": "Not enough data for WFO"}
+
         wfo_results = []
-        
-        # Simple rolling window WFO
-        # In a real engine, we optimize on Train, select params, then test on Test.
-        # Here we simulate the results to demonstrate the feature frontend.
-        
-        current_idx = train_len
+        current_idx = train_window
         run_count = 1
         
-        while current_idx + test_len < total_len:
-            # 1. Train Period (Optimize)
-            # Find best params in [current_idx - train_len : current_idx]
-            best_sharpe = 0
-            best_ret = 0
+        while current_idx + test_window <= total_len:
+            # 1. SLICE DATA (Train)
+            train_df = df.iloc[current_idx - train_window : current_idx]
             
-            # 2. Test Period (Validate)
-            # Run with best params on [current_idx : current_idx + test_len]
-            # Simulating outcome:
-            test_ret = np.random.normal(0.02, 0.05)
-            test_sharpe = np.random.normal(1.5, 0.5)
+            # 2. OPTIMIZE on Train Data (Find Best Params)
+            # We run a small Optuna study here
+            best_params = OptimizationEngine._find_best_params(train_df, strategy_id, ranges)
+            
+            # 3. SLICE DATA (Test)
+            test_df = df.iloc[current_idx : current_idx + test_window]
+            
+            # 4. VALIDATE on Test Data
+            strategy = StrategyFactory.get_strategy(strategy_id, best_params)
+            entries, exits = strategy.generate_signals(test_df)
+            pf = vbt.Portfolio.from_signals(test_df['Close'], entries, exits, freq='1D', fees=0.001)
             
             wfo_results.append({
                 "period": f"Window {run_count}",
                 "type": "TEST",
-                "params": "RSI=14, Lower=30",
-                "returnPct": round(test_ret * 100, 2),
-                "sharpe": round(test_sharpe, 2),
-                "drawdown": round(np.random.uniform(2, 10), 2)
+                "params": str(best_params),
+                "returnPct": round(pf.total_return() * 100, 2),
+                "sharpe": round(pf.sharpe_ratio(), 2),
+                "drawdown": round(abs(pf.max_drawdown()) * 100, 2)
             })
             
-            current_idx += test_len
+            current_idx += test_window
             run_count += 1
             
         return wfo_results
+
+    @staticmethod
+    def _find_best_params(df, strategy_id, ranges):
+        def objective(trial):
+            config = {}
+            for param, constraints in ranges.items():
+                p_min = int(constraints.get('min'))
+                p_max = int(constraints.get('max'))
+                p_step = int(constraints.get('step'))
+                config[param] = trial.suggest_int(param, p_min, p_max, step=p_step)
+            
+            strategy = StrategyFactory.get_strategy(strategy_id, config)
+            entries, exits = strategy.generate_signals(df)
+            # Fast VBT simulation
+            return vbt.Portfolio.from_signals(df['Close'], entries, exits, freq='1D').sharpe_ratio()
+
+        study = optuna.create_study(direction='maximize')
+        study.optimize(objective, n_trials=10) # Small trial count for speed inside WFO loop
+        return study.best_params
+
+class MonteCarloEngine:
+    @staticmethod
+    def run(simulations, vol_mult):
+        # Simulate standard random walks for now
+        # In a real engine, this would bootstrap historical returns
+        paths = []
+        for i in range(simulations):
+            returns = np.random.normal(0.0005, 0.015 * vol_mult, 100)
+            price_path = 100 * (1 + returns).cumprod()
+            paths.append({
+                "id": i,
+                "values": price_path.tolist()
+            })
+        return paths

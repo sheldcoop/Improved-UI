@@ -1,3 +1,4 @@
+
 from flask import Blueprint, request, jsonify
 from engine import OptimizationEngine
 import logging
@@ -8,13 +9,15 @@ logger = logging.getLogger(__name__)
 @optimization_bp.route('/run', methods=['POST'])
 def run_optimization():
     try:
-        symbol = request.json.get('symbol', 'NIFTY 50')
-        strategy_id = request.json.get('strategyId', '1')
-        ranges = request.json.get('ranges', {})
+        data = request.json
+        symbol = data.get('symbol', 'NIFTY 50')
+        strategy_id = data.get('strategyId', '1')
+        ranges = data.get('ranges', {}) # Expected: { 'paramName': { min, max, step } }
         
-        logger.info(f"Running Optimization for {symbol} | Ranges: {ranges}")
+        logger.info(f"Running Optuna Optimization for {symbol} | Params: {len(ranges)}")
         
-        results = OptimizationEngine.run(symbol, strategy_id, ranges)
+        # Use the new run_optuna method
+        results = OptimizationEngine.run_optuna(symbol, strategy_id, ranges)
         return jsonify(results)
     except Exception as e:
         logger.error(f"Optimization Error: {e}")
@@ -23,13 +26,16 @@ def run_optimization():
 @optimization_bp.route('/wfo', methods=['POST'])
 def run_wfo():
     try:
-        symbol = request.json.get('symbol', 'NIFTY 50')
-        strategy_id = request.json.get('strategyId', '1')
-        config = request.json.get('wfoConfig', {}) # { trainWindow, testWindow }
+        data = request.json
+        symbol = data.get('symbol', 'NIFTY 50')
+        strategy_id = data.get('strategyId', '1')
+        ranges = data.get('ranges', {})
+        wfo_config = data.get('wfoConfig', {}) # { trainWindow, testWindow }
         
-        logger.info(f"Running WFO for {symbol}")
+        logger.info(f"Running Real WFO for {symbol}")
         
-        results = OptimizationEngine.run_wfo(symbol, strategy_id, config)
+        # Use the new run_wfo method
+        results = OptimizationEngine.run_wfo(symbol, strategy_id, ranges, wfo_config)
         return jsonify(results)
     except Exception as e:
         logger.error(f"WFO Error: {e}")

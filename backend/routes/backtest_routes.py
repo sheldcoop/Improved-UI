@@ -1,3 +1,4 @@
+
 from flask import Blueprint, request, jsonify
 from engine import DataEngine, BacktestEngine
 import logging
@@ -11,28 +12,33 @@ def run_backtest():
     try:
         data = request.json
         symbol = data.get('symbol', 'NIFTY 50')
-        universe = data.get('universe') # New param
+        universe = data.get('universe') 
         target = universe if universe else symbol
         
         timeframe = data.get('timeframe', '1d')
-        
-        # Strategy Config (can be ID or full object)
         strategy_id = data.get('strategyId')
         
-        # Combine config
-        config = {
-            "slippage": data.get('slippage', 0.05),
-            "commission": data.get('commission', 20),
-            "initial_capital": data.get('initial_capital', 100000),
-            "stopLossPct": data.get('stopLossPct', 0),
-            "takeProfitPct": data.get('takeProfitPct', 0),
-            # Pass rules if available
-            "entryRules": data.get('entryRules', []),
-            "exitRules": data.get('exitRules', []),
-            "filterRules": data.get('filterRules', [])
+        # CRITICAL FIX: Use the entire data payload as config.
+        # This ensures dynamic params (rsi_period, fast_ma, etc.) are passed to the StrategyFactory.
+        config = data.copy()
+        
+        # Ensure defaults for core parameters if missing
+        defaults = {
+            "slippage": 0.05,
+            "commission": 20,
+            "initial_capital": 100000,
+            "stopLossPct": 0,
+            "takeProfitPct": 0,
+            "entryRules": [],
+            "exitRules": [],
+            "filterRules": []
         }
+        
+        for key, val in defaults.items():
+            if key not in config:
+                config[key] = val
 
-        logger.info(f"Backtest Target: {target} [{timeframe}]")
+        logger.info(f"Backtest Target: {target} [{timeframe}] | Strategy: {strategy_id} | Params: {list(config.keys())}")
         
         data_engine = DataEngine(request.headers)
         df = data_engine.fetch_historical_data(target, timeframe)
@@ -47,7 +53,7 @@ def run_backtest():
             "strategyName": data.get('strategyName', "Vectorized Strategy"),
             "symbol": target,
             "timeframe": timeframe,
-            "startDate": "2023-01-01", # simplified
+            "startDate": "2023-01-01", 
             "endDate": "2024-01-01",
             "status": "completed",
             **results
@@ -56,6 +62,4 @@ def run_backtest():
         
     except Exception as e:
         logger.error(f"Backtest Error: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
