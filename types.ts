@@ -66,6 +66,8 @@ export interface OptionLeg {
   iv: number;
   delta: number;
   theta: number;
+  gamma: number;
+  vega: number;
 }
 
 export interface OptionStrategy {
@@ -73,6 +75,18 @@ export interface OptionStrategy {
   underlying: string;
   spotPrice: number;
   legs: OptionLeg[];
+}
+
+export interface Trade {
+  id: string;
+  entryDate: string;
+  exitDate: string;
+  side: 'LONG' | 'SHORT';
+  entryPrice: number;
+  exitPrice: number;
+  pnl: number;
+  pnlPct: number;
+  status: 'WIN' | 'LOSS';
 }
 
 export interface BacktestResult {
@@ -95,9 +109,14 @@ export interface BacktestResult {
     kellyCriterion: number;
     totalTrades: number;
     consecutiveLosses: number;
+    alpha: number;
+    beta: number;
+    volatility: number;
+    expectancy: number;
   };
   monthlyReturns: { year: number; month: number; returnPct: number }[];
   equityCurve: { date: string; value: number; drawdown: number }[];
+  trades: Trade[]; // Added Trade Log
   status: 'running' | 'completed' | 'failed';
 }
 
@@ -147,7 +166,7 @@ export interface MonteCarloStats {
   medianReturn: number;
 }
 
-// Paper Trading Types
+// Paper Trading / Forward Sim Types
 export interface PaperPosition {
   id: string;
   symbol: string;

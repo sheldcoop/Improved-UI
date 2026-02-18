@@ -1,4 +1,4 @@
-import { BacktestResult, Strategy, Timeframe, AssetClass, IndicatorType, Operator, OptimizationResult, WFOResult, MonteCarloPath, PaperPosition } from '../types';
+import { BacktestResult, Strategy, Timeframe, AssetClass, IndicatorType, Operator, OptimizationResult, WFOResult, MonteCarloPath, PaperPosition, Trade } from '../types';
 
 // Simulate network delay
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -37,13 +37,17 @@ export const saveStrategy = async (strategy: Strategy): Promise<void> => {
 export const runBacktest = async (strategyId: string, symbol: string): Promise<BacktestResult> => {
   await delay(2000); 
   
+  // Generate fake equity curve
   const equityCurve = [];
+  const trades: Trade[] = [];
   let value = 100000;
   let peak = 100000;
   
   for (let i = 0; i < 250; i++) {
-    const change = (Math.random() - 0.48) * 2000; 
+    const dailyReturn = (Math.random() - 0.48) * 0.02; // Daily % change
+    const change = value * dailyReturn;
     value += change;
+    
     if (value > peak) peak = value;
     const drawdown = ((peak - value) / peak) * 100;
     
@@ -52,6 +56,22 @@ export const runBacktest = async (strategyId: string, symbol: string): Promise<B
       value: value,
       drawdown: drawdown
     });
+
+    // Generate random trades occasionally
+    if (Math.random() > 0.8) {
+        const isWin = Math.random() > 0.45;
+        trades.push({
+            id: `t-${i}`,
+            entryDate: new Date(2023, 0, 1 + i).toISOString().split('T')[0],
+            exitDate: new Date(2023, 0, 3 + i).toISOString().split('T')[0],
+            side: Math.random() > 0.5 ? 'LONG' : 'SHORT',
+            entryPrice: 100 + (Math.random() * 50),
+            exitPrice: isWin ? 110 : 95,
+            pnl: isWin ? 1500 : -800,
+            pnlPct: isWin ? 5.2 : -3.1,
+            status: isWin ? 'WIN' : 'LOSS'
+        });
+    }
   }
 
   const monthlyReturns = [];
@@ -81,11 +101,16 @@ export const runBacktest = async (strategyId: string, symbol: string): Promise<B
       winRate: 62.0,
       profitFactor: 1.75,
       kellyCriterion: 0.12,
-      totalTrades: 142,
-      consecutiveLosses: 4
+      totalTrades: trades.length,
+      consecutiveLosses: 4,
+      alpha: 0.05,
+      beta: 0.85,
+      volatility: 14.2,
+      expectancy: 0.45
     },
     monthlyReturns,
     equityCurve,
+    trades: trades.sort((a,b) => new Date(b.entryDate).getTime() - new Date(a.entryDate).getTime()),
     status: 'completed'
   };
 };

@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, ArrowRight, Zap, RefreshCw, BarChart2 } from 'lucide-react';
+import { Plus, Trash2, ArrowRight, Zap, RefreshCw, BarChart2, BookOpen, Sliders } from 'lucide-react';
 import PayoffChart from '../components/PayoffChart';
+import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
 import { OptionStrategy, OptionLeg } from '../types';
 import { getOptionChain } from '../services/api';
 
@@ -12,15 +15,14 @@ const OptionsBuilder: React.FC = () => {
   const [legs, setLegs] = useState<OptionLeg[]>([]);
   const [optionChain, setOptionChain] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  
+  // Scenario Analysis State
+  const [scenarioIV, setScenarioIV] = useState(0);
+  const [scenarioDays, setScenarioDays] = useState(0);
 
   useEffect(() => {
-    // Initial Strategy: Iron Condor
-    setLegs([
-        { id: '1', type: 'PE', action: 'BUY', strike: 21900, expiry: expiry, premium: 45, iv: 18, delta: -0.15, theta: -2 },
-        { id: '2', type: 'PE', action: 'SELL', strike: 22000, expiry: expiry, premium: 85, iv: 17, delta: -0.30, theta: -5 },
-        { id: '3', type: 'CE', action: 'SELL', strike: 22300, expiry: expiry, premium: 75, iv: 16, delta: 0.30, theta: -4 },
-        { id: '4', type: 'CE', action: 'BUY', strike: 22400, expiry: expiry, premium: 35, iv: 17, delta: 0.15, theta: -2 },
-    ]);
+    // Load default
+    applyStrategyTemplate('Iron Condor');
   }, []);
 
   useEffect(() => {
@@ -32,6 +34,51 @@ const OptionsBuilder: React.FC = () => {
     };
     loadChain();
   }, [underlying, expiry]);
+
+  const applyStrategyTemplate = (templateName: string) => {
+      const atm = Math.round(spotPrice / 50) * 50;
+      let newLegs: OptionLeg[] = [];
+      const baseLeg = { expiry, premium: 50, iv: 15, delta: 0.5, theta: -4, gamma: 0.002, vega: 12 }; // Mock values
+
+      switch(templateName) {
+          case 'Straddle':
+              newLegs = [
+                  { ...baseLeg, id: '1', type: 'CE', action: 'BUY', strike: atm },
+                  { ...baseLeg, id: '2', type: 'PE', action: 'BUY', strike: atm }
+              ];
+              break;
+          case 'Strangle':
+              newLegs = [
+                  { ...baseLeg, id: '1', type: 'PE', action: 'BUY', strike: atm - 200 },
+                  { ...baseLeg, id: '2', type: 'CE', action: 'BUY', strike: atm + 200 }
+              ];
+              break;
+          case 'Iron Condor':
+              newLegs = [
+                { ...baseLeg, id: '1', type: 'PE', action: 'BUY', strike: atm - 400, delta: -0.1 },
+                { ...baseLeg, id: '2', type: 'PE', action: 'SELL', strike: atm - 200, delta: -0.3 },
+                { ...baseLeg, id: '3', type: 'CE', action: 'SELL', strike: atm + 200, delta: 0.3 },
+                { ...baseLeg, id: '4', type: 'CE', action: 'BUY', strike: atm + 400, delta: 0.1 },
+              ];
+              break;
+           case 'Butterfly':
+              newLegs = [
+                  { ...baseLeg, id: '1', type: 'CE', action: 'BUY', strike: atm - 200 },
+                  { ...baseLeg, id: '2', type: 'CE', action: 'SELL', strike: atm }, // Logic needs qty support, defaulting to individual legs for now
+                  { ...baseLeg, id: '3', type: 'CE', action: 'SELL', strike: atm },
+                  { ...baseLeg, id: '4', type: 'CE', action: 'BUY', strike: atm + 200 }
+              ];
+              break;
+            case 'Bull Call Spread':
+              newLegs = [
+                  { ...baseLeg, id: '1', type: 'CE', action: 'BUY', strike: atm },
+                  { ...baseLeg, id: '2', type: 'CE', action: 'SELL', strike: atm + 200 }
+              ];
+              break;
+      }
+      setLegs(newLegs);
+      setStrategyName(templateName);
+  };
 
   const removeLeg = (id: string) => {
     setLegs(legs.filter(l => l.id !== id));
@@ -46,8 +93,10 @@ const OptionsBuilder: React.FC = () => {
           expiry,
           premium,
           iv: 15, // Mock defaults
-          delta: 0.5,
-          theta: -3
+          delta: type === 'CE' ? 0.5 : -0.5,
+          theta: -3,
+          gamma: 0.01,
+          vega: 10
       };
       setLegs([...legs, newLeg]);
   };
@@ -55,6 +104,8 @@ const OptionsBuilder: React.FC = () => {
   const totalPremium = legs.reduce((acc, leg) => acc + (leg.action === 'SELL' ? leg.premium : -leg.premium), 0);
   const totalDelta = legs.reduce((acc, leg) => acc + (leg.action === 'BUY' ? leg.delta : -leg.delta), 0);
   const totalTheta = legs.reduce((acc, leg) => acc + (leg.action === 'BUY' ? leg.theta : -leg.theta), 0);
+  const totalGamma = legs.reduce((acc, leg) => acc + (leg.action === 'BUY' ? leg.gamma : -leg.gamma), 0);
+  const totalVega = legs.reduce((acc, leg) => acc + (leg.action === 'BUY' ? leg.vega : -leg.vega), 0);
 
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col lg:flex-row gap-6">
@@ -63,7 +114,7 @@ const OptionsBuilder: React.FC = () => {
       <div className="w-full lg:w-1/2 flex flex-col gap-6">
         
         {/* Controls */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap gap-4 items-center">
+        <Card className="p-4 flex flex-wrap gap-4 items-center">
             <div>
                 <label className="text-xs text-slate-500 block mb-1">Underlying</label>
                 <select 
@@ -87,25 +138,34 @@ const OptionsBuilder: React.FC = () => {
                     <option>28-Mar-2024</option>
                 </select>
             </div>
-            <div className="flex-1">
-                 <label className="text-xs text-slate-500 block mb-1">Strategy Name</label>
-                 <input 
-                    type="text" 
-                    value={strategyName} 
-                    onChange={(e) => setStrategyName(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 outline-none focus:border-emerald-500"
-                 />
-            </div>
-            <div className="flex flex-col items-end">
-                <span className="text-xs text-slate-500">Spot Price</span>
+             <div>
+                <label className="text-xs text-slate-500 block mb-1">Spot Price</label>
                 <span className="text-lg font-bold text-slate-100">{spotPrice.toLocaleString()}</span>
             </div>
+        </Card>
+
+        {/* Strategy Templates */}
+        <div className="grid grid-cols-4 gap-2">
+            {['Straddle', 'Strangle', 'Iron Condor', 'Butterfly', 'Bull Call Spread', 'Bear Put Spread'].map(name => (
+                <button 
+                    key={name}
+                    onClick={() => applyStrategyTemplate(name)}
+                    className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 rounded border border-slate-700 transition-colors"
+                >
+                    {name}
+                </button>
+            ))}
         </div>
 
         {/* Legs Table */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex-1 flex flex-col">
             <div className="p-4 border-b border-slate-800 flex justify-between items-center">
-                <h3 className="font-semibold text-slate-200">Strategy Legs</h3>
+                <input 
+                    type="text" 
+                    value={strategyName} 
+                    onChange={(e) => setStrategyName(e.target.value)}
+                    className="bg-transparent text-slate-200 font-semibold focus:outline-none focus:border-b border-emerald-500"
+                />
                 <div className="flex space-x-2 text-xs">
                     <span className="bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded border border-emerald-500/20">Net Credit: {totalPremium > 0 ? totalPremium.toFixed(2) : 0}</span>
                     <span className="bg-red-500/10 text-red-400 px-2 py-1 rounded border border-red-500/20">Net Debit: {totalPremium < 0 ? Math.abs(totalPremium).toFixed(2) : 0}</span>
@@ -127,9 +187,7 @@ const OptionsBuilder: React.FC = () => {
                         {legs.map((leg) => (
                             <tr key={leg.id} className="hover:bg-slate-800/50">
                                 <td className="px-4 py-3">
-                                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${leg.action === 'BUY' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}`}>
-                                        {leg.action}
-                                    </span>
+                                    <Badge variant={leg.action === 'BUY' ? 'success' : 'danger'}>{leg.action}</Badge>
                                 </td>
                                 <td className="px-4 py-3 font-medium text-slate-200">{leg.type}</td>
                                 <td className="px-4 py-3">{leg.strike}</td>
@@ -177,37 +235,58 @@ const OptionsBuilder: React.FC = () => {
           
           {/* Greeks Panel */}
           <div className="grid grid-cols-4 gap-4">
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-center">
+              <Card className="p-4 text-center">
                   <div className="text-slate-500 text-xs uppercase mb-1">Delta</div>
                   <div className={`text-lg font-bold ${totalDelta > 0 ? 'text-emerald-400' : 'text-red-400'}`}>{totalDelta.toFixed(2)}</div>
-              </div>
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-center">
+              </Card>
+              <Card className="p-4 text-center">
                   <div className="text-slate-500 text-xs uppercase mb-1">Theta</div>
                   <div className="text-lg font-bold text-slate-100">{totalTheta.toFixed(2)}</div>
-              </div>
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-center">
+              </Card>
+              <Card className="p-4 text-center">
                   <div className="text-slate-500 text-xs uppercase mb-1">Gamma</div>
-                  <div className="text-lg font-bold text-slate-100">0.02</div>
-              </div>
-               <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-center">
+                  <div className="text-lg font-bold text-slate-100">{totalGamma.toFixed(3)}</div>
+              </Card>
+               <Card className="p-4 text-center">
                   <div className="text-slate-500 text-xs uppercase mb-1">Vega</div>
-                  <div className="text-lg font-bold text-slate-100">-12.5</div>
-              </div>
+                  <div className="text-lg font-bold text-slate-100">{totalVega.toFixed(1)}</div>
+              </Card>
           </div>
 
           {/* Payoff Chart */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex-1 min-h-[400px] flex flex-col">
+          <Card className="p-4 flex-1 min-h-[400px] flex flex-col">
               <div className="flex justify-between items-center mb-4">
                   <h3 className="font-semibold text-slate-200 flex items-center">
                       <BarChart2 className="w-4 h-4 mr-2 text-indigo-400" />
-                      Payoff Diagram
+                      Simulation
                   </h3>
-                  <button className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded flex items-center transition-colors">
-                      <Zap className="w-3 h-3 mr-1" /> Analyze
-                  </button>
               </div>
-              <PayoffChart strategy={{ name: strategyName, underlying, spotPrice, legs }} />
-          </div>
+              
+              <div className="mb-4 bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-3">
+                 <div className="flex items-center space-x-4">
+                     <span className="text-xs text-slate-500 w-24">IV Change: {scenarioIV > 0 ? '+' : ''}{scenarioIV}%</span>
+                     <input 
+                        type="range" min="-50" max="50" value={scenarioIV} 
+                        onChange={(e) => setScenarioIV(parseInt(e.target.value))}
+                        className="flex-1 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer" 
+                     />
+                 </div>
+                 <div className="flex items-center space-x-4">
+                     <span className="text-xs text-slate-500 w-24">Days Passed: {scenarioDays}</span>
+                     <input 
+                        type="range" min="0" max="30" value={scenarioDays} 
+                        onChange={(e) => setScenarioDays(parseInt(e.target.value))}
+                        className="flex-1 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer" 
+                     />
+                 </div>
+              </div>
+
+              <PayoffChart 
+                strategy={{ name: strategyName, underlying, spotPrice, legs }} 
+                scenarioIvChange={scenarioIV}
+                scenarioDaysToExpiry={scenarioDays}
+              />
+          </Card>
       </div>
     </div>
   );
