@@ -10,6 +10,8 @@ logger = getLogger(__name__)
 class BaseStrategy:
     def __init__(self, config):
         self.config = config
+        # Cache for resampled dataframes to avoid re-computing for every rule
+        self.resampled_cache = {} 
 
     def generate_signals(self, df):
         raise NotImplementedError("Strategies must implement generate_signals")
@@ -26,35 +28,68 @@ class DynamicStrategy(BaseStrategy):
         Handles Multi-Timeframe (MTF) Resampling.
         """
         base_df = df
+        is_universe = isinstance(df, dict)
         
         # 1. Handle MTF Resampling if 'timeframe' is specified
-        # If the strategy is running on 5m data, but rule says "1h", we need to resample
-        if timeframe and isinstance(df, pd.DataFrame):
-             # Mapping frontend Timeframe enum to Pandas offset aliases
-             # 1m -> 1T, 1h -> 1H, 1d -> 1D
-             tf_map = {'1m': '1T', '5m': '5T', '15m': '15T', '1h': '1H', '1d': '1D'}
-             pandas_freq = tf_map.get(timeframe)
+        if timeframe:
+             # Check Cache first
+             cache_key = f"{timeframe}_{'UNIVERSE' if is_universe else 'SINGLE'}"
              
-             if pandas_freq:
-                 # Resample OHLCV
-                 # Note: This is computationally expensive, use sparingly
-                 try:
-                     resampled = df.resample(pandas_freq).agg({
-                         'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
-                     }).dropna()
-                     # We use this resampled DF for calculation, then reindex back to base
-                     base_df = resampled
-                 except Exception as e:
-                     logger.warning(f"MTF Resample Failed: {e}. Using base dataframe.")
-                     base_df = df
+             if cache_key in self.resampled_cache:
+                 base_df = self.resampled_cache[cache_key]
+             else:
+                 # Mapping frontend Timeframe enum to Pandas offset aliases
+                 tf_map = {'1m': '1T', '5m': '5T', '15m': '15T', '1h': '1H', '1d': '1D'}
+                 pandas_freq = tf_map.get(timeframe)
+                 
+                 if pandas_freq:
+                     try:
+                         if is_universe:
+                             # For Universe (dict of DFs), we must resample each DataFrame in the dict
+                             resampled_dict = {}
+                             # Define aggregation rules
+                             agg_rules = {
+                                 'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
+                             }
+                             
+                             # We assume keys match Standard OHLCV
+                             for col_name, data in df.items():
+                                 rule = agg_rules.get(col_name, 'last')
+                                 # Resample the DataFrame (columns are symbols)
+                                 resampled_dict[col_name] = data.resample(pandas_freq).apply(rule).dropna()
+                             
+                             base_df = resampled_dict
+                         else:
+                             # Single Asset (DataFrame with OHLCV columns)
+                             base_df = df.resample(pandas_freq).agg({
+                                 'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
+                             }).dropna()
+                             
+                         # Store in cache
+                         self.resampled_cache[cache_key] = base_df
+                         
+                     except Exception as e:
+                         logger.warning(f"MTF Resample Failed: {e}. Using base dataframe.")
+                         base_df = df
 
         # 2. Extract Data Columns
-        close = base_df['Close']
-        high = base_df.get('High', close)
-        low = base_df.get('Low', close)
-        volume = base_df.get('Volume', None)
-        period = int(period) if period else 14
+        # Handle Universe (dict) vs Single (DataFrame)
+        if isinstance(base_df, dict):
+            # Universe Mode: Each value is a DataFrame of symbols
+            close = base_df.get('Close')
+            high = base_df.get('High', close)
+            low = base_df.get('Low', close)
+            volume = base_df.get('Volume', None)
+            open_p = base_df.get('Open', close)
+        else:
+            # Single Mode: DataFrame with columns 'Open', 'Close', etc.
+            close = base_df['Close']
+            high = base_df.get('High', close)
+            low = base_df.get('Low', close)
+            volume = base_df.get('Volume', None)
+            open_p = base_df.get('Open', None)
 
+        period = int(period) if period else 14
         result_series = None
 
         try:
@@ -88,7 +123,7 @@ class DynamicStrategy(BaseStrategy):
                 result_series = vbt.ATR.run(high, low, close, window=period).atr
             
             elif indicator_type == 'Close Price': result_series = close
-            elif indicator_type == 'Open Price': result_series = base_df['Open']
+            elif indicator_type == 'Open Price': result_series = open_p
             elif indicator_type == 'High Price': result_series = high
             elif indicator_type == 'Low Price': result_series = low
             elif indicator_type == 'Volume': result_series = volume if volume is not None else close
@@ -100,10 +135,13 @@ class DynamicStrategy(BaseStrategy):
             result_series = close
 
         # 3. Post-Process MTF: Reindex back to original timeline
-        if timeframe and isinstance(df, pd.DataFrame) and result_series is not None:
-             # Forward fill the higher timeframe data onto the lower timeframe index
-             # e.g. The 10:00 1H RSI value applies to 10:00, 10:05, 10:10... until 11:00
-             result_series = result_series.reindex(df.index).ffill()
+        if timeframe and result_series is not None:
+             # We need the original index to broadcast back
+             target_index = df['Close'].index if isinstance(df, dict) else df.index
+             
+             # Reindex and Forward Fill
+             # This aligns the 1H indicator value to all 5M bars inside that hour
+             result_series = result_series.reindex(target_index).ffill()
 
         return result_series
 
@@ -151,6 +189,7 @@ class DynamicStrategy(BaseStrategy):
 
             op = rule['operator']
             
+            # VectorBT Crossover Logic
             if op == 'Crosses Above':
                 return left.vbt.crossed_above(right)
             elif op == 'Crosses Below':
@@ -176,27 +215,28 @@ class DynamicStrategy(BaseStrategy):
         if not start_time and not end_time:
             return entries, exits
         
-        # Convert index to datetime if not already
-        if not isinstance(df.index, pd.DatetimeIndex):
+        # Get Index
+        target_index = df['Close'].index if isinstance(df, dict) else df.index
+
+        if not isinstance(target_index, pd.DatetimeIndex):
             return entries, exits
 
         # Create time mask
-        # Note: VectorBT might need raw boolean array if working with Universe
-        # Simplified: Using pandas between_time logic on the boolean series
-        
-        # We need a mask of the same shape as entries
-        time_mask = pd.Series(True, index=df.index)
+        time_mask = pd.Series(True, index=target_index)
         
         if start_time and end_time:
             # Keep True only between times
-            indexer = df.index.indexer_between_time(start_time, end_time)
-            mask_array = np.zeros(len(df), dtype=bool)
+            indexer = target_index.indexer_between_time(start_time, end_time)
+            mask_array = np.zeros(len(target_index), dtype=bool)
             mask_array[indexer] = True
-            time_mask = pd.Series(mask_array, index=df.index)
+            time_mask = pd.Series(mask_array, index=target_index)
         
         # Apply mask
         # If entries is DataFrame (Universe), broadcast the mask
         if isinstance(entries, pd.DataFrame):
+            # entries shape: (rows, symbols)
+            # time_mask shape: (rows,)
+            # We align along axis 0
             entries = entries.multiply(time_mask, axis=0)
             exits = exits.multiply(time_mask, axis=0)
         else:
@@ -214,16 +254,26 @@ class DynamicStrategy(BaseStrategy):
         entry_group = self.config.get('entryLogic')
         exit_group = self.config.get('exitLogic')
 
+        # Get Index for Empty Series creation
+        target_index = df['Close'].index if isinstance(df, dict) else df.index
+        # Get Shape for broadcasting if Universe
+        is_universe = isinstance(df, dict)
+        
         if not entry_group:
-            # Default to no entries if empty
-            entries = pd.Series(False, index=df.index) if isinstance(df, pd.DataFrame) else False
+            if is_universe:
+                # Create False DataFrame matching symbols
+                entries = pd.DataFrame(False, index=target_index, columns=df['Close'].columns)
+            else:
+                entries = pd.Series(False, index=target_index)
             exits = entries
         else:
             entries = self._evaluate_node(df, entry_group)
             
             if not exit_group:
-                # If no exit logic, rely on Stops
-                exits = pd.Series(False, index=df.index) if isinstance(df, pd.DataFrame) else False
+                if is_universe:
+                    exits = pd.DataFrame(False, index=target_index, columns=df['Close'].columns)
+                else:
+                    exits = pd.Series(False, index=target_index)
             else:
                 exits = self._evaluate_node(df, exit_group)
 
@@ -246,6 +296,8 @@ class DynamicStrategy(BaseStrategy):
             
         try:
             local_scope = {'df': df, 'vbt': vbt, 'pd': pd, 'np': np, 'ta': ta}
+            # WARNING: exec() allows arbitrary code execution. 
+            # In a real environment, use a sandbox or RestrictedPython.
             exec(code, globals(), local_scope)
             
             if 'signal_logic' in local_scope:
