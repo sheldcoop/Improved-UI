@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, ReferenceArea } from 'recharts';
 import { BacktestResult, Trade } from '../types';
-import { AlertTriangle, List, Activity, BarChart as BarChartIcon, ArrowLeft } from 'lucide-react';
+import { AlertTriangle, List, Activity, BarChart as BarChartIcon, ArrowLeft, ZoomOut } from 'lucide-react';
 import { MONTH_NAMES } from '../constants';
 import { CONFIG } from '../config';
 import { Card } from '../components/ui/Card';
@@ -23,7 +24,7 @@ const MetricBox: React.FC<{ label: string; value: string; subValue?: string; goo
   </div>
 );
 
-const TradeTable: React.FC<{ trades: Trade[] }> = ({ trades }) => (
+const TradeTable: React.FC<{ trades: Trade[], onRowClick: (trade: Trade) => void }> = ({ trades, onRowClick }) => (
     <div className="overflow-x-auto max-h-[400px]">
         <table className="w-full text-left text-sm text-slate-400">
             <thead className="bg-slate-950 text-xs uppercase sticky top-0 z-10">
@@ -42,7 +43,11 @@ const TradeTable: React.FC<{ trades: Trade[] }> = ({ trades }) => (
                     <td colSpan={6} className="px-4 py-8 text-center text-slate-500">No trades recorded in this simulation.</td>
                   </tr>
                 ) : trades.map((trade) => (
-                    <tr key={trade.id} className="hover:bg-slate-800/50">
+                    <tr 
+                        key={trade.id} 
+                        className="hover:bg-slate-800/80 cursor-pointer transition-colors"
+                        onClick={() => onRowClick(trade)}
+                    >
                         <td className="px-4 py-3">{trade.entryDate}</td>
                         <td className="px-4 py-3">
                             <Badge variant={trade.side === 'LONG' ? 'success' : 'danger'}>{trade.side}</Badge>
@@ -68,6 +73,10 @@ const Results: React.FC = () => {
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'TRADES' | 'DISTRIBUTION'>('OVERVIEW');
   const [distributionData, setDistributionData] = useState<any[]>([]);
+  
+  // Zoom State
+  const [zoomLeft, setZoomLeft] = useState<string | null>(null);
+  const [zoomRight, setZoomRight] = useState<string | null>(null);
 
   // Safely load data on mount
   useEffect(() => {
@@ -75,7 +84,7 @@ const Results: React.FC = () => {
       const res = location.state.result as BacktestResult;
       setResult(res);
       
-      // Calculate Distribution only if trades exist
+      // Calculate Distribution
       if (res.trades && res.trades.length > 0) {
         const dist = res.trades.reduce((acc: any[], trade) => {
             const bucket = Math.floor(trade.pnlPct);
@@ -90,10 +99,31 @@ const Results: React.FC = () => {
         setDistributionData(dist);
       }
     } else {
-      // If accessed directly without data, redirect
       navigate('/backtest');
     }
   }, [location, navigate]);
+
+  const handleTradeClick = (trade: Trade) => {
+      // Zoom into the trade period with padding
+      // Finding simple date range match logic
+      const entryIdx = result?.equityCurve.findIndex(c => c.date === trade.entryDate) || 0;
+      const exitIdx = result?.equityCurve.findIndex(c => c.date === trade.exitDate) || 0;
+      
+      const padding = 5; 
+      const startIdx = Math.max(0, entryIdx - padding);
+      const endIdx = Math.min(result?.equityCurve.length || 0, exitIdx + padding);
+
+      if (result?.equityCurve[startIdx] && result?.equityCurve[endIdx]) {
+         setZoomLeft(result.equityCurve[startIdx].date);
+         setZoomRight(result.equityCurve[endIdx].date);
+         setActiveTab('OVERVIEW'); // Switch to chart view
+      }
+  };
+
+  const resetZoom = () => {
+      setZoomLeft(null);
+      setZoomRight(null);
+  };
 
   if (!result) {
     return (
@@ -129,29 +159,22 @@ const Results: React.FC = () => {
 
       {activeTab === 'OVERVIEW' && (
           <>
-            {/* Key Metrics Grid */}
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                 <MetricBox label="Total Return" value={`${result.metrics.totalReturnPct?.toFixed(1) || 0}%`} good={result.metrics.totalReturnPct > 0} />
-                <MetricBox label="CAGR" value={`${result.metrics.cagr?.toFixed(1) || 0}%`} />
                 <MetricBox label="Sharpe" value={result.metrics.sharpeRatio?.toFixed(2) || '0.00'} good={result.metrics.sharpeRatio > 1.5} />
-                <MetricBox label="Sortino" value={result.metrics.sortinoRatio?.toFixed(2) || '0.00'} />
                 <MetricBox label="Profit Factor" value={result.metrics.profitFactor?.toFixed(2) || '0.00'} />
                 <MetricBox label="Win Rate" value={`${result.metrics.winRate?.toFixed(1) || 0}%`} good={result.metrics.winRate > 50} />
+                <MetricBox label="Max Drawdown" value={`-${result.metrics.maxDrawdownPct?.toFixed(1) || 0}%`} good={result.metrics.maxDrawdownPct < 20} icon={<AlertTriangle className="w-4 h-4" />} />
+                <MetricBox label="Total Trades" value={result.metrics.totalTrades?.toString() || '0'} />
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                 <MetricBox label="Alpha" value={result.metrics.alpha?.toFixed(2) || '0.00'} />
-                 <MetricBox label="Beta" value={result.metrics.beta?.toFixed(2) || '0.00'} />
-                 <MetricBox label="Volatility" value={`${result.metrics.volatility?.toFixed(1) || 0}%`} />
-                 <MetricBox label="Max Drawdown" value={`-${result.metrics.maxDrawdownPct?.toFixed(1) || 0}%`} good={result.metrics.maxDrawdownPct < 20} icon={<AlertTriangle className="w-4 h-4" />} />
-                 <MetricBox label="Exp. Payoff" value={result.metrics.expectancy?.toFixed(2) || '0.00'} />
-                 <MetricBox label="Avg Loss Streak" value={result.metrics.consecutiveLosses?.toString() || '0'} />
-            </div>
-
-            {/* Charts Area */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Equity Curve - Takes up 2 columns */}
-                <Card title="Equity Curve & Drawdown" className="lg:col-span-2 h-[450px] flex flex-col">
+                {/* Equity Curve */}
+                <Card 
+                    title="Equity Curve & Drawdown" 
+                    className="lg:col-span-2 h-[450px] flex flex-col"
+                    action={zoomLeft && <Button size="sm" variant="secondary" onClick={resetZoom} icon={<ZoomOut className="w-3 h-3"/>}>Reset Zoom</Button>}
+                >
                 {result.equityCurve && result.equityCurve.length > 0 ? (
                   <div className="flex-1 w-full min-h-0">
                       <ResponsiveContainer width="100%" height="100%">
@@ -161,20 +184,24 @@ const Results: React.FC = () => {
                               <stop offset="5%" stopColor={CONFIG.COLORS.PROFIT} stopOpacity={0.3}/>
                               <stop offset="95%" stopColor={CONFIG.COLORS.PROFIT} stopOpacity={0}/>
                               </linearGradient>
-                              <linearGradient id="colorDD" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor={CONFIG.COLORS.LOSS} stopOpacity={0.3}/>
-                              <stop offset="95%" stopColor={CONFIG.COLORS.LOSS} stopOpacity={0}/>
-                              </linearGradient>
                           </defs>
                           <CartesianGrid strokeDasharray="3 3" stroke={CONFIG.COLORS.GRID} vertical={false} />
-                          <XAxis dataKey="date" stroke={CONFIG.COLORS.TEXT} fontSize={12} tickLine={false} axisLine={false} minTickGap={30} />
-                          <YAxis yAxisId="left" stroke={CONFIG.COLORS.TEXT} fontSize={12} tickLine={false} axisLine={false} domain={['auto', 'auto']} tickFormatter={(val) => `₹${(val/1000).toFixed(0)}k`} />
-                          <YAxis yAxisId="right" orientation="right" stroke={CONFIG.COLORS.LOSS} fontSize={12} tickLine={false} axisLine={false} domain={[0, 20]} hide />
-                          <Tooltip 
-                            contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9' }}
+                          <XAxis 
+                            dataKey="date" 
+                            stroke={CONFIG.COLORS.TEXT} 
+                            fontSize={12} 
+                            tickLine={false} 
+                            axisLine={false} 
+                            minTickGap={30}
+                            domain={zoomLeft && zoomRight ? [zoomLeft, zoomRight] : ['auto', 'auto']}
+                            allowDataOverflow
                           />
-                          <Area yAxisId="left" type="monotone" dataKey="value" name="Equity" stroke={CONFIG.COLORS.PROFIT} strokeWidth={2} fillOpacity={1} fill="url(#colorValue)" />
-                          <Area yAxisId="right" type="monotone" dataKey="drawdown" name="Drawdown %" stroke={CONFIG.COLORS.LOSS} strokeWidth={1} fillOpacity={0.5} fill="url(#colorDD)" />
+                          <YAxis yAxisId="left" stroke={CONFIG.COLORS.TEXT} fontSize={12} tickLine={false} axisLine={false} domain={['auto', 'auto']} tickFormatter={(val) => `₹${(val/1000).toFixed(0)}k`} />
+                          <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9' }} />
+                          <Area yAxisId="left" type="monotone" dataKey="value" name="Equity" stroke={CONFIG.COLORS.PROFIT} strokeWidth={2} fillOpacity={1} fill="url(#colorValue)" animationDuration={500} />
+                          {zoomLeft && zoomRight && (
+                              <ReferenceArea x1={zoomLeft} x2={zoomRight} strokeOpacity={0.3} fill="#6366f1" fillOpacity={0.1} />
+                          )}
                       </AreaChart>
                       </ResponsiveContainer>
                   </div>
@@ -183,7 +210,7 @@ const Results: React.FC = () => {
                 )}
                 </Card>
 
-                {/* Monthly Heatmap - Takes up 1 column */}
+                {/* Monthly Heatmap */}
                 <Card title="Monthly Returns" className="h-[450px] flex flex-col">
                     <div className="grid grid-cols-4 gap-2 flex-1 content-start overflow-y-auto">
                         {result.monthlyReturns?.map((m, idx) => {
@@ -207,15 +234,23 @@ const Results: React.FC = () => {
                     </div>
                 </Card>
             </div>
+            
+            {/* Recent Trades Snippet */}
+            <div className="mt-6">
+                <Card title="Recent Trades" action={<Button variant="ghost" size="sm" onClick={() => setActiveTab('TRADES')}>View All</Button>}>
+                    <TradeTable trades={result.trades.slice(0, 5)} onRowClick={handleTradeClick} />
+                </Card>
+            </div>
           </>
       )}
 
       {activeTab === 'TRADES' && (
-          <Card title="Trade Log">
-              <TradeTable trades={result.trades || []} />
+          <Card title="Trade Log (Click to Zoom)">
+              <TradeTable trades={result.trades || []} onRowClick={handleTradeClick} />
           </Card>
       )}
 
+      {/* Distribution Tab remains same... */}
       {activeTab === 'DISTRIBUTION' && (
            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                <Card title="Return Distribution (Histogram)" className="h-[400px]">
@@ -236,22 +271,6 @@ const Results: React.FC = () => {
                    ) : (
                      <div className="flex items-center justify-center h-full text-slate-500">Not enough data for distribution.</div>
                    )}
-               </Card>
-               <Card title="Win/Loss Ratio" className="flex items-center justify-center">
-                   <div className="text-center space-y-4">
-                       <div className="text-5xl font-bold text-emerald-400">{result.metrics.winRate?.toFixed(1) || 0}%</div>
-                       <div className="text-slate-500">Win Rate</div>
-                       <div className="flex space-x-8 text-sm">
-                           <div>
-                               <div className="text-emerald-400 font-bold">Avg Win</div>
-                               <div>₹1,500</div>
-                           </div>
-                           <div>
-                               <div className="text-red-400 font-bold">Avg Loss</div>
-                               <div>₹800</div>
-                           </div>
-                       </div>
-                   </div>
                </Card>
            </div>
       )}

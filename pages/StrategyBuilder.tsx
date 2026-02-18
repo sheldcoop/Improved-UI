@@ -1,9 +1,12 @@
+
 import React, { useState } from 'react';
-import { Plus, Trash2, Save, Play, Download } from 'lucide-react';
+import { Plus, Trash2, Save, Play, Download, PlayCircle } from 'lucide-react';
 import { AssetClass, Timeframe, IndicatorType, Operator, Strategy } from '../types';
-import { saveStrategy } from '../services/api';
+import { saveStrategy, runBacktest } from '../services/api';
+import { useNavigate } from 'react-router-dom';
 
 const StrategyBuilder: React.FC = () => {
+  const navigate = useNavigate();
   const [strategy, setStrategy] = useState<Strategy>({
     id: 'new',
     name: 'Untitled Strategy',
@@ -18,6 +21,7 @@ const StrategyBuilder: React.FC = () => {
   });
 
   const [saving, setSaving] = useState(false);
+  const [running, setRunning] = useState(false);
 
   const addRule = (type: 'entry' | 'exit') => {
     const newRule = { id: Date.now().toString(), indicator: IndicatorType.RSI, period: 14, operator: Operator.GREATER_THAN, value: 50 };
@@ -40,7 +44,29 @@ const StrategyBuilder: React.FC = () => {
     setSaving(true);
     await saveStrategy(strategy);
     setSaving(false);
-    alert("Strategy saved successfully (Mock)");
+    alert("Strategy saved successfully");
+  };
+
+  const handleRun = async () => {
+      setRunning(true);
+      try {
+        // Send the raw rules to the backend Dynamic Parser
+        const result = await runBacktest(null, 'NIFTY 50', {
+            entryRules: strategy.entryRules,
+            exitRules: strategy.exitRules,
+            stopLossPct: strategy.stopLossPct,
+            takeProfitPct: strategy.takeProfitPct,
+            strategyName: strategy.name || 'Custom Strategy',
+            capital: 100000,
+            slippage: 0.05,
+            commission: 20
+        });
+        navigate('/results', { state: { result } });
+      } catch (e) {
+          alert("Error running backtest: " + e);
+      } finally {
+          setRunning(false);
+      }
   };
 
   return (
@@ -118,18 +144,33 @@ const StrategyBuilder: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex space-x-3">
+        <div className="flex flex-col gap-3">
           <button 
-            onClick={handleSave}
-            disabled={saving}
-            className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-lg font-medium flex items-center justify-center space-x-2 transition-colors disabled:opacity-50"
+            onClick={handleRun}
+            disabled={running}
+            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-xl font-bold flex items-center justify-center space-x-2 transition-all shadow-lg shadow-emerald-900/40 disabled:opacity-50"
           >
-            <Save className="w-4 h-4" />
-            <span>{saving ? 'Saving...' : 'Save Strategy'}</span>
+             {running ? (
+               <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+             ) : (
+                <PlayCircle className="w-5 h-5" />
+             )}
+            <span>Run Backtest Now</span>
           </button>
-           <button className="bg-slate-800 hover:bg-slate-700 text-slate-300 py-3 px-4 rounded-lg flex items-center justify-center transition-colors">
-            <Download className="w-4 h-4" />
-          </button>
+
+          <div className="flex space-x-3">
+            <button 
+                onClick={handleSave}
+                disabled={saving}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 py-3 rounded-lg font-medium flex items-center justify-center space-x-2 transition-colors disabled:opacity-50 border border-slate-700"
+            >
+                <Save className="w-4 h-4" />
+                <span>{saving ? 'Saving...' : 'Save Draft'}</span>
+            </button>
+            <button className="bg-slate-800 hover:bg-slate-700 text-slate-300 py-3 px-4 rounded-lg flex items-center justify-center transition-colors border border-slate-700">
+                <Download className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -151,14 +192,52 @@ const StrategyBuilder: React.FC = () => {
              {strategy.entryRules.map((rule, idx) => (
                <div key={rule.id} className="flex items-center space-x-2 bg-slate-950 p-3 rounded-lg border border-slate-800 group hover:border-slate-700 transition-colors">
                   <span className="text-xs font-mono text-slate-600 w-6">#{idx + 1}</span>
-                  <select className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded px-2 py-1 focus:border-emerald-500 outline-none">
+                  <select 
+                    value={rule.indicator}
+                    onChange={(e) => {
+                        const newRules = [...strategy.entryRules];
+                        newRules[idx].indicator = e.target.value as IndicatorType;
+                        setStrategy({...strategy, entryRules: newRules});
+                    }}
+                    className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded px-2 py-1 focus:border-emerald-500 outline-none"
+                  >
                     {Object.values(IndicatorType).map(i => <option key={i} value={i}>{i}</option>)}
                   </select>
-                  <input type="number" className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded px-2 py-1 w-16 focus:border-emerald-500 outline-none" defaultValue={rule.period} />
-                  <select className="bg-slate-900 border border-slate-700 text-emerald-400 font-medium text-sm rounded px-2 py-1 focus:border-emerald-500 outline-none">
+                  
+                  <input 
+                    type="number" 
+                    className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded px-2 py-1 w-16 focus:border-emerald-500 outline-none" 
+                    value={rule.period}
+                    onChange={(e) => {
+                        const newRules = [...strategy.entryRules];
+                        newRules[idx].period = parseInt(e.target.value);
+                        setStrategy({...strategy, entryRules: newRules});
+                    }}
+                  />
+                  
+                  <select 
+                    value={rule.operator}
+                    onChange={(e) => {
+                        const newRules = [...strategy.entryRules];
+                        newRules[idx].operator = e.target.value as Operator;
+                        setStrategy({...strategy, entryRules: newRules});
+                    }}
+                    className="bg-slate-900 border border-slate-700 text-emerald-400 font-medium text-sm rounded px-2 py-1 focus:border-emerald-500 outline-none"
+                  >
                     {Object.values(Operator).map(o => <option key={o} value={o}>{o}</option>)}
                   </select>
-                  <input type="text" className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded px-2 py-1 w-24 focus:border-emerald-500 outline-none" defaultValue={rule.value} />
+                  
+                  <input 
+                    type="text" 
+                    className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded px-2 py-1 w-24 focus:border-emerald-500 outline-none" 
+                    value={rule.value}
+                    onChange={(e) => {
+                        const newRules = [...strategy.entryRules];
+                        newRules[idx].value = e.target.value;
+                        setStrategy({...strategy, entryRules: newRules});
+                    }}
+                   />
+                  
                   <div className="flex-1"></div>
                   <button onClick={() => removeRule('entry', rule.id)} className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Trash2 className="w-4 h-4" />
@@ -189,14 +268,48 @@ const StrategyBuilder: React.FC = () => {
              {strategy.exitRules.map((rule, idx) => (
                <div key={rule.id} className="flex items-center space-x-2 bg-slate-950 p-3 rounded-lg border border-slate-800 group hover:border-slate-700 transition-colors">
                   <span className="text-xs font-mono text-slate-600 w-6">#{idx + 1}</span>
-                  <select className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded px-2 py-1 focus:border-emerald-500 outline-none">
+                  <select 
+                    value={rule.indicator}
+                    onChange={(e) => {
+                        const newRules = [...strategy.exitRules];
+                        newRules[idx].indicator = e.target.value as IndicatorType;
+                        setStrategy({...strategy, exitRules: newRules});
+                    }}
+                    className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded px-2 py-1 focus:border-emerald-500 outline-none"
+                  >
                     {Object.values(IndicatorType).map(i => <option key={i} value={i}>{i}</option>)}
                   </select>
-                  <input type="number" className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded px-2 py-1 w-16 focus:border-emerald-500 outline-none" defaultValue={rule.period} />
-                  <select className="bg-slate-900 border border-slate-700 text-emerald-400 font-medium text-sm rounded px-2 py-1 focus:border-emerald-500 outline-none">
+                  <input 
+                    type="number" 
+                    className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded px-2 py-1 w-16 focus:border-emerald-500 outline-none" 
+                    value={rule.period}
+                    onChange={(e) => {
+                        const newRules = [...strategy.exitRules];
+                        newRules[idx].period = parseInt(e.target.value);
+                        setStrategy({...strategy, exitRules: newRules});
+                    }}
+                  />
+                  <select 
+                    value={rule.operator}
+                    onChange={(e) => {
+                        const newRules = [...strategy.exitRules];
+                        newRules[idx].operator = e.target.value as Operator;
+                        setStrategy({...strategy, exitRules: newRules});
+                    }}
+                    className="bg-slate-900 border border-slate-700 text-emerald-400 font-medium text-sm rounded px-2 py-1 focus:border-emerald-500 outline-none"
+                  >
                     {Object.values(Operator).map(o => <option key={o} value={o}>{o}</option>)}
                   </select>
-                  <input type="text" className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded px-2 py-1 w-24 focus:border-emerald-500 outline-none" defaultValue={rule.value} />
+                  <input 
+                    type="text" 
+                    className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded px-2 py-1 w-24 focus:border-emerald-500 outline-none" 
+                    value={rule.value}
+                    onChange={(e) => {
+                        const newRules = [...strategy.exitRules];
+                        newRules[idx].value = e.target.value;
+                        setStrategy({...strategy, exitRules: newRules});
+                    }}
+                  />
                   <div className="flex-1"></div>
                   <button onClick={() => removeRule('exit', rule.id)} className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Trash2 className="w-4 h-4" />

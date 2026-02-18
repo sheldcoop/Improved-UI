@@ -10,6 +10,7 @@ from datetime import datetime
 from routes.backtest_routes import backtest_bp
 from routes.market_routes import market_bp
 from routes.optimization_routes import optimization_bp
+from routes.risk_routes import risk_bp
 
 # --- LOGGING SETUP ---
 LOG_BUFFER = deque(maxlen=500)
@@ -47,6 +48,7 @@ CORS(app)
 app.register_blueprint(backtest_bp, url_prefix='/api/v1/backtest')
 app.register_blueprint(market_bp, url_prefix='/api/v1/market')
 app.register_blueprint(optimization_bp, url_prefix='/api/v1/optimization')
+app.register_blueprint(risk_bp, url_prefix='/api/v1/risk')
 
 # --- MIDDLEWARE ---
 @app.before_request

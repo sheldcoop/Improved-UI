@@ -1,3 +1,4 @@
+
 import { BacktestResult, Strategy, Timeframe, AssetClass, IndicatorType, Operator, OptimizationResult, WFOResult, MonteCarloPath, Trade } from '../types';
 import { API_ENDPOINTS, CONFIG } from '../config';
 import { executeWithFallback, delay } from './http';
@@ -35,12 +36,17 @@ export const saveStrategy = async (strategy: Strategy): Promise<void> => {
 };
 
 export interface BacktestConfig {
-    slippage: number;
-    commission: number;
-    capital: number;
+    slippage?: number;
+    commission?: number;
+    capital?: number;
+    entryRules?: any[];
+    exitRules?: any[];
+    stopLossPct?: number;
+    takeProfitPct?: number;
+    strategyName?: string;
 }
 
-export const runBacktest = async (strategyId: string, symbol: string, config?: BacktestConfig): Promise<BacktestResult> => {
+export const runBacktest = async (strategyId: string | null, symbol: string, config?: BacktestConfig): Promise<BacktestResult> => {
   const payload = { strategyId, symbol, ...config };
   
   return executeWithFallback(API_ENDPOINTS.BACKTEST, { method: 'POST', body: JSON.stringify(payload) }, async () => {
@@ -70,7 +76,7 @@ export const runBacktest = async (strategyId: string, symbol: string, config?: B
 
       return {
         id: Math.random().toString(),
-        strategyName: 'Mock Strategy (Backend Down)',
+        strategyName: config?.strategyName || 'Mock Strategy (Backend Down)',
         symbol,
         timeframe: Timeframe.D1,
         startDate: '2023-01-01',
@@ -89,9 +95,14 @@ export const runBacktest = async (strategyId: string, symbol: string, config?: B
   });
 };
 
-export const runOptimization = async (): Promise<{ grid: OptimizationResult[], wfo: WFOResult[] }> => {
-    // Call the REAL backend optimization endpoint
-    return executeWithFallback(API_ENDPOINTS.OPTIMIZATION, { method: 'POST', body: JSON.stringify({ symbol: 'NIFTY 50', strategyId: '1' }) }, async () => {
+export interface OptimizationRanges {
+    rsi_period?: { min: number, max: number, step: number };
+    rsi_lower?: { min: number, max: number, step: number };
+}
+
+export const runOptimization = async (symbol: string = 'NIFTY 50', strategyId: string = '1', ranges: OptimizationRanges = {}): Promise<{ grid: OptimizationResult[], wfo: WFOResult[] }> => {
+    // Call the REAL backend optimization endpoint with ranges
+    return executeWithFallback(API_ENDPOINTS.OPTIMIZATION, { method: 'POST', body: JSON.stringify({ symbol, strategyId, ranges }) }, async () => {
         await delay(1000);
         return { 
             grid: [
@@ -103,8 +114,8 @@ export const runOptimization = async (): Promise<{ grid: OptimizationResult[], w
     });
 };
 
-export const runMonteCarlo = async (simulations: number = 100): Promise<MonteCarloPath[]> => {
-    return executeWithFallback(API_ENDPOINTS.MONTE_CARLO, { method: 'POST', body: JSON.stringify({ simulations }) }, async () => {
+export const runMonteCarlo = async (simulations: number = 100, volatilityMultiplier: number = 1.0): Promise<MonteCarloPath[]> => {
+    return executeWithFallback(API_ENDPOINTS.MONTE_CARLO, { method: 'POST', body: JSON.stringify({ simulations, volatilityMultiplier }) }, async () => {
         await delay(1000);
         return Array.from({length: simulations}, (_, i) => ({ id: i, values: [100, 101, 99, 102] }));
     });

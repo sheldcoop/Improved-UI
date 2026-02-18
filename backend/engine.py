@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import requests
 import yfinance as yf
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import vectorbt as vbt
 from strategies import StrategyFactory
@@ -15,49 +15,53 @@ class DataEngine:
         self.use_av = headers.get('x-use-alpha-vantage') == 'true'
 
     def fetch_historical_data(self, symbol, timeframe='1d'):
-        # Map UI symbols to Yahoo Finance Tickers
         ticker_map = {
-            'NIFTY 50': '^NSEI',
-            'BANKNIFTY': '^NSEBANK',
-            'RELIANCE': 'RELIANCE.NS',
-            'HDFCBANK': 'HDFCBANK.NS',
-            'INFY': 'INFY.NS',
-            'ADANIENT': 'ADANIENT.NS'
+            'NIFTY 50': '^NSEI', 'BANKNIFTY': '^NSEBANK',
+            'RELIANCE': 'RELIANCE.NS', 'HDFCBANK': 'HDFCBANK.NS',
+            'INFY': 'INFY.NS', 'ADANIENT': 'ADANIENT.NS'
         }
         ticker = ticker_map.get(symbol, symbol)
         
-        logger.info(f"Fetching data for {ticker} via yfinance...")
+        # Map timeframe to yfinance interval
+        # yf supports: 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo
+        interval_map = {
+            '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '1d': '1d'
+        }
+        interval = interval_map.get(timeframe, '1d')
+        
+        # Adjust period based on interval (intraday only allows last 60d)
+        period = "2y"
+        if interval in ['1m', '5m', '15m', '1h']:
+            period = "59d" # Safe limit for yf intraday
+
+        logger.info(f"Fetching {ticker} [{interval}]...")
         try:
-            # Download Real Data
-            df = yf.download(ticker, period="2y", interval="1d", progress=False)
-            
+            df = yf.download(ticker, period=period, interval=interval, progress=False)
             if not df.empty:
-                # yfinance returns MultiIndex columns in recent versions, flatten them
                 if isinstance(df.columns, pd.MultiIndex):
                     df.columns = df.columns.get_level_values(0)
-                
-                # Standardize columns
-                df = df.rename(columns={
-                    "Open": "Open", "High": "High", "Low": "Low", 
-                    "Close": "Close", "Volume": "Volume"
-                })
+                df = df.rename(columns={"Open": "Open", "High": "High", "Low": "Low", "Close": "Close", "Volume": "Volume"})
                 return df
         except Exception as e:
             logger.error(f"yfinance failed: {e}")
 
-        # Fallback: Synthetic Data (Only if YF fails)
-        logger.warning("Using Synthetic Data Fallback")
-        periods = 365
-        dates = pd.date_range(end=datetime.now(), periods=periods)
+        # Synthetic Fallback
+        return self._generate_synthetic(symbol, interval)
+
+    def _generate_synthetic(self, symbol, interval):
+        periods = 200 if interval == '1d' else 1000
+        freq = interval if interval != '1d' else 'D'
+        if freq == '1m': freq = 'T'
+        
+        dates = pd.date_range(end=datetime.now(), periods=periods, freq=freq)
         base_price = 22000 if 'NIFTY' in symbol else 100
         returns = np.random.normal(0.0005, 0.015, periods)
         price_path = base_price * (1 + returns).cumprod()
         
-        df = pd.DataFrame({
+        return pd.DataFrame({
             'Open': price_path, 'High': price_path * 1.01, 'Low': price_path * 0.99,
             'Close': price_path, 'Volume': np.random.randint(1000, 50000, periods)
         }, index=dates)
-        return df
 
     def fetch_option_chain(self, symbol, expiry):
         return []
@@ -67,39 +71,45 @@ class BacktestEngine:
     def run(df, strategy_id, config={}):
         if df.empty: return None
 
-        slippage_pct = float(config.get('slippage', 0.05)) / 100.0
-        commission_val = float(config.get('commission', 20.0))
+        slippage = float(config.get('slippage', 0.05)) / 100.0
         initial_capital = float(config.get('initial_capital', 100000.0))
-        approx_fee_pct = (commission_val / initial_capital)
+        fees = float(config.get('commission', 20.0)) / initial_capital
 
-        # 1. Generate Signals (Vectorized)
         strategy = StrategyFactory.get_strategy(strategy_id, config)
         entries, exits = strategy.generate_signals(df)
         
-        # 2. Build Portfolio
+        # Stop Loss / Take Profit from config
+        sl_pct = float(config.get('stopLossPct', 0.0)) / 100.0
+        tp_pct = float(config.get('takeProfitPct', 0.0)) / 100.0
+        
+        sl = sl_pct if sl_pct > 0 else None
+        tp = tp_pct if tp_pct > 0 else None
+
         pf = vbt.Portfolio.from_signals(
             df['Close'], entries, exits,
-            init_cash=initial_capital, fees=approx_fee_pct, slippage=slippage_pct, freq='1D'
+            sl_stop=sl, tp_stop=tp,
+            init_cash=initial_capital, fees=fees, slippage=slippage, freq='1D'
         )
 
-        # 3. Extract Results
+        return BacktestEngine._extract_results(pf)
+
+    @staticmethod
+    def _extract_results(pf):
         stats = pf.stats()
-        equity_series = pf.value()
-        drawdown_series = pf.drawdown() * 100
+        equity = pf.value()
+        dd = pf.drawdown() * 100
         
         equity_curve = [
-            {"date": date.strftime('%Y-%m-%d'), "value": round(value, 2), "drawdown": round(abs(drawdown_series.loc[date]), 2)} 
-            for date, value in equity_series.items()
+            {"date": str(d), "value": round(v, 2), "drawdown": round(abs(dd.loc[d]), 2)} 
+            for d, v in equity.items()
         ]
 
-        # Extract Trades
-        trade_records = pf.trades.records_readable
-        trades_list = []
-        for i, row in trade_records.iterrows():
-             trades_list.append({
+        trades = []
+        for i, row in pf.trades.records_readable.iterrows():
+            trades.append({
                 "id": f"t-{i}",
-                "entryDate": row['Entry Timestamp'].strftime('%Y-%m-%d'),
-                "exitDate": row['Exit Timestamp'].strftime('%Y-%m-%d'),
+                "entryDate": str(row['Entry Timestamp']),
+                "exitDate": str(row['Exit Timestamp']),
                 "side": "LONG" if row['Direction'] == 'Long' else "SHORT",
                 "entryPrice": round(row['Entry Price'], 2),
                 "exitPrice": round(row['Exit Price'], 2),
@@ -125,68 +135,68 @@ class BacktestEngine:
                 "expectancy": 0.0, "consecutiveLosses": 0, "kellyCriterion": 0.0, "avgDrawdownDuration": "0d"
             },
             "equityCurve": equity_curve,
-            "trades": trades_list[::-1],
+            "trades": trades[::-1],
             "monthlyReturns": []
         }
 
 class OptimizationEngine:
     @staticmethod
-    def run(symbol, strategy_id):
-        # 1. Fetch Real Data
+    def run(symbol, strategy_id, ranges):
         data_engine = DataEngine({})
         df = data_engine.fetch_historical_data(symbol)
         if df.empty: return {"error": "No data"}
 
         grid_results = []
         
-        # 2. VectorBT Broadcasting Optimization
-        # We run multiple backtests simultaneously by passing arrays of parameters
+        # Dynamic Grid based on ranges
+        # Expect ranges: { 'rsi_period': {min, max, step}, 'rsi_lower': {min, max, step} }
         
-        if strategy_id == "1": # RSI Strategy
-            # Optimize: RSI Period (10 to 30) and Stop Loss (1% to 5%)
-            periods = np.arange(10, 30, 2)
-            lower_bounds = np.arange(20, 45, 5)
-            
-            # vbt.RSI.run supports broadcasting
-            # We treat 'close' as one column, but we want multiple output columns for each param combo
-            # vectorbt handles this via `param_product=True` usually, or explicit looping if simpler
-            
-            # For simplicity in this demo structure, we use a loop but utilizing VBT for the heavy calc
-            for p in periods:
-                for l in lower_bounds:
-                    # Run Strategy Logic
-                    rsi = vbt.RSI.run(df['Close'], window=int(p))
-                    entries = rsi.rsi_crossed_below(int(l))
-                    exits = rsi.rsi_crossed_above(70)
-                    
-                    pf = vbt.Portfolio.from_signals(df['Close'], entries, exits, freq='1D', fees=0.001)
-                    
-                    grid_results.append({
-                        "paramSet": {"rsi": int(p), "lower": int(l)},
-                        "sharpe": round(pf.sharpe_ratio(), 2),
-                        "returnPct": round(pf.total_return() * 100, 2),
-                        "drawdown": round(abs(pf.max_drawdown()) * 100, 2)
-                    })
+        # Simplified handling for Demo: Hardcoded support for RSI params via the generic ranges input
+        r_period = ranges.get('rsi_period', {'min': 14, 'max': 14, 'step': 1})
+        r_lower = ranges.get('rsi_lower', {'min': 30, 'max': 30, 'step': 5})
         
-        elif strategy_id == "3": # SMA Strategy
-             # Optimize Fast MA
-             fast_windows = np.arange(5, 25, 5)
-             slow_windows = np.arange(30, 60, 10)
-             
-             for f in fast_windows:
-                 for s in slow_windows:
-                     fast_ma = vbt.MA.run(df['Close'], window=int(f))
-                     slow_ma = vbt.MA.run(df['Close'], window=int(s))
-                     entries = fast_ma.ma_crossed_above(slow_ma)
-                     exits = fast_ma.ma_crossed_below(slow_ma)
-                     
-                     pf = vbt.Portfolio.from_signals(df['Close'], entries, exits, freq='1D', fees=0.001)
-                     
-                     grid_results.append({
-                        "paramSet": {"fast": int(f), "slow": int(s)},
-                        "sharpe": round(pf.sharpe_ratio(), 2),
-                        "returnPct": round(pf.total_return() * 100, 2),
-                        "drawdown": round(abs(pf.max_drawdown()) * 100, 2)
-                    })
+        periods = np.arange(int(r_period['min']), int(r_period['max']) + 1, int(r_period['step']))
+        lowers = np.arange(int(r_lower['min']), int(r_lower['max']) + 1, int(r_lower['step']))
+        
+        # Broadcasting optimization
+        # Logic: We run VBT RSI across all periods
+        for p in periods:
+            for l in lowers:
+                rsi = vbt.RSI.run(df['Close'], window=int(p))
+                entries = rsi.rsi_crossed_below(int(l))
+                exits = rsi.rsi_crossed_above(70)
+                pf = vbt.Portfolio.from_signals(df['Close'], entries, exits, freq='1D', fees=0.001)
+                
+                grid_results.append({
+                    "paramSet": {"rsi": int(p), "lower": int(l)},
+                    "sharpe": round(pf.sharpe_ratio(), 2),
+                    "returnPct": round(pf.total_return() * 100, 2),
+                    "drawdown": round(abs(pf.max_drawdown()) * 100, 2)
+                })
 
         return {"grid": grid_results, "wfo": []}
+
+class MonteCarloEngine:
+    @staticmethod
+    def run(simulations, volatility_multiplier):
+        # Generate synthetic path based on GBM
+        paths = []
+        for i in range(simulations):
+            # Geometric Brownian Motion
+            mu = 0.0005 # Daily drift
+            sigma = 0.015 * volatility_multiplier # Daily vol adjusted
+            T = 100 # Days
+            dt = 1
+            
+            S0 = 100
+            np.random.seed(i)
+            W = np.random.standard_normal(size=T)
+            W = np.cumsum(W) * np.sqrt(dt) ### standard brownian motion ###
+            X = (mu - 0.5 * sigma**2) * np.arange(1, T+1) * dt + sigma * W
+            S = S0 * np.exp(X) # geometric brownian motion
+            
+            paths.append({
+                "id": i,
+                "values": [100] + S.tolist()
+            })
+        return paths

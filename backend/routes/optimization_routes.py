@@ -8,13 +8,13 @@ logger = logging.getLogger(__name__)
 @optimization_bp.route('/run', methods=['POST'])
 def run_optimization():
     try:
-        # Default to NIFTY and RSI for demo if not specified
         symbol = request.json.get('symbol', 'NIFTY 50')
-        strategy_id = request.json.get('strategyId', '1') 
+        strategy_id = request.json.get('strategyId', '1')
+        ranges = request.json.get('ranges', {})
         
-        logger.info(f"Running Optimization for {symbol} - Strat {strategy_id}")
+        logger.info(f"Running Optimization for {symbol} | Ranges: {ranges}")
         
-        results = OptimizationEngine.run(symbol, strategy_id)
+        results = OptimizationEngine.run(symbol, strategy_id, ranges)
         return jsonify(results)
     except Exception as e:
         logger.error(f"Optimization Error: {e}")

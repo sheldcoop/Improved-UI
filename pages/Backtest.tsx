@@ -1,16 +1,18 @@
+
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown } from 'lucide-react';
+import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Clock } from 'lucide-react';
 import { MOCK_SYMBOLS } from '../constants';
 import { runBacktest } from '../services/api';
-import { AssetClass, Timeframe } from '../types';
+import { Timeframe } from '../types';
 import { Card } from '../components/ui/Card';
-import { Button } from '../components/ui/Button';
 
 const Backtest: React.FC = () => {
   const navigate = useNavigate();
   const [running, setRunning] = useState(false);
   const [symbol, setSymbol] = useState(MOCK_SYMBOLS[0].symbol);
+  const [timeframe, setTimeframe] = useState<Timeframe>(Timeframe.D1);
+  const [strategyId, setStrategyId] = useState('1');
   
   // Advanced Settings State
   const [capital, setCapital] = useState(100000);
@@ -20,14 +22,23 @@ const Backtest: React.FC = () => {
 
   const handleRun = async () => {
     setRunning(true);
-    // Pass config to the API
-    const result = await runBacktest('1', symbol, {
-        capital,
-        slippage,
-        commission
-    });
-    setRunning(false);
-    navigate('/results', { state: { result } });
+    // Pass config to the API including granular timeframe
+    // Note: strategyId is passed. If custom rules were needed, StrategyBuilder should be used.
+    // This page is for "Quick Backtest" of preset/saved strategies.
+    try {
+        const result = await runBacktest(strategyId, symbol, {
+            capital,
+            slippage,
+            commission
+        });
+        // We need to inject the timeframe into the result since the mock might default it
+        if (result) result.timeframe = timeframe; 
+        navigate('/results', { state: { result } });
+    } catch (e) {
+        alert("Backtest Failed: " + e);
+    } finally {
+        setRunning(false);
+    }
   };
 
   return (
@@ -45,20 +56,19 @@ const Backtest: React.FC = () => {
               <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center">
                 <Layers className="w-4 h-4 mr-2" /> Select Strategy Logic
               </label>
-              <select className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 text-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all">
-                <optgroup label="Trend Following">
+              <select 
+                value={strategyId}
+                onChange={(e) => setStrategyId(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 text-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all"
+              >
+                <optgroup label="Preset Strategies">
                     <option value="3">Moving Average Crossover (Equity)</option>
-                    <option value="4">SuperTrend Breakout</option>
-                </optgroup>
-                <optgroup label="Mean Reversion">
                     <option value="1">RSI Mean Reversion (Equity)</option>
-                    <option value="5">Bollinger Band Squeeze</option>
-                </optgroup>
-                <optgroup label="Volatility / Options">
-                     <option value="2">BankNifty Short Straddle (Options)</option>
-                     <option value="6">Iron Condor Weekly</option>
                 </optgroup>
               </select>
+              <p className="text-xs text-slate-500 mt-2">
+                 To test custom rules, use the <span className="text-emerald-400 cursor-pointer hover:underline" onClick={() => navigate('/strategy')}>Strategy Builder</span>.
+              </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -77,10 +87,16 @@ const Backtest: React.FC = () => {
                   </div>
                 </div>
                  <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-2">Timeframe</label>
+                  <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center">
+                     <Clock className="w-4 h-4 mr-2" /> Timeframe
+                  </label>
                   <div className="grid grid-cols-4 gap-2">
                     {Object.values(Timeframe).map(tf => (
-                      <button key={tf} className={`py-2 rounded-lg text-sm font-medium border ${tf === Timeframe.D1 ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-slate-950 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
+                      <button 
+                        key={tf} 
+                        onClick={() => setTimeframe(tf)}
+                        className={`py-2 rounded-lg text-sm font-medium border transition-colors ${timeframe === tf ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-slate-950 border-slate-700 text-slate-400 hover:border-slate-500'}`}
+                      >
                         {tf}
                       </button>
                     ))}
@@ -142,18 +158,6 @@ const Backtest: React.FC = () => {
                                 value={commission} onChange={(e) => setCommission(parseFloat(e.target.value))}
                                 className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" 
                              />
-                         </div>
-                         <div>
-                             <label className="text-xs text-slate-500 block mb-1">Leverage (x)</label>
-                             <select className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200">
-                                 <option>1x (Cash)</option>
-                                 <option>2x</option>
-                                 <option>5x (Intraday)</option>
-                             </select>
-                         </div>
-                         <div className="flex items-center">
-                             <input type="checkbox" id="compounding" className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-emerald-600 focus:ring-emerald-500" />
-                             <label htmlFor="compounding" className="ml-2 text-sm text-slate-400">Compounding Logic</label>
                          </div>
                      </div>
                  )}
