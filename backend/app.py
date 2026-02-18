@@ -9,6 +9,7 @@ from datetime import datetime
 # Import Blueprints
 from routes.backtest_routes import backtest_bp
 from routes.market_routes import market_bp
+from routes.optimization_routes import optimization_bp
 
 # --- LOGGING SETUP ---
 LOG_BUFFER = deque(maxlen=500)
@@ -45,6 +46,7 @@ CORS(app)
 # --- REGISTER BLUEPRINTS ---
 app.register_blueprint(backtest_bp, url_prefix='/api/v1/backtest')
 app.register_blueprint(market_bp, url_prefix='/api/v1/market')
+app.register_blueprint(optimization_bp, url_prefix='/api/v1/optimization')
 
 # --- MIDDLEWARE ---
 @app.before_request
@@ -75,7 +77,6 @@ def clear_logs():
 
 @app.route('/api/v1/validate-key', methods=['POST'])
 def validate_key():
-    # Simple validation endpoint kept in main app for now
     return jsonify({"status": "valid", "message": "Connection successful"})
 
 if __name__ == '__main__':
