@@ -1,6 +1,12 @@
 
+from pathlib import Path
+from typing import Optional
 from dotenv import load_dotenv
-load_dotenv()  # Load .env before anything else (Issue #7)
+
+_DOTENV_PATH = Path(__file__).with_name(".env")
+_DOTENV_MTIME: Optional[float] = None
+
+load_dotenv(dotenv_path=_DOTENV_PATH, override=True)
 
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
@@ -67,11 +73,21 @@ app.register_blueprint(strategy_bp, url_prefix='/api/v1/strategies')
 # --- MIDDLEWARE ---
 @app.before_request
 def start_timer():
+    global _DOTENV_MTIME
+    try:
+        mtime = _DOTENV_PATH.stat().st_mtime
+        if _DOTENV_MTIME is None or mtime != _DOTENV_MTIME:
+            load_dotenv(dotenv_path=_DOTENV_PATH, override=True)
+            _DOTENV_MTIME = mtime
+    except Exception:
+        pass
     g.start = time.time()
     if request.path != '/api/v1/debug/logs':
         body = "No Body"
         if request.is_json:
-            body = json.dumps(request.json)[:100]
+            parsed = request.get_json(silent=True)
+            if parsed is not None:
+                body = json.dumps(parsed)[:100]
         logging.info(f"➡ REQ: {request.method} {request.path} | Body: {body}")
 
 @app.after_request

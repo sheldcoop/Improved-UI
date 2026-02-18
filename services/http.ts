@@ -4,13 +4,6 @@ import { logNetworkEvent } from '../components/DebugConsole';
 export const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export async function fetchClient<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  // Alpha Vantage key — stored client-side (low risk, no trading permissions).
-  // Dhan credentials (DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN) are intentionally NOT
-  // sent from the browser. They must live server-side in backend/.env (Issue #8).
-  const alphaVantageKey = localStorage.getItem('ALPHA_VANTAGE_KEY') || '';
-  const useAlphaVantage = localStorage.getItem('USE_ALPHA_VANTAGE') === 'true';
-
-
   const method = options?.method || 'GET';
   const url = `${CONFIG.API_BASE_URL}${endpoint}`;
   const requestId = Math.random().toString(36).substring(7);
@@ -22,12 +15,14 @@ export async function fetchClient<T>(endpoint: string, options?: RequestInit): P
   }
 
   try {
+    const headers: Record<string, string> = {};
+    const hasBody = options?.body !== undefined && options?.body !== null;
+    if (hasBody) {
+      headers['Content-Type'] = 'application/json';
+    }
+
     const response = await fetch(url, {
-      headers: {
-        'Content-Type': 'application/json',
-        'x-alpha-vantage-key': alphaVantageKey,
-        'x-use-alpha-vantage': useAlphaVantage ? 'true' : 'false'
-      },
+      headers,
 
       ...options,
     });

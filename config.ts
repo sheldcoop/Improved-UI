@@ -3,7 +3,7 @@ export const CONFIG = {
   USE_MOCK_DATA: false,
 
   // Your Backend URL (e.g., Python Flask running on port 5000)
-  API_BASE_URL: 'http://localhost:5000/api/v1',
+  API_BASE_URL: 'http://localhost:5001/api/v1',
 
   // App Settings
   DEFAULT_TIMEFRAME: '1d',

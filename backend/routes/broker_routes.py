@@ -8,9 +8,11 @@ Endpoints:
 
 import os
 import logging
+from typing import Optional
 from datetime import datetime, timezone
 from pathlib import Path
 
+import requests
 from flask import Blueprint, jsonify, request
 
 broker_bp = Blueprint("broker", __name__)
@@ -65,7 +67,7 @@ def _write_env(updates: dict[str, str]) -> None:
     _ENV_PATH.write_text("\n".join(lines) + "\n")
 
 
-def _decode_token_expiry(token: str) -> datetime | None:
+def _decode_token_expiry(token: str) -> Optional[datetime]:
     """Decode the exp claim from a JWT without verifying the signature.
 
     Args:
@@ -106,8 +108,8 @@ def dhan_status() -> tuple:
         now_utc = datetime.now(tz=timezone.utc)
 
         is_expired = False
-        hours_remaining: float | None = None
-        expiry_str: str | None = None
+        hours_remaining: Optional[float] = None
+        expiry_str: Optional[str] = None
 
         if expiry_dt:
             delta = expiry_dt - now_utc
@@ -141,7 +143,7 @@ def dhan_save() -> tuple:
         JSON with status and token expiry info.
     """
     try:
-        data = request.json or {}
+        data = request.get_json(silent=True) or {}
         client_id: str = str(data.get("client_id", "")).strip()
         access_token: str = str(data.get("access_token", "")).strip()
 
@@ -185,7 +187,8 @@ def dhan_test() -> tuple:
         JSON with status 'connected' or 'error'.
     """
     try:
-        data = request.json or {}
+        # Accept both JSON and non-JSON requests (e.g. curl without Content-Type)
+        data = request.get_json(silent=True) or {}
         env = _read_env()
 
         client_id = str(data.get("client_id") or env.get("DHAN_CLIENT_ID", "")).strip()
@@ -204,19 +207,33 @@ def dhan_test() -> tuple:
                     "message": f"Token expired at {expiry_dt.strftime('%Y-%m-%d %H:%M UTC')}. Generate a new one from the Dhan portal.",
                 }), 401
 
-        # Make a lightweight Dhan API call — fetch fund limits (read-only)
+        # Make a lightweight Dhan API call — per docs, /profile is a good validity test.
+        # https://dhanhq.co/docs/v2/authentication/
         try:
-            from dhanhq import DhanContext, dhanhq
-            ctx = DhanContext(client_id, access_token)
-            dhan = dhanhq(ctx)
-            result = dhan.get_fund_limits()
-            if result and result.get("status") == "success":
+            url = "https://api.dhan.co/v2/profile"
+            headers = {
+                "access-token": access_token,
+                # Some endpoints require client-id; /profile in docs shows only access-token.
+                "client-id": client_id,
+                "Accept": "application/json",
+            }
+            resp = requests.get(url, headers=headers, timeout=30)
+
+            if 200 <= resp.status_code <= 299:
                 return jsonify({"status": "connected", "message": "Dhan API connected successfully"}), 200
-            else:
-                return jsonify({
-                    "status": "error",
-                    "message": result.get("remarks", {}).get("error_message", "Dhan API returned an error"),
-                }), 401
+
+            # Try to surface Dhan's message if present
+            try:
+                body = resp.json()
+            except Exception:
+                body = {"raw": resp.text}
+
+            return jsonify({
+                "status": "error",
+                "message": body.get("errorMessage") if isinstance(body, dict) else "Dhan API returned an error",
+                "details": body,
+            }), 401
+
         except Exception as api_exc:
             logger.warning(f"Dhan API call failed: {api_exc}")
             return jsonify({"status": "error", "message": f"Dhan API error: {str(api_exc)}"}), 502
