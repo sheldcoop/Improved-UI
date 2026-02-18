@@ -35,15 +35,15 @@ export const saveStrategy = async (strategy: Strategy): Promise<void> => {
 };
 
 export const runBacktest = async (strategyId: string, symbol: string): Promise<BacktestResult> => {
-  await delay(2000); // Simulate processing time
+  await delay(2500); // Simulate heavier processing time
   
-  // Generate fake equity curve
+  // Generate fake equity curve with more realism
   const equityCurve = [];
   let value = 100000;
   let peak = 100000;
   
-  for (let i = 0; i < 100; i++) {
-    const change = (Math.random() - 0.45) * 2000; // Slight upward bias
+  for (let i = 0; i < 250; i++) {
+    const change = (Math.random() - 0.48) * 2000; // Slight upward bias
     value += change;
     if (value > peak) peak = value;
     const drawdown = ((peak - value) / peak) * 100;
@@ -55,23 +55,59 @@ export const runBacktest = async (strategyId: string, symbol: string): Promise<B
     });
   }
 
+  // Mock Monthly Returns for Heatmap
+  const monthlyReturns = [];
+  for(let m=0; m<12; m++) {
+    monthlyReturns.push({
+      year: 2023,
+      month: m,
+      returnPct: (Math.random() * 10) - 3 // Random return between -3% and +7%
+    });
+  }
+
   return {
     id: Math.random().toString(36).substring(7),
     strategyName: mockStrategies.find(s => s.id === strategyId)?.name || 'Unknown Strategy',
     symbol: symbol,
     timeframe: Timeframe.D1,
     startDate: '2023-01-01',
-    endDate: '2023-04-10',
+    endDate: '2023-12-31',
     metrics: {
-      totalReturnPct: 15.4,
-      cagr: 22.1,
-      sharpeRatio: 1.85,
-      maxDrawdownPct: 8.5,
-      winRate: 58.0,
-      profitFactor: 1.6,
-      totalTrades: 42
+      totalReturnPct: 24.5,
+      cagr: 24.5,
+      sharpeRatio: 1.95,
+      sortinoRatio: 2.4,
+      calmarRatio: 1.8,
+      maxDrawdownPct: 12.5,
+      avgDrawdownDuration: '18 days',
+      winRate: 62.0,
+      profitFactor: 1.75,
+      kellyCriterion: 0.12,
+      totalTrades: 142,
+      consecutiveLosses: 4
     },
+    monthlyReturns,
     equityCurve,
     status: 'completed'
   };
+};
+
+export const getOptionChain = async (symbol: string, expiry: string) => {
+    // Mock option chain generator
+    const spot = symbol === 'NIFTY 50' ? 22150 : 46500;
+    const step = symbol === 'NIFTY 50' ? 50 : 100;
+    const strikes = [];
+    for(let i=-10; i<=10; i++) {
+        const strike = Math.round(spot/step)*step + (i*step);
+        strikes.push({
+            strike,
+            cePremium: Math.max(1, (spot - strike) + Math.random()*50 + 20),
+            pePremium: Math.max(1, (strike - spot) + Math.random()*50 + 20),
+            ceIv: 15 + Math.random()*2,
+            peIv: 16 + Math.random()*2,
+            ceOi: Math.floor(Math.random() * 1000000),
+            peOi: Math.floor(Math.random() * 1000000)
+        });
+    }
+    return strikes;
 };

@@ -5,6 +5,7 @@ export enum AssetClass {
 }
 
 export enum Timeframe {
+  M1 = '1m',
   M5 = '5m',
   M15 = '15m',
   H1 = '1h',
@@ -19,7 +20,10 @@ export enum IndicatorType {
   BOL_UPPER = 'Bollinger Upper',
   BOL_LOWER = 'Bollinger Lower',
   CLOSE = 'Close Price',
-  VOLUME = 'Volume'
+  VOLUME = 'Volume',
+  IV = 'Implied Volatility',
+  OI = 'Open Interest',
+  PCR = 'PCR'
 }
 
 export enum Operator {
@@ -36,7 +40,7 @@ export interface Condition {
   indicator: IndicatorType;
   period: number;
   operator: Operator;
-  value: number | string; // Can be a number or another indicator
+  value: number | string;
 }
 
 export interface Strategy {
@@ -52,6 +56,25 @@ export interface Strategy {
   created: string;
 }
 
+export interface OptionLeg {
+  id: string;
+  type: 'CE' | 'PE';
+  action: 'BUY' | 'SELL';
+  strike: number;
+  expiry: string;
+  premium: number;
+  iv: number;
+  delta: number;
+  theta: number;
+}
+
+export interface OptionStrategy {
+  name: string;
+  underlying: string;
+  spotPrice: number;
+  legs: OptionLeg[];
+}
+
 export interface BacktestResult {
   id: string;
   strategyName: string;
@@ -63,19 +86,28 @@ export interface BacktestResult {
     totalReturnPct: number;
     cagr: number;
     sharpeRatio: number;
+    sortinoRatio: number;
+    calmarRatio: number;
     maxDrawdownPct: number;
+    avgDrawdownDuration: string; // e.g., "14 days"
     winRate: number;
     profitFactor: number;
+    kellyCriterion: number;
     totalTrades: number;
+    consecutiveLosses: number;
   };
+  monthlyReturns: { year: number; month: number; returnPct: number }[];
   equityCurve: { date: string; value: number; drawdown: number }[];
   status: 'running' | 'completed' | 'failed';
 }
 
 export interface MarketData {
   symbol: string;
-  exchange: 'NSE' | 'BSE';
+  exchange: 'NSE' | 'BSE' | 'NFO';
   lastPrice: number;
+  changePct: number;
+  ivPercentile?: number;
+  oiChange?: number;
   dataAvailable: boolean;
   lastUpdated: string;
 }

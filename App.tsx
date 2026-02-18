@@ -3,6 +3,7 @@ import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import StrategyBuilder from './pages/StrategyBuilder';
+import OptionsBuilder from './pages/OptionsBuilder';
 import Backtest from './pages/Backtest';
 import Results from './pages/Results';
 import DataManager from './pages/DataManager';
@@ -15,6 +16,7 @@ const App: React.FC = () => {
       <Layout>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/options" element={<OptionsBuilder />} />
           <Route path="/strategy" element={<StrategyBuilder />} />
           <Route path="/backtest" element={<Backtest />} />
           <Route path="/results" element={<Results />} />
