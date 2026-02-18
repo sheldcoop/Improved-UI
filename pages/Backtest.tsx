@@ -1,11 +1,13 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Clock, Globe, Sliders, AlertCircle, CheckCircle, Split, Info } from 'lucide-react';
+import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Clock, Globe, Sliders, AlertCircle, CheckCircle, Split, Info, Database, BarChart, AlertTriangle, CloudRain, CheckSquare } from 'lucide-react';
 import { MOCK_SYMBOLS, UNIVERSES } from '../constants'; 
-import { runBacktest } from '../services/api';
+import { runBacktest, validateMarketData, DataHealthReport } from '../services/api';
 import { Timeframe } from '../types';
 import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
 
 const Backtest: React.FC = () => {
   const navigate = useNavigate();
@@ -34,6 +36,10 @@ const Backtest: React.FC = () => {
   const [commission, setCommission] = useState(20);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  // New Data Loading State (Improvement 1 & 2)
+  const [dataStatus, setDataStatus] = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
+  const [healthReport, setHealthReport] = useState<DataHealthReport | null>(null);
+
   // Initialize defaults based on strategy selection
   useEffect(() => {
     if (strategyId === '1') { // RSI
@@ -45,7 +51,13 @@ const Backtest: React.FC = () => {
     }
   }, [strategyId]);
 
-  // Calculate Split Date (Feature C Logic)
+  // Reset data status when key inputs change
+  useEffect(() => {
+      setDataStatus('IDLE');
+      setHealthReport(null);
+  }, [symbol, universe, timeframe, startDate, endDate]);
+
+  // Calculate Split Date
   const splitDateString = useMemo(() => {
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -60,25 +72,25 @@ const Backtest: React.FC = () => {
     return splitDate.toISOString().split('T')[0];
   }, [startDate, endDate, splitRatio]);
 
-  // Determine Data Quality (Feature B Logic)
-  const dataQuality = useMemo(() => {
-      if (mode === 'UNIVERSE') return { status: 'GOOD', text: 'Synthetic Universe Data' };
-      
-      const asset = MOCK_SYMBOLS.find(s => s.symbol === symbol);
-      if (!asset) return { status: 'UNKNOWN', text: 'Unknown Asset' };
-      if (!asset.dataAvailable) return { status: 'POOR', text: 'Data Missing / Gaps' };
-      
-      // Simple heuristic: If timeframe is 1m but range is > 1 year, quality might degrade or be slow
-      const start = new Date(startDate).getFullYear();
-      const end = new Date(endDate).getFullYear();
-      if (timeframe === Timeframe.M1 && (end - start) >= 2) {
-          return { status: 'FAIR', text: 'High Latency (Heavy Query)' };
+  const handleLoadData = async () => {
+      setDataStatus('LOADING');
+      try {
+          // Call API to validate data
+          const target = mode === 'SINGLE' ? symbol : universe;
+          const report = await validateMarketData(target, timeframe, startDate, endDate);
+          setHealthReport(report);
+          setDataStatus('READY');
+      } catch (e) {
+          setDataStatus('ERROR');
       }
-
-      return { status: 'GOOD', text: 'High Quality (Clean)' };
-  }, [symbol, mode, startDate, endDate, timeframe]);
+  };
 
   const handleRun = async () => {
+    if (dataStatus !== 'READY') {
+        alert("Please load and validate market data first.");
+        return;
+    }
+
     setRunning(true);
     try {
         const config: any = { 
@@ -105,6 +117,16 @@ const Backtest: React.FC = () => {
     }
   };
 
+  const renderHealthBadge = (status: string) => {
+      switch(status) {
+          case 'EXCELLENT': return <Badge variant="success" className="flex items-center"><CheckCircle className="w-3 h-3 mr-1"/> Excellent Quality</Badge>;
+          case 'GOOD': return <Badge variant="info" className="flex items-center"><CheckSquare className="w-3 h-3 mr-1"/> Good Quality</Badge>;
+          case 'POOR': return <Badge variant="warning" className="flex items-center"><AlertTriangle className="w-3 h-3 mr-1"/> Poor Quality</Badge>;
+          case 'CRITICAL': return <Badge variant="danger" className="flex items-center"><AlertCircle className="w-3 h-3 mr-1"/> Critical Issues</Badge>;
+          default: return null;
+      }
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       <div className="text-center mb-10">
@@ -115,7 +137,7 @@ const Backtest: React.FC = () => {
       <Card className="p-8 shadow-2xl shadow-black/50 border-t-4 border-t-emerald-500">
           <div className="space-y-8">
             
-            {/* 1. STRATEGY SELECTION & DYNAMIC PARAMS (Feature A) */}
+            {/* 1. STRATEGY SELECTION & DYNAMIC PARAMS */}
             <div className="bg-slate-950/50 p-6 rounded-xl border border-slate-800">
                 <div className="flex items-center justify-between mb-4">
                      <label className="text-sm font-medium text-slate-400 flex items-center">
@@ -179,7 +201,7 @@ const Backtest: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               
-              {/* 2. ASSET SELECTION & DATA QUALITY (Feature B) */}
+              {/* 2. ASSET SELECTION */}
               <div className="space-y-6">
                  <div>
                     <label className="block text-sm font-medium text-slate-400 mb-2">Backtest Mode</label>
@@ -203,15 +225,6 @@ const Backtest: React.FC = () => {
                      <div>
                       <div className="flex justify-between mb-2">
                           <label className="block text-sm font-medium text-slate-400">Symbol</label>
-                          
-                          {/* Data Quality Indicator */}
-                          <div className={`flex items-center text-xs font-medium ${
-                              dataQuality.status === 'GOOD' ? 'text-emerald-400' : 
-                              dataQuality.status === 'FAIR' ? 'text-yellow-400' : 'text-red-400'
-                          }`}>
-                              {dataQuality.status === 'GOOD' ? <CheckCircle className="w-3 h-3 mr-1"/> : <AlertCircle className="w-3 h-3 mr-1"/>}
-                              {dataQuality.text}
-                          </div>
                       </div>
                       <select 
                         value={symbol}
@@ -254,18 +267,63 @@ const Backtest: React.FC = () => {
                 </div>
               </div>
 
-              {/* 3. DATES & IN-SAMPLE SPLITTER (Feature C) */}
+              {/* 3. DATES, LOAD DATA & SPLITTER */}
               <div className="space-y-6">
                 <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center">
-                     <Calendar className="w-4 h-4 mr-2" /> Date Range
+                  <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center justify-between">
+                     <div className="flex items-center"><Calendar className="w-4 h-4 mr-2" /> Date Range & Data</div>
+                     {dataStatus === 'READY' && <span className="text-xs text-emerald-400 font-mono">DATA LOCKED</span>}
                   </label>
-                  <div className="flex space-x-2">
+                  <div className="flex space-x-2 mb-3">
                      <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200" />
                      <span className="text-slate-600 self-center">-</span>
                      <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200" />
                   </div>
+                  
+                  {/* Improvement 1: Load Market Data Button */}
+                  <Button 
+                      variant="secondary" 
+                      className={`w-full justify-center ${dataStatus === 'READY' ? 'bg-emerald-900/20 border-emerald-500/50 text-emerald-400' : ''}`}
+                      onClick={handleLoadData}
+                      disabled={dataStatus === 'LOADING'}
+                      icon={dataStatus === 'LOADING' ? <div className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin"></div> : <Database className="w-4 h-4" />}
+                  >
+                      {dataStatus === 'LOADING' ? 'Validating Data...' : dataStatus === 'READY' ? 'Data Loaded & Validated' : 'Load Market Data'}
+                  </Button>
                 </div>
+
+                {/* Improvement 2: Data Health Report Card */}
+                {dataStatus === 'READY' && healthReport && (
+                    <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 animate-in fade-in slide-in-from-top-2">
+                        <div className="flex justify-between items-center mb-3">
+                            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Health Report</h4>
+                            {renderHealthBadge(healthReport.status)}
+                        </div>
+                        <div className="grid grid-cols-2 gap-y-2 text-sm">
+                            <div className="flex justify-between pr-2 border-r border-slate-800">
+                                <span className="text-slate-500">Quality Score</span>
+                                <span className={`font-mono font-bold ${healthReport.score > 90 ? 'text-emerald-400' : 'text-yellow-400'}`}>{healthReport.score}%</span>
+                            </div>
+                            <div className="flex justify-between pl-2">
+                                <span className="text-slate-500">Total Candles</span>
+                                <span className="font-mono text-slate-200">{healthReport.totalCandles}</span>
+                            </div>
+                            <div className="flex justify-between pr-2 border-r border-slate-800">
+                                <span className="text-slate-500">Missing</span>
+                                <span className={`font-mono ${healthReport.missingCandles > 0 ? 'text-red-400' : 'text-slate-200'}`}>{healthReport.missingCandles}</span>
+                            </div>
+                            <div className="flex justify-between pl-2">
+                                <span className="text-slate-500">Zero Volume</span>
+                                <span className={`font-mono ${healthReport.zeroVolumeCandles > 0 ? 'text-yellow-400' : 'text-slate-200'}`}>{healthReport.zeroVolumeCandles}</span>
+                            </div>
+                        </div>
+                        {healthReport.gaps.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-slate-800">
+                                <p className="text-xs text-red-400 flex items-center"><AlertTriangle className="w-3 h-3 mr-1"/> Gap detected near {healthReport.gaps[0]}</p>
+                            </div>
+                        )}
+                    </div>
+                )}
                 
                 {/* Visual Splitter */}
                 <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
@@ -322,7 +380,11 @@ const Backtest: React.FC = () => {
             </div>
 
             <div className="pt-2">
-               <button onClick={handleRun} disabled={running} className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-lg font-bold py-4 rounded-xl shadow-lg shadow-emerald-900/40 transition-all transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center">
+               <button 
+                  onClick={handleRun} 
+                  disabled={running || dataStatus !== 'READY'} 
+                  className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-lg font-bold py-4 rounded-xl shadow-lg shadow-emerald-900/40 transition-all transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center disabled:grayscale"
+               >
                  {running ? (
                    <>
                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-3"></div>

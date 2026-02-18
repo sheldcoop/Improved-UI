@@ -1,6 +1,16 @@
+
 import { OptionChainItem, PaperPosition } from '../types';
 import { API_ENDPOINTS, CONFIG } from '../config';
 import { executeWithFallback, delay } from './http';
+
+export interface DataHealthReport {
+  score: number;
+  missingCandles: number;
+  zeroVolumeCandles: number;
+  totalCandles: number;
+  gaps: string[];
+  status: 'EXCELLENT' | 'GOOD' | 'POOR' | 'CRITICAL';
+}
 
 export const getOptionChain = async (symbol: string, expiry: string): Promise<OptionChainItem[]> => {
     return executeWithFallback(API_ENDPOINTS.OPTION_CHAIN, { method: 'POST', body: JSON.stringify({ symbol, expiry }) }, async () => {
@@ -31,4 +41,51 @@ export const getPaperPositions = async (): Promise<PaperPosition[]> => {
             { id: 'p2', symbol: 'BANKNIFTY', side: 'SHORT', qty: 15, avgPrice: 46600, ltp: 46500, pnl: 1500, pnlPct: 0.32, entryTime: '11:15 AM', status: 'OPEN' },
         ];
     });
+};
+
+export const validateMarketData = async (symbol: string, timeframe: string, start: string, end: string): Promise<DataHealthReport> => {
+    // Simulate API Call for Data Validation
+    // In a real app, this would hit an endpoint like /market/validate
+    await delay(1200);
+    
+    // Mock Logic for demonstration
+    const startDt = new Date(start);
+    const endDt = new Date(end);
+    const diffDays = Math.ceil(Math.abs(endDt.getTime() - startDt.getTime()) / (1000 * 60 * 60 * 24));
+    
+    // Randomly generate some issues for demo purposes
+    // If the symbol is 'HDFCBANK', we simulate poor data (as per mock constants it had dataAvailable: false)
+    const isPoor = symbol === 'HDFCBANK';
+    
+    const missing = isPoor ? Math.floor(diffDays * 0.15) : Math.floor(Math.random() * 5);
+    const zeroVol = isPoor ? Math.floor(diffDays * 0.05) : Math.floor(Math.random() * 2);
+    const total = diffDays * (timeframe === '1d' ? 1 : 375); // approx candles
+    
+    // Calculate score
+    // Max deductions: Missing * 5, ZeroVol * 2
+    // Normalized to 100
+    const rawScore = 100 - ((missing * 2) + (zeroVol * 1));
+    const score = Math.max(0, Math.min(100, rawScore));
+    
+    let status: 'EXCELLENT' | 'GOOD' | 'POOR' | 'CRITICAL' = 'EXCELLENT';
+    if (score < 98) status = 'GOOD';
+    if (score < 85) status = 'POOR';
+    if (score < 60) status = 'CRITICAL';
+
+    const gaps = [];
+    if (missing > 0) {
+        // Generate a fake date in the range
+        const gapDate = new Date(startDt);
+        gapDate.setDate(gapDate.getDate() + Math.floor(diffDays / 2));
+        gaps.push(gapDate.toISOString().split('T')[0]);
+    }
+
+    return {
+        score: parseFloat(score.toFixed(1)),
+        missingCandles: missing,
+        zeroVolumeCandles: zeroVol,
+        totalCandles: total,
+        gaps,
+        status
+    };
 };
