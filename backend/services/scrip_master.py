@@ -30,6 +30,7 @@ COLUMN_MAP = {
     "DISPLAY_NAME": "display_name",
     "SECURITY_ID": "security_id",
     "INSTRUMENT": "instrument",
+    "UNDERLYING_SYMBOL": "ticker",
     # Long names (SEM_* prefix)
     "SEM_EXM_EXCH_ID": "exch_id",
     "SEM_SEGMENT": "segment",
@@ -38,6 +39,7 @@ COLUMN_MAP = {
     "SEM_CUSTOM_SYMBOL": "display_name",
     "SEM_SMST_SECURITY_ID": "security_id",
     "SEM_INSTRUMENT_NAME": "instrument",
+    "SEM_UNDERLYING_SYMBOL": "ticker",
 }
 
 
@@ -113,12 +115,13 @@ def search_instruments(segment: str, query: str, limit: int = 20) -> list[dict]:
     
     df_filtered = df[mask].copy()
     
-    # Search on symbol and display_name (case-insensitive)
+    # Search on symbol, display_name, and ticker (case-insensitive)
     query_upper = query.upper().strip()
     if query_upper:
         search_mask = (
             df_filtered["symbol"].str.upper().str.contains(query_upper, na=False) |
-            df_filtered["display_name"].str.upper().str.contains(query_upper, na=False)
+            df_filtered["display_name"].str.upper().str.contains(query_upper, na=False) |
+            df_filtered["ticker"].str.upper().str.contains(query_upper, na=False)
         )
         df_results = df_filtered[search_mask]
     else:
@@ -130,11 +133,15 @@ def search_instruments(segment: str, query: str, limit: int = 20) -> list[dict]:
     # Format response
     results = []
     for _, row in df_results.iterrows():
+        # Use ticker as the primary symbol if available, fallback to symbol
+        res_symbol = str(row["ticker"]) if pd.notna(row["ticker"]) else str(row["symbol"])
         results.append({
-            "symbol": str(row["symbol"]),
+            "symbol": res_symbol,
             "display_name": str(row["display_name"]) if pd.notna(row["display_name"]) else str(row["symbol"]),
             "security_id": str(int(row["security_id"])) if pd.notna(row["security_id"]) else "",
-            "instrument_type": str(row["instrument"]) if pd.notna(row["instrument"]) else "EQUITY"
+            # Senior Dev: Normalize "EQUITY" type to avoid frontend confusion with "EQ" / "Equity"
+            "instrument_type": "EQUITY" if str(row["instrument"]).upper() in ["EQUITY", "EQ"] else str(row["instrument"]),
+            "series": str(row["series"]) if pd.notna(row["series"]) else ""
         })
     
     return results
@@ -171,18 +178,27 @@ def get_instrument_by_symbol(symbol: str, segment: str = "NSE_EQ") -> Optional[d
     
     df_filtered = df[mask]
     
-    # Find exact match
-    match = df_filtered[df_filtered["symbol"].str.upper() == symbol_upper]
+    # Find exact match on symbol OR ticker
+    match = df_filtered[
+        (df_filtered["symbol"].str.upper() == symbol_upper) |
+        (df_filtered["ticker"].str.upper() == symbol_upper)
+    ]
     
     if len(match) == 0:
         return None
     
     row = match.iloc[0]
+    res_symbol = str(row["ticker"]) if pd.notna(row["ticker"]) else str(row["symbol"])
+    
+    # Official Dhan Constants (from src/dhanhq/dhanhq.py)
+    # NSE = 'NSE_EQ', BSE = 'BSE_EQ' etc.
+    # Note: Stock/SME are both under NSE_EQ for historical/intraday API
     return {
-        "symbol": str(row["symbol"]),
+        "symbol": res_symbol,
         "display_name": str(row["display_name"]) if pd.notna(row["display_name"]) else str(row["symbol"]),
         "security_id": str(int(row["security_id"])) if pd.notna(row["security_id"]) else "",
-        "instrument_type": str(row["instrument"]) if pd.notna(row["instrument"]) else "EQUITY",
-        "exchange_segment": "NSE_EQ",  # Always NSE_EQ for Dhan API
+        # Senior Dev: Strong typing for instrument_type
+        "instrument_type": "EQUITY" if str(row["instrument"]).upper() in ["EQUITY", "EQ"] else str(row["instrument"]),
+        "exchange_segment": "NSE_EQ",  # Core constant for Dhan API
         "series": str(row["series"]) if pd.notna(row["series"]) else "EQ"
     }

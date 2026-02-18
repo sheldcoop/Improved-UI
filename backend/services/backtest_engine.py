@@ -11,6 +11,8 @@ from __future__ import annotations
 
 
 import logging
+import math
+from utils.json_utils import clean_float_values
 import numpy as np
 import pandas as pd
 import vectorbt as vbt
@@ -68,10 +70,9 @@ class BacktestEngine:
         if config is None:
             config = {}
 
-        if df is None:
-            return None
-        if isinstance(df, pd.DataFrame) and df.empty:
-            return None
+        if df is None or (isinstance(df, pd.DataFrame) and df.empty):
+            logger.warning("Empty dataframe provided to BacktestEngine")
+            return {"status": "failed", "error": "No data found for the selected period."}
 
         # --- 1. CONFIGURATION ---
         slippage = float(config.get("slippage", 0.05)) / 100.0
@@ -86,6 +87,14 @@ class BacktestEngine:
         # --- 2. GENERATE SIGNALS ---
         strategy = StrategyFactory.get_strategy(strategy_id, config)
         entries, exits = strategy.generate_signals(df)
+
+        # Normalize columns to Title Case for engine consistency
+        if isinstance(df, pd.DataFrame):
+            df.columns = [c.capitalize() for c in df.columns]
+        elif isinstance(df, dict):
+            for k in df:
+                if isinstance(df[k], pd.DataFrame):
+                    df[k].columns = [c.capitalize() for c in df[k].columns]
 
         close_price = df["Close"] if isinstance(df, pd.DataFrame) else df["Close"]
 
@@ -113,7 +122,8 @@ class BacktestEngine:
 
         try:
             pf = vbt.Portfolio.from_signals(close_price, entries, exits, **pf_kwargs)
-            return BacktestEngine._extract_results(pf, df)
+            results = BacktestEngine._extract_results(pf, df)
+            return clean_float_values(results)
         except Exception as exc:
             logger.error(f"VBT Execution Error: {exc}")
             return None
@@ -235,9 +245,10 @@ class BacktestEngine:
                 "winRate": round(pf.win_rate().mean() * 100, 1),
                 "profitFactor": round(pf.profit_factor().mean(), 2),
                 "totalTrades": int(pf.trades.count().sum()),
-                "alpha": 0, "beta": 0, "volatility": 0, "cagr": 0,
-                "sortinoRatio": 0, "calmarRatio": 0,
+                "alpha": 0.0, "beta": 0.0, "volatility": 0.0, "cagr": 0.0,
+                "sortinoRatio": 0.0, "calmarRatio": 0.0,
                 **BacktestEngine._compute_advanced_metrics(pf, universe=True),
+                "status": "completed"
             }
         else:
             stats = pf.stats()
@@ -270,13 +281,14 @@ class BacktestEngine:
                 "winRate": round(stats.get("Win Rate [%]", 0), 1),
                 "profitFactor": round(stats.get("Profit Factor", 0), 2),
                 "totalTrades": int(stats.get("Total Trades", 0)),
-                "alpha": round(stats.get("Alpha", 0), 2),
-                "beta": round(stats.get("Beta", 0), 2),
-                "volatility": round(stats.get("Volatility (Ann.) [%]", 0), 1),
-                "cagr": round(stats.get("Total Return [%]", 0), 2),
-                "sortinoRatio": round(stats.get("Sortino Ratio", 0), 2),
-                "calmarRatio": round(stats.get("Calmar Ratio", 0), 2),
+                "alpha": round(float(stats.get("Alpha", 0)), 2),
+                "beta": round(float(stats.get("Beta", 0)), 2),
+                "volatility": round(float(stats.get("Volatility (Ann.) [%]", 0)), 1),
+                "cagr": round(float(stats.get("Total Return [%]", 0)), 2),
+                "sortinoRatio": round(float(stats.get("Sortino Ratio", 0)), 2),
+                "calmarRatio": round(float(stats.get("Calmar Ratio", 0)), 2),
                 **BacktestEngine._compute_advanced_metrics(pf, universe=False),
+                "status": "completed"
             }
 
             try:

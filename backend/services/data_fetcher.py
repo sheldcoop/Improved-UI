@@ -14,6 +14,9 @@ import yfinance as yf
 from datetime import datetime
 from pathlib import Path
 
+from services.dhan_historical import fetch_historical_data as fetch_dhan_data
+from services.scrip_master import get_instrument_by_symbol
+
 logger = logging.getLogger(__name__)
 
 CACHE_DIR = Path("./cache_dir")
@@ -50,6 +53,7 @@ class DataFetcher:
     def __init__(self, headers: dict) -> None:
         self.av_key: str | None = headers.get("x-alpha-vantage-key")
         self.use_av: bool = headers.get("x-use-alpha-vantage") == "true"
+        self.use_dhan: bool = headers.get("x-use-dhan") == "true" or True # Default to True for now as requested
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
@@ -57,7 +61,7 @@ class DataFetcher:
     # ------------------------------------------------------------------
 
     def fetch_historical_data(
-        self, symbol: str, timeframe: str = "1d"
+        self, symbol: str, timeframe: str = "1d", from_date: str | None = None, to_date: str | None = None
     ) -> pd.DataFrame | dict | None:
         """Fetch OHLCV data for a symbol, using Parquet cache when available.
 
@@ -72,24 +76,58 @@ class DataFetcher:
             and a DatetimeIndex, or a dict of DataFrames for universe symbols.
             Returns None if all data sources fail.
         """
-        provider = "AV" if self.use_av else "YF"
-        cache_key = f"{symbol}_{timeframe}_{provider}"
+        # Senior Developer Tip: Use a provider-neutral cache key 
+        # so switching providers (AV -> Dhan) doesn't invalidate data
+        cache_key = f"{symbol}_{timeframe}"
 
-        cached = self._load_parquet(cache_key)
-        if cached is not None:
-            logger.info(f"⚡ Cache Hit for {symbol} [{timeframe}]")
-            return cached
+        # Senior Dev Logic: Smart Cache Merging
+        # 1. Load cache
+        cached_df = self._load_parquet(cache_key)
+        
+        # 2. Check if cache covers the requested range
+        start_req = pd.Timestamp(from_date) if from_date else None
+        end_req = pd.Timestamp(to_date) if to_date else None
+        
+        needs_fetch = True
+        if cached_df is not None and not cached_df.empty:
+            # If no specific range requested, returns cached
+            if not start_req and not end_req:
+                needs_fetch = False
+            
+            # If range requested, check coverage
+            if start_req and end_req:
+                cache_start = cached_df.index.min()
+                cache_end = cached_df.index.max()
+                # Allow 1 day buffer
+                if cache_start <= start_req and cache_end >= end_req:
+                    needs_fetch = False
+                    logger.info(f"⚡ Cache Hit (Full Coverage) for {symbol}")
+                    return cached_df
+                else:
+                    logger.info(f"⚠️ Cache Partial Miss for {symbol}: Need {start_req.date()}..{end_req.date()}, have {cache_start.date()}..{cache_end.date()}")
 
-        df = self._fetch_live(symbol, timeframe)
+        if not needs_fetch:
+             return cached_df
+             
+        # 3. Fetch fresh data
+        logger.info(f"🌍 Fetching fresh data for {symbol}...")
+        fresh_df = self._fetch_live(symbol, timeframe, from_date, to_date)
 
-        if df is not None:
-            if isinstance(df, pd.DataFrame) and not df.empty:
-                self._save_parquet(cache_key, df)
-            elif isinstance(df, dict):
-                # Universe: cache the Close DataFrame as a proxy
-                self._save_parquet(cache_key, df.get("Close", pd.DataFrame()))
-
-        return df
+        # 4. Merge and Save
+        if fresh_df is not None and not fresh_df.empty:
+            if cached_df is not None and not cached_df.empty:
+                # Combine and deduplicate
+                combined = pd.concat([cached_df, fresh_df])
+                combined = combined[~combined.index.duplicated(keep='last')]
+                combined = combined.sort_index()
+                self._save_parquet(cache_key, combined)
+                return combined
+            else:
+                self._save_parquet(cache_key, fresh_df)
+                return fresh_df
+        
+        # If fetch failed but we have cache, return cache as fallback
+        return cached_df if cached_df is not None else None
 
     def fetch_option_chain(self, symbol: str, expiry: str) -> list:
         """Fetch option chain data for a symbol and expiry date.
@@ -114,7 +152,7 @@ class DataFetcher:
     # ------------------------------------------------------------------
 
     def _fetch_live(
-        self, symbol: str, timeframe: str
+        self, symbol: str, timeframe: str, from_date: str | None = None, to_date: str | None = None
     ) -> pd.DataFrame | dict | None:
         """Dispatch to the correct data source based on symbol type.
 
@@ -125,8 +163,10 @@ class DataFetcher:
         Returns:
             DataFrame, dict of DataFrames (universe), or None on failure.
         """
-        if symbol in self.UNIVERSE_TICKERS:
-            return self._fetch_universe(symbol, timeframe)
+        if self.use_dhan:
+            df = self._fetch_dhan(symbol, timeframe, from_date, to_date)
+            if df is not None and not df.empty:
+                return df
 
         if self.use_av and self.av_key:
             df = self._fetch_alpha_vantage(symbol, timeframe)
@@ -137,8 +177,55 @@ class DataFetcher:
         if df is not None and not df.empty:
             return df
 
+        if symbol in self.UNIVERSE_TICKERS:
+            return self._fetch_universe(symbol, timeframe)
+
         logger.warning(f"All data sources failed for {symbol}. Using synthetic data.")
         return self._generate_synthetic(symbol, timeframe)
+
+    def _fetch_dhan(self, symbol: str, timeframe: str, from_date: str | None = None, to_date: str | None = None) -> pd.DataFrame | None:
+        """Fetch data from Dhan API.
+        
+        Args:
+            symbol: Ticker symbol string.
+            timeframe: Candle interval string.
+            from_date: Optional start date 'YYYY-MM-DD'.
+            to_date: Optional end date 'YYYY-MM-DD'.
+            
+        Returns:
+            Standardised OHLCV DataFrame or None on failure.
+        """
+        logger.info(f"Fetching {symbol} via Dhan [{timeframe}]...")
+        try:
+            # Map symbol to instrument details
+            inst = get_instrument_by_symbol(symbol)
+            if not inst:
+                logger.error(f"Symbol {symbol} not found in Scrip Master")
+                return None
+            
+            # Use current year as default range if not specified
+            if not to_date:
+                to_date = datetime.now().strftime("%Y-%m-%d")
+            if not from_date:
+                from_date = (datetime.now().replace(year=datetime.now().year - 1)).strftime("%Y-%m-%d")
+
+            df = fetch_dhan_data(
+                security_id=inst["security_id"],
+                exchange_segment=inst["exchange_segment"],
+                instrument_type=inst["instrument_type"],
+                timeframe=timeframe,
+                from_date=from_date,
+                to_date=to_date
+            )
+            
+            if df is not None and not df.empty:
+                # Dhan returns lowercase columns, standardize to Uppercase for VBT
+                df.columns = [c.capitalize() for c in df.columns]
+                return df
+            return None
+        except Exception as exc:
+            logger.error(f"Dhan fetch failed for {symbol}: {exc}")
+            return None
 
     def _fetch_alpha_vantage(self, symbol: str, timeframe: str) -> pd.DataFrame | None:
         """Fetch data from AlphaVantage API.
@@ -303,7 +390,12 @@ class DataFetcher:
             return None
 
         try:
-            return pd.read_parquet(path)
+            # Senior Dev Practice: Explicitly log path and ensure it's absolute if needed
+            df = pd.read_parquet(path)
+            # Ensure columns are standardized (Open, High, Low, Close, Volume)
+            if not df.empty:
+                df.columns = [c.capitalize() for c in df.columns]
+            return df
         except Exception as exc:
             logger.warning(f"Failed to read Parquet cache for {cache_key}: {exc}")
             return None

@@ -113,4 +113,4 @@ def validate_key():
 
 if __name__ == '__main__':
     logging.info("🚀 VectorBT Pro Backend (Modular) Starting...")
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5001)

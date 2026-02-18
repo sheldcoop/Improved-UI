@@ -6,7 +6,7 @@ Handles both daily (/charts/historical) and intraday (/charts/intraday) endpoint
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 import requests
@@ -22,7 +22,9 @@ TIMEFRAME_MAP = {
     "15m": 15,
     "25m": 25,
     "30m": 30,
+    "60m": 60,
     "1h": 60,
+    "125m": 125,
 }
 
 
@@ -75,7 +77,8 @@ def fetch_historical_data(
             from_date, to_date, include_oi, headers
         )
     else:
-        return _fetch_intraday_candles(
+        # Rule 3 Enforcement: Chunk requests > 90 days
+        return _fetch_intraday_candles_chunked(
             security_id, exchange_segment, instrument_type,
             timeframe, from_date, to_date, include_oi, headers
         )
@@ -116,7 +119,7 @@ def _fetch_daily_candles(
     return _convert_to_dataframe(data)
 
 
-def _fetch_intraday_candles(
+def _fetch_intraday_candles_chunked(
     security_id: str,
     exchange_segment: str,
     instrument_type: str,
@@ -126,7 +129,47 @@ def _fetch_intraday_candles(
     include_oi: bool,
     headers: dict
 ) -> pd.DataFrame:
-    """Fetch intraday candles from /charts/intraday endpoint."""
+    """Fetch intraday candles in 90-day chunks as per Rule 3."""
+    start_dt = datetime.strptime(from_date, "%Y-%m-%d")
+    end_dt = datetime.strptime(to_date, "%Y-%m-%d")
+    
+    all_dfs = []
+    current_start = start_dt
+    
+    while current_start <= end_dt:
+        # Chunk logic: next 90 days or end_dt
+        current_end = min(current_start + timedelta(days=89), end_dt)
+        
+        logger.info(f"Fetching intraday chunk: {current_start.date()} to {current_end.date()}")
+        
+        chunk_df = _fetch_intraday_batch(
+            security_id, exchange_segment, instrument_type,
+            timeframe, current_start.strftime("%Y-%m-%d"), 
+            current_end.strftime("%Y-%m-%d"), include_oi, headers
+        )
+        
+        if chunk_df is not None and not chunk_df.empty:
+            all_dfs.append(chunk_df)
+        
+        current_start = current_end + timedelta(days=1)
+        
+    if not all_dfs:
+        return pd.DataFrame()
+        
+    return pd.concat(all_dfs).sort_index()
+
+
+def _fetch_intraday_batch(
+    security_id: str,
+    exchange_segment: str,
+    instrument_type: str,
+    timeframe: str,
+    from_date: str,
+    to_date: str,
+    include_oi: bool,
+    headers: dict
+) -> pd.DataFrame:
+    """Single batch fetch for intraday candles (max 90 days)."""
     
     # Map timeframe to interval
     interval = TIMEFRAME_MAP.get(timeframe)
@@ -136,6 +179,7 @@ def _fetch_intraday_candles(
     url = f"{DHAN_BASE_URL}/charts/intraday"
     
     # Format dates with time for intraday
+    # Dhan API expects 'YYYY-MM-DD HH:MM:SS'
     from_datetime = f"{from_date} 09:15:00"
     to_datetime = f"{to_date} 15:30:00"
     

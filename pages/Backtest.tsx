@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Database, Sliders, AlertCircle, CheckCircle, Split, Info, AlertTriangle, CheckSquare, Clock } from 'lucide-react';
-import { MOCK_SYMBOLS, UNIVERSES } from '../constants'; 
+import { MOCK_SYMBOLS, UNIVERSES } from '../constants';
 import { runBacktest, validateMarketData, DataHealthReport, fetchStrategies } from '../services/api';
 import { Timeframe, Strategy } from '../types';
 import { Card } from '../components/ui/Card';
@@ -22,7 +22,7 @@ const useDebounce = (value: string, delay: number) => {
 
 // Search instruments API
 const searchInstruments = async (segment: string, query: string) => {
-  return fetchClient<Array<{symbol: string; display_name: string; security_id: string; instrument_type: string}>>(`/market/instruments?segment=${segment}&q=${encodeURIComponent(query)}`);
+  return fetchClient<Array<{ symbol: string; display_name: string; security_id: string; instrument_type: string }>>(`/market/instruments?segment=${segment}&q=${encodeURIComponent(query)}`);
 };
 
 // Run backtest with Dhan API
@@ -71,22 +71,22 @@ const runBacktestWithDhan = async (payload: {
 const Backtest: React.FC = () => {
   const navigate = useNavigate();
   const [running, setRunning] = useState(false);
-  
+
   // Core Config
   const [mode, setMode] = useState<'SINGLE' | 'UNIVERSE'>('SINGLE');
   const [segment, setSegment] = useState<'NSE_EQ' | 'NSE_SME'>('NSE_EQ');
   const [symbol, setSymbol] = useState('');
   const [symbolSearchQuery, setSymbolSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<Array<{symbol: string; display_name: string; security_id: string; instrument_type: string}>>([]);
-  const [selectedInstrument, setSelectedInstrument] = useState<{symbol: string; display_name: string; security_id: string; instrument_type: string} | null>(null);
+  const [searchResults, setSearchResults] = useState<Array<{ symbol: string; display_name: string; security_id: string; instrument_type: string }>>([]);
+  const [selectedInstrument, setSelectedInstrument] = useState<{ symbol: string; display_name: string; security_id: string; instrument_type: string } | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [universe, setUniverse] = useState(UNIVERSES[0].id);
   const [timeframe, setTimeframe] = useState<Timeframe>(Timeframe.D1);
-  
+
   // Strategy State
   const [strategyId, setStrategyId] = useState('1');
   const [customStrategies, setCustomStrategies] = useState<Strategy[]>([]);
-  
+
   // Date Range
   const [startDate, setStartDate] = useState('2023-01-01');
   const [endDate, setEndDate] = useState('2023-12-31');
@@ -109,44 +109,44 @@ const Backtest: React.FC = () => {
 
   // Load Strategies on Mount
   useEffect(() => {
-      const loadStrats = async () => {
-          try {
-              const strats = await fetchStrategies();
-              setCustomStrategies(strats);
-          } catch (e) {
-              console.error("Failed to load strategies", e);
-          }
-      };
-      loadStrats();
+    const loadStrats = async () => {
+      try {
+        const strats = await fetchStrategies();
+        setCustomStrategies(strats);
+      } catch (e) {
+        console.error("Failed to load strategies", e);
+      }
+    };
+    loadStrats();
   }, []);
 
   // Initialize defaults based on strategy selection
   useEffect(() => {
     if (strategyId === '1') { // RSI
-        setParams({ period: 14, lower: 30, upper: 70 });
+      setParams({ period: 14, lower: 30, upper: 70 });
     } else if (strategyId === '3') { // SMA
-        setParams({ fast: 10, slow: 50 });
+      setParams({ fast: 10, slow: 50 });
     } else {
-        // Clear params for custom strategies as they are embedded in the strategy object
-        setParams({});
+      // Clear params for custom strategies as they are embedded in the strategy object
+      setParams({});
     }
   }, [strategyId]);
 
   // Reset data status when key inputs change
   useEffect(() => {
-      setDataStatus('IDLE');
-      setHealthReport(null);
+    setDataStatus('IDLE');
+    setHealthReport(null);
   }, [symbol, universe, timeframe, startDate, endDate]);
 
   // Debounced search effect
   const debouncedSearchQuery = useDebounce(symbolSearchQuery, 300);
-  
+
   useEffect(() => {
     if (mode !== 'SINGLE' || !debouncedSearchQuery || debouncedSearchQuery.length < 2) {
       setSearchResults([]);
       return;
     }
-    
+
     const doSearch = async () => {
       setIsSearching(true);
       try {
@@ -159,7 +159,7 @@ const Backtest: React.FC = () => {
         setIsSearching(false);
       }
     };
-    
+
     doSearch();
   }, [debouncedSearchQuery, segment, mode]);
 
@@ -168,8 +168,8 @@ const Backtest: React.FC = () => {
     const start = new Date(startDate);
     const end = new Date(endDate);
     const diffTime = Math.abs(end.getTime() - start.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-    
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
     if (isNaN(diffDays)) return '-';
 
     const splitDayIndex = Math.floor(diffDays * (splitRatio / 100));
@@ -179,99 +179,100 @@ const Backtest: React.FC = () => {
   }, [startDate, endDate, splitRatio]);
 
   const handleLoadData = async () => {
-      setDataStatus('LOADING');
-      try {
-          // Call API to validate data
-          const target = mode === 'SINGLE' ? symbol : universe;
-          const report = await validateMarketData(target, timeframe, startDate, endDate);
-          setHealthReport(report);
-          setDataStatus('READY');
-      } catch (e) {
-          setDataStatus('ERROR');
-      }
+    setDataStatus('LOADING');
+    try {
+      // Call API to validate data
+      const target = mode === 'SINGLE' ? symbol : universe;
+      const report = await validateMarketData(target, timeframe, startDate, endDate);
+      setHealthReport(report);
+      setDataStatus('READY');
+    } catch (e) {
+      setDataStatus('ERROR');
+    }
   };
 
   const handleRun = async () => {
     if (dataStatus !== 'READY') {
-        alert("Please load and validate market data first.");
-        return;
+      alert("Please load and validate market data first.");
+      return;
     }
 
     // For SINGLE mode, require selected instrument
     if (mode === 'SINGLE' && !selectedInstrument) {
-        alert("Please select a symbol from the search results.");
-        return;
+      alert("Please select a symbol from the search results.");
+      return;
     }
 
     setRunning(true);
     try {
-        if (mode === 'SINGLE' && selectedInstrument) {
-            // Use new Dhan-based backtest API
-            const timeframeMap: Record<string, string> = {
-                [Timeframe.M1]: '1m',
-                [Timeframe.M5]: '5m',
-                [Timeframe.M15]: '15m',
-                [Timeframe.H1]: '1h',
-                [Timeframe.D1]: '1d'
-            };
-            
-            const result = await runBacktestWithDhan({
-                instrument_details: {
-                    security_id: selectedInstrument.security_id,
-                    symbol: selectedInstrument.symbol,
-                    exchange_segment: 'NSE_EQ', // Always NSE_EQ for Dhan API
-                    instrument_type: selectedInstrument.instrument_type
-                },
-                parameters: {
-                    timeframe: timeframeMap[timeframe] || '1d',
-                    start_date: startDate,
-                    end_date: endDate,
-                    initial_capital: capital,
-                    strategy_logic: {
-                        name: strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy',
-                        ...params
-                    }
-                }
-            });
-            
-            if (result) {
-                navigate('/results', { state: { result } });
-            }
-        } else {
-            // Fallback to old API for universe mode
-            const config: any = { 
-                capital, 
-                slippage, 
-                commission,
-                ...params,
-                splitDate: splitDateString,
-                trainTestSplit: splitRatio
-            };
-            
-            if (mode === 'UNIVERSE') {
-                config.universe = universe;
-            }
+      if (mode === 'SINGLE' && selectedInstrument) {
+        // Use new Dhan-based backtest API
+        const timeframeMap: Record<string, string> = {
+          [Timeframe.M1]: '1m',
+          [Timeframe.M5]: '5m',
+          [Timeframe.M15]: '15m',
+          [Timeframe.H1]: '1h',
+          [Timeframe.D1]: '1d'
+        };
 
-            const result = await runBacktest(strategyId, mode === 'SINGLE' ? symbol : universe, config);
-            
-            if (result) result.timeframe = timeframe; 
-            navigate('/results', { state: { result } });
+        const result = await runBacktestWithDhan({
+          instrument_details: {
+            security_id: selectedInstrument.security_id,
+            symbol: selectedInstrument.symbol,
+            exchange_segment: 'NSE_EQ', // Always NSE_EQ for Dhan API
+            instrument_type: selectedInstrument.instrument_type
+          },
+          parameters: {
+            timeframe: timeframeMap[timeframe] || '1d',
+            start_date: startDate,
+            end_date: endDate,
+            initial_capital: capital,
+            strategy_logic: {
+              id: strategyId,
+              name: strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy',
+              ...params
+            }
+          }
+        });
+
+        if (result) {
+          navigate('/results', { state: { result } });
         }
+      } else {
+        // Fallback to old API for universe mode
+        const config: any = {
+          capital,
+          slippage,
+          commission,
+          ...params,
+          splitDate: splitDateString,
+          trainTestSplit: splitRatio
+        };
+
+        if (mode === 'UNIVERSE') {
+          config.universe = universe;
+        }
+
+        const result = await runBacktest(strategyId, mode === 'SINGLE' ? symbol : universe, config);
+
+        if (result) result.timeframe = timeframe;
+        navigate('/results', { state: { result } });
+      }
     } catch (e) {
-        alert("Backtest Failed: " + e);
+      alert("Backtest Failed: " + e);
     } finally {
-        setRunning(false);
+      setRunning(false);
     }
   };
 
   const renderHealthBadge = (status: string) => {
-      switch(status) {
-          case 'EXCELLENT': return <Badge variant="success" className="flex items-center"><CheckCircle className="w-3 h-3 mr-1"/> Excellent Quality</Badge>;
-          case 'GOOD': return <Badge variant="info" className="flex items-center"><CheckSquare className="w-3 h-3 mr-1"/> Good Quality</Badge>;
-          case 'POOR': return <Badge variant="warning" className="flex items-center"><AlertTriangle className="w-3 h-3 mr-1"/> Poor Quality</Badge>;
-          case 'CRITICAL': return <Badge variant="danger" className="flex items-center"><AlertCircle className="w-3 h-3 mr-1"/> Critical Issues</Badge>;
-          default: return null;
-      }
+    switch (status) {
+      case 'EXCELLENT': return <Badge variant="success" className="flex items-center"><CheckCircle className="w-3 h-3 mr-1" /> Excellent Quality</Badge>;
+      case 'GOOD': return <Badge variant="info" className="flex items-center"><CheckSquare className="w-3 h-3 mr-1" /> Good Quality</Badge>;
+      case 'POOR': return <Badge variant="warning" className="flex items-center"><AlertTriangle className="w-3 h-3 mr-1" /> Poor Quality</Badge>;
+      case 'CRITICAL': return <Badge variant="danger" className="flex items-center"><AlertCircle className="w-3 h-3 mr-1" /> Critical Issues</Badge>;
+      default: return null;
+    }
   };
 
   return (
@@ -282,366 +283,365 @@ const Backtest: React.FC = () => {
       </div>
 
       <Card className="p-8 shadow-2xl shadow-black/50 border-t-4 border-t-emerald-500">
-          <div className="space-y-8">
-            
-            {/* 1. STRATEGY SELECTION & DYNAMIC PARAMS */}
-            <div className="bg-slate-950/50 p-6 rounded-xl border border-slate-800">
-                <div className="flex items-center justify-between mb-4">
-                     <label className="text-sm font-medium text-slate-400 flex items-center">
-                        <Layers className="w-4 h-4 mr-2" /> Strategy Logic
-                     </label>
-                     <div className="text-xs text-emerald-400 flex items-center bg-emerald-500/10 px-2 py-1 rounded">
-                         <Sliders className="w-3 h-3 mr-1" /> Parameters Active
-                     </div>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="md:col-span-1">
-                        <select 
-                            value={strategyId}
-                            onChange={(e) => setStrategyId(e.target.value)}
-                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:ring-1 focus:ring-emerald-500 outline-none"
-                        >
-                            <optgroup label="Preset Strategies">
-                                <option value="3">Moving Average Crossover</option>
-                                <option value="1">RSI Mean Reversion</option>
-                            </optgroup>
-                            {customStrategies.length > 0 && (
-                                <optgroup label="My Custom Strategies">
-                                    {customStrategies.map(s => (
-                                        <option key={s.id} value={s.id}>{s.name}</option>
-                                    ))}
-                                </optgroup>
-                            )}
-                        </select>
-                    </div>
+        <div className="space-y-8">
 
-                    {/* In-Place Parameter Overrides */}
-                    <div className="md:col-span-2 grid grid-cols-3 gap-4">
-                        {strategyId === '1' && (
-                            <>
-                                <div>
-                                    <label className="text-xs text-slate-500 block mb-1">Period</label>
-                                    <input type="number" value={params.period || 14} onChange={(e) => setParams({...params, period: parseInt(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
-                                </div>
-                                <div>
-                                    <label className="text-xs text-slate-500 block mb-1">Oversold</label>
-                                    <input type="number" value={params.lower || 30} onChange={(e) => setParams({...params, lower: parseInt(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
-                                </div>
-                                <div>
-                                    <label className="text-xs text-slate-500 block mb-1">Overbought</label>
-                                    <input type="number" value={params.upper || 70} onChange={(e) => setParams({...params, upper: parseInt(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
-                                </div>
-                            </>
-                        )}
-                        {strategyId === '3' && (
-                             <>
-                                <div>
-                                    <label className="text-xs text-slate-500 block mb-1">Fast Period</label>
-                                    <input type="number" value={params.fast || 10} onChange={(e) => setParams({...params, fast: parseInt(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
-                                </div>
-                                <div>
-                                    <label className="text-xs text-slate-500 block mb-1">Slow Period</label>
-                                    <input type="number" value={params.slow || 50} onChange={(e) => setParams({...params, slow: parseInt(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
-                                </div>
-                                <div className="flex items-end pb-2">
-                                    <span className="text-xs text-slate-500">Cross Logic Active</span>
-                                </div>
-                            </>
-                        )}
-                        {strategyId !== '1' && strategyId !== '3' && (
-                             <div className="col-span-3 flex items-center justify-center text-xs text-slate-500 italic h-full">
-                                 Using saved parameters from Strategy Builder.
-                             </div>
-                        )}
-                    </div>
-                </div>
+          {/* 1. STRATEGY SELECTION & DYNAMIC PARAMS */}
+          <div className="bg-slate-950/50 p-6 rounded-xl border border-slate-800">
+            <div className="flex items-center justify-between mb-4">
+              <label className="text-sm font-medium text-slate-400 flex items-center">
+                <Layers className="w-4 h-4 mr-2" /> Strategy Logic
+              </label>
+              <div className="text-xs text-emerald-400 flex items-center bg-emerald-500/10 px-2 py-1 rounded">
+                <Sliders className="w-3 h-3 mr-1" /> Parameters Active
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              
-              {/* 2. ASSET SELECTION */}
-              <div className="space-y-6">
-                 <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-2">Backtest Mode</label>
-                    <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-700">
-                        <button 
-                            onClick={() => setMode('SINGLE')} 
-                            className={`flex-1 py-1.5 text-sm rounded-md transition-all ${mode === 'SINGLE' ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
-                        >
-                            Single Symbol
-                        </button>
-                        <button 
-                            onClick={() => setMode('UNIVERSE')} 
-                            className={`flex-1 py-1.5 text-sm rounded-md transition-all ${mode === 'UNIVERSE' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
-                        >
-                            Multi-Asset Universe
-                        </button>
-                    </div>
-                 </div>
-
-                 {mode === 'SINGLE' ? (
-                     <div className="space-y-4">
-                      {/* Segment Dropdown */}
-                      <div>
-                        <label className="block text-sm font-medium text-slate-400 mb-2">Market Segment</label>
-                        <select 
-                          value={segment}
-                          onChange={(e) => {
-                            setSegment(e.target.value as 'NSE_EQ' | 'NSE_SME');
-                            setSelectedInstrument(null);
-                            setSymbol('');
-                            setSymbolSearchQuery('');
-                            setSearchResults([]);
-                          }}
-                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-emerald-500 outline-none"
-                        >
-                          <option value="NSE_EQ">NSE Mainboard</option>
-                          <option value="NSE_SME">NSE SME</option>
-                        </select>
-                      </div>
-
-                      {/* Symbol Search */}
-                      <div className="relative z-50">
-                        <div className="flex justify-between mb-2">
-                          <label className="block text-sm font-medium text-slate-400">Symbol Search</label>
-                          {selectedInstrument ? (
-                            <span className="text-xs text-emerald-400">
-                              {selectedInstrument.display_name} (ID: {selectedInstrument.security_id})
-                            </span>
-                          ) : (
-                            <span className="text-xs text-yellow-500">
-                              Type 2+ chars and click a result
-                            </span>
-                          )}
-                        </div>
-                        <div className="relative">
-                          <input
-                            type="text"
-                            value={symbolSearchQuery}
-                            onChange={(e) => {
-                              setSymbolSearchQuery(e.target.value);
-                              if (selectedInstrument) {
-                                // Clear selection when user starts typing again
-                                setSelectedInstrument(null);
-                                setSymbol('');
-                              }
-                            }}
-                            placeholder={`Search ${segment === 'NSE_EQ' ? 'Mainboard' : 'SME'} stocks...`}
-                            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-emerald-500 outline-none"
-                          />
-                          {isSearching && (
-                            <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                              <div className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin"></div>
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* Search Results Dropdown */}
-                        {searchResults.length > 0 && !selectedInstrument && (
-                          <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg max-h-60 overflow-y-auto shadow-xl">
-                            {searchResults.map((result) => (
-                              <button
-                                key={result.security_id}
-                                onClick={() => {
-                                  setSelectedInstrument(result);
-                                  setSymbol(result.symbol);
-                                  setSymbolSearchQuery(`${result.symbol} - ${result.display_name}`);
-                                  setSearchResults([]);
-                                }}
-                                className="w-full px-4 py-3 text-left hover:bg-slate-800 transition-colors border-b border-slate-800 last:border-0"
-                              >
-                                <div className="flex justify-between items-center">
-                                  <span className="font-medium text-slate-200">{result.symbol}</span>
-                                  <span className="text-xs text-slate-500">{result.instrument_type}</span>
-                                </div>
-                                <div className="text-xs text-slate-400 truncate">{result.display_name}</div>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        
-                        {/* No results message */}
-                        {symbolSearchQuery.length >= 2 && !isSearching && searchResults.length === 0 && !selectedInstrument && (
-                          <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-400">
-                            No results found. Try a different search term.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                 ) : (
-                     <div>
-                      <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center">
-                          <Database className="w-4 h-4 mr-2 text-indigo-400" /> Universe
-                      </label>
-                      <select 
-                        value={universe}
-                        onChange={(e) => setUniverse(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-indigo-500 outline-none"
-                      >
-                        {UNIVERSES && UNIVERSES.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                      </select>
-                    </div>
-                 )}
-
-                 <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center">
-                     <Clock className="w-4 h-4 mr-2" /> Timeframe
-                  </label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {Object.values(Timeframe).map(tf => (
-                      <button 
-                        key={tf} 
-                        onClick={() => setTimeframe(tf)}
-                        className={`py-2 rounded-lg text-sm font-medium border transition-colors ${timeframe === tf ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-slate-950 border-slate-700 text-slate-400 hover:border-slate-500'}`}
-                      >
-                        {tf}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="md:col-span-1">
+                <select
+                  value={strategyId}
+                  onChange={(e) => setStrategyId(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:ring-1 focus:ring-emerald-500 outline-none"
+                >
+                  <optgroup label="Preset Strategies">
+                    <option value="3">Moving Average Crossover</option>
+                    <option value="1">RSI Mean Reversion</option>
+                  </optgroup>
+                  {customStrategies.length > 0 && (
+                    <optgroup label="My Custom Strategies">
+                      {customStrategies.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
               </div>
 
-              {/* 3. DATES, LOAD DATA & SPLITTER */}
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center justify-between">
-                     <div className="flex items-center"><Calendar className="w-4 h-4 mr-2" /> Date Range & Data</div>
-                     {dataStatus === 'READY' && <span className="text-xs text-emerald-400 font-mono">DATA LOCKED</span>}
-                  </label>
-                  <div className="flex space-x-2 mb-3">
-                     <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200" />
-                     <span className="text-slate-600 self-center">-</span>
-                     <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200" />
-                  </div>
-                  
-                  {/* Improvement 1: Load Market Data Button */}
-                  <Button 
-                      variant="secondary" 
-                      className={`w-full justify-center ${dataStatus === 'READY' ? 'bg-emerald-900/20 border-emerald-500/50 text-emerald-400' : ''}`}
-                      onClick={handleLoadData}
-                      disabled={dataStatus === 'LOADING'}
-                      icon={dataStatus === 'LOADING' ? <div className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin"></div> : <Database className="w-4 h-4" />}
-                  >
-                      {dataStatus === 'LOADING' ? 'Validating Data...' : dataStatus === 'READY' ? 'Data Loaded & Validated' : 'Load Market Data'}
-                  </Button>
-                </div>
-
-                {/* Improvement 2: Data Health Report Card */}
-                {dataStatus === 'READY' && healthReport && (
-                    <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 animate-in fade-in slide-in-from-top-2">
-                        <div className="flex justify-between items-center mb-3">
-                            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Health Report</h4>
-                            {renderHealthBadge(healthReport.status)}
-                        </div>
-                        <div className="grid grid-cols-2 gap-y-2 text-sm">
-                            <div className="flex justify-between pr-2 border-r border-slate-800">
-                                <span className="text-slate-500">Quality Score</span>
-                                <span className={`font-mono font-bold ${healthReport.score > 90 ? 'text-emerald-400' : 'text-yellow-400'}`}>{healthReport.score}%</span>
-                            </div>
-                            <div className="flex justify-between pl-2">
-                                <span className="text-slate-500">Total Candles</span>
-                                <span className="font-mono text-slate-200">{healthReport.totalCandles}</span>
-                            </div>
-                            <div className="flex justify-between pr-2 border-r border-slate-800">
-                                <span className="text-slate-500">Missing</span>
-                                <span className={`font-mono ${healthReport.missingCandles > 0 ? 'text-red-400' : 'text-slate-200'}`}>{healthReport.missingCandles}</span>
-                            </div>
-                            <div className="flex justify-between pl-2">
-                                <span className="text-slate-500">Zero Volume</span>
-                                <span className={`font-mono ${healthReport.zeroVolumeCandles > 0 ? 'text-yellow-400' : 'text-slate-200'}`}>{healthReport.zeroVolumeCandles}</span>
-                            </div>
-                        </div>
-                        {healthReport.gaps.length > 0 && (
-                            <div className="mt-2 pt-2 border-t border-slate-800">
-                                <p className="text-xs text-red-400 flex items-center"><AlertTriangle className="w-3 h-3 mr-1"/> Gap detected near {healthReport.gaps[0]}</p>
-                            </div>
-                        )}
+              {/* In-Place Parameter Overrides */}
+              <div className="md:col-span-2 grid grid-cols-3 gap-4">
+                {strategyId === '1' && (
+                  <>
+                    <div>
+                      <label className="text-xs text-slate-500 block mb-1">Period</label>
+                      <input type="number" value={params.period || 14} onChange={(e) => setParams({ ...params, period: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
                     </div>
+                    <div>
+                      <label className="text-xs text-slate-500 block mb-1">Oversold</label>
+                      <input type="number" value={params.lower || 30} onChange={(e) => setParams({ ...params, lower: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500 block mb-1">Overbought</label>
+                      <input type="number" value={params.upper || 70} onChange={(e) => setParams({ ...params, upper: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
+                    </div>
+                  </>
                 )}
-                
-                {/* Visual Splitter */}
-                <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
-                    <div className="flex justify-between text-xs mb-2">
-                        <span className="text-blue-400 font-bold">In-Sample (Train): {splitRatio}%</span>
-                        <span className="text-purple-400 font-bold">Out-of-Sample (Test): {100 - splitRatio}%</span>
+                {strategyId === '3' && (
+                  <>
+                    <div>
+                      <label className="text-xs text-slate-500 block mb-1">Fast Period</label>
+                      <input type="number" value={params.fast || 10} onChange={(e) => setParams({ ...params, fast: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
                     </div>
-                    <input 
-                        type="range" 
-                        min="50" max="95" step="5"
-                        value={splitRatio}
-                        onChange={(e) => setSplitRatio(parseInt(e.target.value))}
-                        className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 mb-2"
-                    />
-                    <div className="flex items-center justify-center text-xs text-slate-500 bg-slate-900 py-1 rounded border border-slate-800 border-dashed">
-                        <Split className="w-3 h-3 mr-1" />
-                        Split Date: <span className="text-slate-200 ml-1 font-mono">{splitDateString}</span>
+                    <div>
+                      <label className="text-xs text-slate-500 block mb-1">Slow Period</label>
+                      <input type="number" value={params.slow || 50} onChange={(e) => setParams({ ...params, slow: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
                     </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center">
-                     <DollarSign className="w-4 h-4 mr-2" /> Initial Capital
-                  </label>
-                  <input 
-                    type="number" 
-                    value={capital}
-                    onChange={(e) => setCapital(parseFloat(e.target.value))}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-emerald-500 outline-none"
-                  />
-                </div>
+                    <div className="flex items-end pb-2">
+                      <span className="text-xs text-slate-500">Cross Logic Active</span>
+                    </div>
+                  </>
+                )}
+                {strategyId !== '1' && strategyId !== '3' && (
+                  <div className="col-span-3 flex items-center justify-center text-xs text-slate-500 italic h-full">
+                    Using saved parameters from Strategy Builder.
+                  </div>
+                )}
               </div>
-            </div>
-
-            {/* Advanced Settings Toggle */}
-            <div className="border-t border-slate-800 pt-4">
-                 <button onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center text-sm text-slate-400 hover:text-emerald-400 transition-colors">
-                     <Settings className="w-4 h-4 mr-2" />
-                     Advanced Configuration
-                     <ChevronDown className={`w-4 h-4 ml-2 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
-                 </button>
-                 {showAdvanced && (
-                     <div className="grid grid-cols-2 gap-6 mt-4 bg-slate-950 p-4 rounded-xl border border-slate-800 animate-in fade-in slide-in-from-top-2">
-                         <div>
-                             <label className="text-xs text-slate-500 block mb-1">Slippage (%)</label>
-                             <input type="number" step="0.01" value={slippage} onChange={(e) => setSlippage(parseFloat(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
-                         </div>
-                         <div>
-                             <label className="text-xs text-slate-500 block mb-1">Commission (Flat ₹)</label>
-                             <input type="number" value={commission} onChange={(e) => setCommission(parseFloat(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
-                         </div>
-                     </div>
-                 )}
-            </div>
-
-            <div className="pt-2">
-               <button 
-                  onClick={handleRun} 
-                  disabled={running || dataStatus !== 'READY'} 
-                  className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-lg font-bold py-4 rounded-xl shadow-lg shadow-emerald-900/40 transition-all transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center disabled:grayscale"
-               >
-                 {running ? (
-                   <>
-                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-3"></div>
-                     Running Simulation...
-                   </>
-                 ) : (
-                   <>
-                     <PlayCircle className="w-6 h-6 mr-2" />
-                     Start {mode === 'UNIVERSE' ? 'Multi-Asset' : ''} Simulation
-                   </>
-                 )}
-               </button>
-               <p className="text-center text-xs text-slate-500 mt-3 flex items-center justify-center">
-                  <Info className="w-3 h-3 mr-1" />
-                  Engine uses {100 - splitRatio}% of recent data for out-of-sample validation.
-               </p>
             </div>
           </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+            {/* 2. ASSET SELECTION */}
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-2">Backtest Mode</label>
+                <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-700">
+                  <button
+                    onClick={() => setMode('SINGLE')}
+                    className={`flex-1 py-1.5 text-sm rounded-md transition-all ${mode === 'SINGLE' ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                  >
+                    Single Symbol
+                  </button>
+                  <button
+                    onClick={() => setMode('UNIVERSE')}
+                    className={`flex-1 py-1.5 text-sm rounded-md transition-all ${mode === 'UNIVERSE' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                  >
+                    Multi-Asset Universe
+                  </button>
+                </div>
+              </div>
+
+              {mode === 'SINGLE' ? (
+                <div className="space-y-4">
+                  {/* Segment Dropdown */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-2">Market Segment</label>
+                    <select
+                      value={segment}
+                      onChange={(e) => {
+                        setSegment(e.target.value as 'NSE_EQ' | 'NSE_SME');
+                        setSelectedInstrument(null);
+                        setSymbol('');
+                        setSymbolSearchQuery('');
+                        setSearchResults([]);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-emerald-500 outline-none"
+                    >
+                      <option value="NSE_EQ">NSE Mainboard</option>
+                      <option value="NSE_SME">NSE SME</option>
+                    </select>
+                  </div>
+
+                  {/* Symbol Search */}
+                  <div className="relative z-50">
+                    <div className="flex justify-between mb-2">
+                      <label className="block text-sm font-medium text-slate-400">Symbol Search</label>
+                      {selectedInstrument ? (
+                        <span className="text-xs text-emerald-400">
+                          {selectedInstrument.display_name} (ID: {selectedInstrument.security_id})
+                        </span>
+                      ) : (
+                        <span className="text-xs text-yellow-500">
+                          Type 2+ chars and click a result
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={symbolSearchQuery}
+                        onChange={(e) => {
+                          setSymbolSearchQuery(e.target.value);
+                          if (selectedInstrument) {
+                            // Clear selection when user starts typing again
+                            setSelectedInstrument(null);
+                            setSymbol('');
+                          }
+                        }}
+                        placeholder={`Search ${segment === 'NSE_EQ' ? 'Mainboard' : 'SME'} stocks...`}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-emerald-500 outline-none"
+                      />
+                      {isSearching && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          <div className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin"></div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Search Results Dropdown */}
+                    {searchResults.length > 0 && !selectedInstrument && (
+                      <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg max-h-60 overflow-y-auto shadow-xl">
+                        {searchResults.map((result) => (
+                          <button
+                            key={result.security_id}
+                            onClick={() => {
+                              setSelectedInstrument(result);
+                              setSymbol(result.symbol);
+                              setSymbolSearchQuery(`${result.symbol} - ${result.display_name}`);
+                              setSearchResults([]);
+                            }}
+                            className="w-full px-4 py-3 text-left hover:bg-slate-800 transition-colors border-b border-slate-800 last:border-0"
+                          >
+                            <div className="flex justify-between items-center">
+                              <span className="font-medium text-slate-200">{result.symbol}</span>
+                              <span className="text-xs text-slate-500">{result.instrument_type}</span>
+                            </div>
+                            <div className="text-xs text-slate-400 truncate">{result.display_name}</div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* No results message */}
+                    {symbolSearchQuery.length >= 2 && !isSearching && searchResults.length === 0 && !selectedInstrument && (
+                      <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-400">
+                        No results found. Try a different search term.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center">
+                    <Database className="w-4 h-4 mr-2 text-indigo-400" /> Universe
+                  </label>
+                  <select
+                    value={universe}
+                    onChange={(e) => setUniverse(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-indigo-500 outline-none"
+                  >
+                    {UNIVERSES && UNIVERSES.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center">
+                  <Clock className="w-4 h-4 mr-2" /> Timeframe
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {Object.values(Timeframe).map(tf => (
+                    <button
+                      key={tf}
+                      onClick={() => setTimeframe(tf)}
+                      className={`py-2 rounded-lg text-sm font-medium border transition-colors ${timeframe === tf ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-slate-950 border-slate-700 text-slate-400 hover:border-slate-500'}`}
+                    >
+                      {tf}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* 3. DATES, LOAD DATA & SPLITTER */}
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center justify-between">
+                  <div className="flex items-center"><Calendar className="w-4 h-4 mr-2" /> Date Range & Data</div>
+                  {dataStatus === 'READY' && <span className="text-xs text-emerald-400 font-mono">DATA LOCKED</span>}
+                </label>
+                <div className="flex space-x-2 mb-3">
+                  <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200" />
+                  <span className="text-slate-600 self-center">-</span>
+                  <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200" />
+                </div>
+
+                {/* Improvement 1: Load Market Data Button */}
+                <Button
+                  variant="secondary"
+                  className={`w-full justify-center ${dataStatus === 'READY' ? 'bg-emerald-900/20 border-emerald-500/50 text-emerald-400' : ''}`}
+                  onClick={handleLoadData}
+                  disabled={dataStatus === 'LOADING'}
+                  icon={dataStatus === 'LOADING' ? <div className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin"></div> : <Database className="w-4 h-4" />}
+                >
+                  {dataStatus === 'LOADING' ? 'Validating Data...' : dataStatus === 'READY' ? 'Data Loaded & Validated' : 'Load Market Data'}
+                </Button>
+              </div>
+
+              {/* Improvement 2: Data Health Report Card */}
+              {dataStatus === 'READY' && healthReport && (
+                <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 animate-in fade-in slide-in-from-top-2">
+                  <div className="flex justify-between items-center mb-3">
+                    <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Health Report</h4>
+                    {renderHealthBadge(healthReport.status)}
+                  </div>
+                  <div className="grid grid-cols-2 gap-y-2 text-sm">
+                    <div className="flex justify-between pr-2 border-r border-slate-800">
+                      <span className="text-slate-500">Quality Score</span>
+                      <span className={`font-mono font-bold ${healthReport.score > 90 ? 'text-emerald-400' : 'text-yellow-400'}`}>{healthReport.score}%</span>
+                    </div>
+                    <div className="flex justify-between pl-2">
+                      <span className="text-slate-500">Total Candles</span>
+                      <span className="font-mono text-slate-200">{healthReport.totalCandles}</span>
+                    </div>
+                    <div className="flex justify-between pr-2 border-r border-slate-800">
+                      <span className="text-slate-500">Missing</span>
+                      <span className={`font-mono ${healthReport.missingCandles > 0 ? 'text-red-400' : 'text-slate-200'}`}>{healthReport.missingCandles}</span>
+                    </div>
+                    <div className="flex justify-between pl-2">
+                      <span className="text-slate-500">Zero Volume</span>
+                      <span className={`font-mono ${healthReport.zeroVolumeCandles > 0 ? 'text-yellow-400' : 'text-slate-200'}`}>{healthReport.zeroVolumeCandles}</span>
+                    </div>
+                  </div>
+                  {healthReport.gaps.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-slate-800">
+                      <p className="text-xs text-red-400 flex items-center"><AlertTriangle className="w-3 h-3 mr-1" /> Gap detected near {healthReport.gaps[0]}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Visual Splitter */}
+              <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                <div className="flex justify-between text-xs mb-2">
+                  <span className="text-blue-400 font-bold">In-Sample (Train): {splitRatio}%</span>
+                  <span className="text-purple-400 font-bold">Out-of-Sample (Test): {100 - splitRatio}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="50" max="95" step="5"
+                  value={splitRatio}
+                  onChange={(e) => setSplitRatio(parseInt(e.target.value))}
+                  className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 mb-2"
+                />
+                <div className="flex items-center justify-center text-xs text-slate-500 bg-slate-900 py-1 rounded border border-slate-800 border-dashed">
+                  <Split className="w-3 h-3 mr-1" />
+                  Split Date: <span className="text-slate-200 ml-1 font-mono">{splitDateString}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center">
+                  <DollarSign className="w-4 h-4 mr-2" /> Initial Capital
+                </label>
+                <input
+                  type="number"
+                  value={capital}
+                  onChange={(e) => setCapital(parseFloat(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Advanced Settings Toggle */}
+          <div className="border-t border-slate-800 pt-4">
+            <button onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center text-sm text-slate-400 hover:text-emerald-400 transition-colors">
+              <Settings className="w-4 h-4 mr-2" />
+              Advanced Configuration
+              <ChevronDown className={`w-4 h-4 ml-2 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+            </button>
+            {showAdvanced && (
+              <div className="grid grid-cols-2 gap-6 mt-4 bg-slate-950 p-4 rounded-xl border border-slate-800 animate-in fade-in slide-in-from-top-2">
+                <div>
+                  <label className="text-xs text-slate-500 block mb-1">Slippage (%)</label>
+                  <input type="number" step="0.01" value={slippage} onChange={(e) => setSlippage(parseFloat(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 block mb-1">Commission (Flat ₹)</label>
+                  <input type="number" value={commission} onChange={(e) => setCommission(parseFloat(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="pt-2">
+            <button
+              onClick={handleRun}
+              disabled={running || dataStatus !== 'READY'}
+              className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-lg font-bold py-4 rounded-xl shadow-lg shadow-emerald-900/40 transition-all transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center disabled:grayscale"
+            >
+              {running ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-3"></div>
+                  Running Simulation...
+                </>
+              ) : (
+                <>
+                  <PlayCircle className="w-6 h-6 mr-2" />
+                  Start {mode === 'UNIVERSE' ? 'Multi-Asset' : ''} Simulation
+                </>
+              )}
+            </button>
+            <p className="text-center text-xs text-slate-500 mt-3 flex items-center justify-center">
+              <Info className="w-3 h-3 mr-1" />
+              Engine uses {100 - splitRatio}% of recent data for out-of-sample validation.
+            </p>
+          </div>
+        </div>
       </Card>
     </div>
   );
 };
 
 export default Backtest;
-    
