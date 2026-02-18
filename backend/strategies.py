@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import vectorbt as vbt
 
 class BaseStrategy:
     """
@@ -12,7 +13,7 @@ class BaseStrategy:
     def generate_signals(self, df):
         """
         Input: DataFrame with OHLCV data.
-        Output: DataFrame with 'Signal' column (1=Long, -1=Short, 0=Neutral).
+        Output: Tuple (entries, exits) - Boolean Series
         """
         raise NotImplementedError("Strategies must implement generate_signals")
 
@@ -21,16 +22,15 @@ class SmaCrossover(BaseStrategy):
         fast_period = int(self.config.get('fast', 10))
         slow_period = int(self.config.get('slow', 50))
         
-        # Vectorized Rolling Calculations
-        df['SMA_Fast'] = df['Close'].rolling(window=fast_period).mean()
-        df['SMA_Slow'] = df['Close'].rolling(window=slow_period).mean()
+        # Calculate MA using vectorbt's optimized indicator
+        fast_ma = vbt.MA.run(df['Close'], window=fast_period)
+        slow_ma = vbt.MA.run(df['Close'], window=slow_period)
         
-        # Vectorized Signal Generation (Boolean Masking)
-        df['Signal'] = 0
-        df.loc[df['SMA_Fast'] > df['SMA_Slow'], 'Signal'] = 1
-        df.loc[df['SMA_Fast'] < df['SMA_Slow'], 'Signal'] = -1
+        # Generate Crossover Signals
+        entries = fast_ma.ma_crossed_above(slow_ma)
+        exits = fast_ma.ma_crossed_below(slow_ma)
         
-        return df
+        return entries, exits
 
 class RsiMeanReversion(BaseStrategy):
     def generate_signals(self, df):
@@ -38,20 +38,14 @@ class RsiMeanReversion(BaseStrategy):
         lower_bound = int(self.config.get('lower', 30))
         upper_bound = int(self.config.get('upper', 70))
         
-        # Vectorized RSI Calculation
-        delta = df['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        # Calculate RSI using vectorbt
+        rsi = vbt.RSI.run(df['Close'], window=period)
         
-        rs = gain / loss
-        df['RSI'] = 100 - (100 / (1 + rs))
+        # Logic: Buy crossing below 30, Sell crossing above 70
+        entries = rsi.rsi_crossed_below(lower_bound)
+        exits = rsi.rsi_crossed_above(upper_bound)
         
-        # Logic: Buy when oversold, Sell when overbought
-        df['Signal'] = 0
-        df.loc[df['RSI'] < lower_bound, 'Signal'] = 1
-        df.loc[df['RSI'] > upper_bound, 'Signal'] = -1
-        
-        return df
+        return entries, exits
 
 class StrategyFactory:
     @staticmethod

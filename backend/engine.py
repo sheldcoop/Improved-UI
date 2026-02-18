@@ -3,6 +3,7 @@ import numpy as np
 import requests
 from datetime import datetime
 import logging
+import vectorbt as vbt
 from strategies import StrategyFactory
 
 logger = logging.getLogger(__name__)
@@ -13,8 +14,6 @@ class DataEngine:
         self.use_av = headers.get('x-use-alpha-vantage') == 'true'
 
     def fetch_historical_data(self, symbol, timeframe='1d'):
-        df = pd.DataFrame()
-
         # 1. Try Alpha Vantage (Mocked check for brevity in refactor)
         if self.use_av and self.av_key:
             try:
@@ -25,144 +24,121 @@ class DataEngine:
 
         # 2. Fallback Synthetic Data (Vectorized Generation)
         logger.info("Generating Vectorized Synthetic Data")
-        periods = 300
+        periods = 365
         dates = pd.date_range(end=datetime.now(), periods=periods)
         
-        # Random Walk using Cumulative Sum (Vectorized)
+        # Random Walk
         base_price = 22000 if 'NIFTY' in symbol else 100
-        returns = np.random.normal(0, 0.015, periods)
+        np.random.seed(42) # For reproducibility in demo
+        returns = np.random.normal(0.0005, 0.015, periods) # Slight upward drift
         price_path = base_price * (1 + returns).cumprod()
         
         df = pd.DataFrame({
-            'date': dates,
             'Open': price_path,
-            'Close': price_path * (1 + np.random.normal(0, 0.005, periods)),
             'High': price_path * 1.01,
             'Low': price_path * 0.99,
+            'Close': price_path * (1 + np.random.normal(0, 0.002, periods)),
             'Volume': np.random.randint(1000, 50000, periods)
-        })
-        df = df.sort_values('date')
+        }, index=dates) # VectorBT expects a DateTime Index
+        
         return df
 
     def fetch_option_chain(self, symbol, expiry):
-        # ... (Existing mock logic) ...
         return []
 
 class BacktestEngine:
     """
-    High-Performance Vectorized Backtest Engine with Real Trade Extraction
+    Wrapper around vectorbt Portfolio for standardized API output.
     """
     @staticmethod
     def run(df, strategy_id, config={}):
         if df.empty:
             return None
 
-        # Config extraction
+        # 1. Config Extraction
+        # vectorbt expects fees in decimal (e.g. 0.001 for 0.1%)
         slippage_pct = float(config.get('slippage', 0.05)) / 100.0
-        commission_flat = float(config.get('commission', 20.0))
+        commission_val = float(config.get('commission', 20.0))
         initial_capital = float(config.get('initial_capital', 100000.0))
 
-        # 1. Instantiate Strategy
+        # 2. Generate Signals
         strategy = StrategyFactory.get_strategy(strategy_id, config)
+        entries, exits = strategy.generate_signals(df)
         
-        # 2. Generate Signals (Vectorized)
-        df = strategy.generate_signals(df)
-        
-        # 3. Calculate Returns (Vectorized)
-        df['Returns'] = df['Close'].pct_change()
-        
-        # Shift signal by 1: We trade at Open of next candle based on Close of prev
-        # Or simpler for this timeframe: We assume execution at Close of signal candle (Simpler VectorBT style)
-        df['Position'] = df['Signal'].shift(1).fillna(0)
-        
-        # Calculate Strategy Returns
-        df['Strategy_Returns'] = df['Position'] * df['Returns']
+        # 3. Build Portfolio (The Heavy Lifting)
+        # We approximate commission as a percentage for vbt simplicity or use fixed fees per trade
+        # Here we use a fixed fee per trade approximation if capital is known, or just percentage
+        # vectorbt standard supports `fees` as percentage. Fixed fees require `size` logic.
+        # For this demo, we convert fixed commission to approx percentage based on initial capital
+        approx_fee_pct = (commission_val / initial_capital) 
 
-        # 4. Apply Transaction Costs (Vectorized)
-        # Identify where position changed (Trade occurred)
-        df['Trade_Occurred'] = df['Position'].diff().abs() > 0
-        
-        # Cost Impact: Slippage % of price + Commission
-        # We approximate cost as a hit to returns. 
-        # Cost = (Slippage * 2 for round trip approx on switch) + (Commission / Capital * 100)
-        # For precise vectorization, we deduct cost from the return of that specific bar
-        
-        cost_penalty = 0
-        if not df['Close'].empty:
-            avg_price = df['Close'].mean()
-            # Commission impact in % terms relative to portfolio size (Approximate for speed)
-            comm_impact = commission_flat / initial_capital 
-            
-            # Apply cost only on rows where trade occurred
-            df.loc[df['Trade_Occurred'], 'Strategy_Returns'] -= (slippage_pct + comm_impact)
+        pf = vbt.Portfolio.from_signals(
+            df['Close'],
+            entries,
+            exits,
+            init_cash=initial_capital,
+            fees=approx_fee_pct,
+            slippage=slippage_pct,
+            freq='1D'
+        )
 
-        # 5. Portfolio stats (Vectorized Cumulative Product)
-        df['Equity'] = initial_capital * (1 + df['Strategy_Returns'].fillna(0)).cumprod()
-        df['cummax'] = df['Equity'].cummax()
-        df['Drawdown'] = (df['Equity'] / df['cummax']) - 1
-
-        # 6. Real Trade List Extraction
-        # We iterate only through the rows where trades happened, not the whole DF (Fast)
-        trade_indices = df[df['Trade_Occurred']].index
-        trades = []
+        # 4. Extract Metrics using VectorBT accessors
+        total_return_pct = pf.total_return() * 100
+        stats = pf.stats()
         
-        active_trade = None
+        # 5. Extract Equity Curve
+        # pf.value() returns a Series with DateTime index
+        equity_series = pf.value()
+        drawdown_series = pf.drawdown() * 100
         
-        for idx in trade_indices:
-            row = df.loc[idx]
-            current_pos = row['Position']
-            prev_pos = df['Position'].shift(1).loc[idx] # What it was before this candle applied
-            
-            # If we were in a trade, close it
-            if active_trade:
-                active_trade['exitDate'] = row['date'].strftime('%Y-%m-%d')
-                active_trade['exitPrice'] = round(row['Close'], 2)
-                
-                # PnL Calculation
-                direction = 1 if active_trade['side'] == 'LONG' else -1
-                price_diff = (active_trade['exitPrice'] - active_trade['entryPrice']) * direction
-                active_trade['pnl'] = round((price_diff * (initial_capital / active_trade['entryPrice'])) - commission_flat, 2)
-                active_trade['pnlPct'] = round((price_diff / active_trade['entryPrice']) * 100, 2)
-                active_trade['status'] = 'WIN' if active_trade['pnl'] > 0 else 'LOSS'
-                
-                trades.append(active_trade)
-                active_trade = None
+        equity_curve = []
+        for date, value in equity_series.items():
+            equity_curve.append({
+                "date": date.strftime('%Y-%m-%d'),
+                "value": round(value, 2),
+                "drawdown": round(abs(drawdown_series.loc[date]), 2)
+            })
 
-            # If current position is not flat, open new trade
-            if current_pos != 0:
-                active_trade = {
-                    "id": f"t-{len(trades)}",
-                    "entryDate": row['date'].strftime('%Y-%m-%d'),
-                    "side": "LONG" if current_pos == 1 else "SHORT",
-                    "entryPrice": round(row['Close'], 2),
-                    "exitPrice": 0, # Pending
-                    "pnl": 0,
-                    "pnlPct": 0,
-                    "status": "OPEN"
-                }
+        # 6. Extract Trades
+        # pf.trades.records_readable is a DataFrame
+        trade_records = pf.trades.records_readable
+        # Add PnL % manually if not present in readable (it usually has Return)
         
-        # 7. Metrics Calculation
-        total_return = (df['Equity'].iloc[-1] - initial_capital) / initial_capital * 100
-        win_rate = len([t for t in trades if t['pnl'] > 0]) / len(trades) * 100 if trades else 0
-
-        equity_curve = [
-            {"date": r['date'].strftime('%Y-%m-%d'), "value": round(r['Equity'], 2), "drawdown": round(abs(r['Drawdown']) * 100, 2)} 
-            for _, r in df.iterrows() if not pd.isna(r['Equity'])
-        ]
+        trades_list = []
+        for i, row in trade_records.iterrows():
+            # vectorbt returns 'Entry Timestamp', 'Exit Timestamp', 'Entry Price', 'Exit Price', 'PnL', 'Return'
+            trades_list.append({
+                "id": f"t-{i}",
+                "entryDate": row['Entry Timestamp'].strftime('%Y-%m-%d'),
+                "exitDate": row['Exit Timestamp'].strftime('%Y-%m-%d'),
+                "side": "LONG" if row['Direction'] == 'Long' else "SHORT",
+                "entryPrice": round(row['Entry Price'], 2),
+                "exitPrice": round(row['Exit Price'], 2),
+                "pnl": round(row['PnL'], 2),
+                "pnlPct": round(row['Return'] * 100, 2),
+                "status": "WIN" if row['PnL'] > 0 else "LOSS"
+            })
 
         return {
             "metrics": {
-                "totalReturnPct": round(total_return, 2),
-                "sharpeRatio": round(df['Strategy_Returns'].mean() / df['Strategy_Returns'].std() * np.sqrt(252), 2) if df['Strategy_Returns'].std() != 0 else 0,
-                "maxDrawdownPct": round(abs(df['Drawdown'].min()) * 100, 2),
-                "winRate": round(win_rate, 1),
-                "profitFactor": 1.5, # Needs full PnL sum calculation
-                "totalTrades": len(trades),
-                "consecutiveLosses": 0,
-                "alpha": 0.05, "beta": 1.2, "volatility": 18.5, "expectancy": 0.4,
-                "cagr": round(total_return, 2), "sortinoRatio": 1.8, "calmarRatio": 1.2, "kellyCriterion": 0.1, "avgDrawdownDuration": "12 days"
+                "totalReturnPct": round(total_return_pct, 2),
+                "sharpeRatio": round(stats.get('Sharpe Ratio', 0), 2),
+                "maxDrawdownPct": round(abs(stats.get('Max Drawdown [%]', 0)), 2),
+                "winRate": round(stats.get('Win Rate [%]', 0), 1),
+                "profitFactor": round(stats.get('Profit Factor', 0), 2),
+                "totalTrades": int(stats.get('Total Trades', 0)),
+                "consecutiveLosses": 0, # vbt doesn't give this in basic stats, simplified
+                "alpha": round(stats.get('Alpha', 0), 2), 
+                "beta": round(stats.get('Beta', 0), 2), 
+                "volatility": round(stats.get('Volatility (Ann.) [%]', 0), 1),
+                "expectancy": 0.0,
+                "cagr": round(stats.get('Total Return [%]', 0), 2), # Using Total return as proxy for short period
+                "sortinoRatio": round(stats.get('Sortino Ratio', 0), 2),
+                "calmarRatio": round(stats.get('Calmar Ratio', 0), 2),
+                "kellyCriterion": 0.0,
+                "avgDrawdownDuration": str(stats.get('Max Drawdown Duration', '0 days'))
             },
             "equityCurve": equity_curve,
-            "trades": trades[::-1], # Newest first
-            "monthlyReturns": []
+            "trades": trades_list[::-1], # Newest first
+            "monthlyReturns": [] # Can be extracted from pf.returns.resample('M')
         }
