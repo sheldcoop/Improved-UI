@@ -2,6 +2,7 @@ import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { NAV_ITEMS, APP_NAME } from '../constants';
 import { Activity, Bell } from 'lucide-react';
+import DebugConsole from './DebugConsole';
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
@@ -54,7 +55,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 bg-slate-950">
+      <main className="flex-1 flex flex-col min-w-0 bg-slate-950 relative">
         {/* Top Header */}
         <header className="h-16 bg-slate-900/50 border-b border-slate-800 flex items-center justify-between px-8 backdrop-blur-sm sticky top-0 z-10">
           <h1 className="text-lg font-semibold text-slate-100">
@@ -73,11 +74,14 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </header>
 
         {/* Scrollable Page Content */}
-        <div className="flex-1 overflow-y-auto p-8 scroll-smooth">
+        <div className="flex-1 overflow-y-auto p-8 scroll-smooth pb-20">
           <div className="max-w-7xl mx-auto">
             {children}
           </div>
         </div>
+
+        {/* GOD MODE TERMINAL */}
+        <DebugConsole />
       </main>
     </div>
   );

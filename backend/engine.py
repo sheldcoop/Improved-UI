@@ -4,46 +4,34 @@ import requests
 from datetime import datetime, timedelta
 import logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class DataEngine:
     def __init__(self, headers):
-        # We only care about Alpha Vantage Key now
         self.av_key = headers.get('x-alpha-vantage-key')
         self.use_av = headers.get('x-use-alpha-vantage') == 'true'
 
     def fetch_historical_data(self, symbol, timeframe='1d'):
-        """
-        Fetches historical candle data. 
-        1. Alpha Vantage (Primary)
-        2. Synthetic (Fallback if no key or error)
-        """
         df = pd.DataFrame()
 
         # 1. Try Alpha Vantage
         if self.use_av and self.av_key:
             try:
-                # Alpha Vantage API Logic
                 function = 'TIME_SERIES_DAILY'
                 
-                # Symbol Normalization
-                # Alpha Vantage needs ".BSE" for Indian stocks, or raw symbol for US.
-                # If the user types "RELIANCE", we try "RELIANCE.BSE"
                 clean_symbol = symbol.split(' ')[0]
                 if 'NIFTY' not in clean_symbol and 'BANK' not in clean_symbol:
                      clean_symbol = f"{clean_symbol}.BSE"
                 
-                # Note: NIFTY index data on AV is sometimes tricky, usually requires specific ticker like '^NSEI'
-                if 'NIFTY' in symbol: clean_symbol = 'CNX100' # Fallback for demo, often standard tickers work differently on free tier
+                if 'NIFTY' in symbol: clean_symbol = 'CNX100' 
                 
+                masked_key = self.av_key[:4] + "****" + self.av_key[-4:] if len(self.av_key) > 8 else "****"
                 url = f"https://www.alphavantage.co/query?function={function}&symbol={clean_symbol}&apikey={self.av_key}&outputsize=full&datatype=csv"
-                logger.info(f"Fetching from AlphaVantage: {clean_symbol}")
+                
+                logger.info(f"Fetching External Data for {clean_symbol} [Key: {masked_key}]")
                 
                 df = pd.read_csv(url)
                 
-                # Check if API returned valid data or an error message in CSV format
                 if not df.empty and 'timestamp' in df.columns:
                     df = df.rename(columns={
                         'timestamp': 'date',
@@ -55,14 +43,15 @@ class DataEngine:
                     })
                     df['date'] = pd.to_datetime(df['date'])
                     df = df.sort_values('date')
+                    logger.info(f"Data Fetch Success: {len(df)} candles retrieved.")
                     return df
                 else:
-                    logger.warning(f"Alpha Vantage returned invalid data: {df.columns}")
+                    logger.warning(f"Alpha Vantage invalid response structure: {df.columns.tolist()}")
             except Exception as e:
                 logger.error(f"Alpha Vantage Fetch Failed: {e}")
 
-        # 2. Fallback: Synthetic Data (If key is invalid or API limit reached)
-        logger.info("Using Synthetic Data Fallback")
+        # 2. Fallback
+        logger.warning("Falling back to Synthetic Mock Data (Check API Key or Limits)")
         dates = pd.date_range(end=datetime.now(), periods=250)
         base_price = 22000 if 'NIFTY' in symbol else (2000 if 'RELIANCE' in symbol else 100)
         
@@ -75,13 +64,11 @@ class DataEngine:
         df['High'] = df[['Open', 'Close']].max(axis=1) * 1.01
         df['Low'] = df[['Open', 'Close']].min(axis=1) * 0.99
         
+        logger.info(f"Generated {len(df)} synthetic candles.")
         return df
 
     def fetch_option_chain(self, symbol, expiry):
-        """
-        Alpha Vantage does not provide Indian Option Chains in the free tier.
-        Using Synthetic generation for the Option Builder visualization.
-        """
+        logger.info(f"Generating synthetic Option Chain for {symbol}")
         spot = 22150 if 'NIFTY' in symbol else 46500
         step = 50
         strikes = []
@@ -90,7 +77,6 @@ class DataEngine:
             strike = spot + (i * step)
             dist = (strike - spot)
             
-            # Theoretical Pricing
             ce_intrinsic = max(0, spot - strike)
             ce_time_value = 200 * np.exp(-0.5 * (dist/500)**2)
             ce_premium = ce_intrinsic + ce_time_value + np.random.randint(-2, 2)
@@ -115,8 +101,10 @@ class StrategyEngine:
     @staticmethod
     def run_backtest(df, strategy_config):
         if df.empty:
+            logger.error("Strategy Engine received empty DataFrame")
             return None
 
+        logger.info("Calculating Indicators (SMA 10/50)...")
         # 1. Indicators
         df['SMA_Fast'] = df['Close'].rolling(window=10).mean()
         df['SMA_Slow'] = df['Close'].rolling(window=50).mean()
@@ -127,6 +115,9 @@ class StrategyEngine:
         df.loc[df['SMA_Fast'] > df['SMA_Slow'], 'Signal'] = 1
         df.loc[df['SMA_Fast'] < df['SMA_Slow'], 'Signal'] = -1
         
+        signal_changes = df['Signal'].diff().abs().sum()
+        logger.info(f"Signals Generated: {signal_changes} crossovers detected.")
+
         # 3. PnL
         df['Strategy_Returns'] = df['Signal'].shift(1) * df['Returns']
         
@@ -138,7 +129,6 @@ class StrategyEngine:
         # 5. Stats
         total_return = (df['Equity'].iloc[-1] - initial_capital) / initial_capital * 100
         
-        # 6. Format
         equity_curve = [
             {
                 "date": row['date'].strftime('%Y-%m-%d'), 
@@ -148,7 +138,6 @@ class StrategyEngine:
             for index, row in df.iterrows() if not pd.isna(row['Equity'])
         ]
         
-        # Generate Trades list for UI
         trades = []
         df['Signal_Change'] = df['Signal'].diff()
         entries = df[df['Signal_Change'] != 0].dropna()
@@ -165,6 +154,8 @@ class StrategyEngine:
                 "pnlPct": 2.0,
                 "status": "WIN"
             })
+
+        logger.info(f"Strategy Calculation Complete. Final Equity: {df['Equity'].iloc[-1]:.2f}")
 
         return {
             "metrics": {
