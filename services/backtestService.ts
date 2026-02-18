@@ -1,5 +1,5 @@
 
-import { BacktestResult, Strategy, Timeframe, AssetClass, IndicatorType, Operator, OptimizationResult, WFOResult, MonteCarloPath, Trade } from '../types';
+import { BacktestResult, Strategy, Timeframe, AssetClass, IndicatorType, Operator, OptimizationResult, WFOResult, MonteCarloPath, Trade, Logic, PositionSizeMode } from '../types';
 import { API_ENDPOINTS, CONFIG } from '../config';
 import { executeWithFallback, delay } from './http';
 
@@ -11,10 +11,21 @@ let mockStrategies: Strategy[] = [
     description: 'Buy when RSI < 30, Sell when RSI > 70',
     assetClass: AssetClass.EQUITY,
     timeframe: Timeframe.D1,
-    entryRules: [{ id: 'c1', indicator: IndicatorType.RSI, period: 14, operator: Operator.LESS_THAN, value: 30 }],
-    exitRules: [{ id: 'c2', indicator: IndicatorType.RSI, period: 14, operator: Operator.GREATER_THAN, value: 70 }],
+    mode: 'VISUAL',
+    entryLogic: {
+        id: 'g1', type: 'GROUP', logic: Logic.AND,
+        conditions: [{ id: 'c1', indicator: IndicatorType.RSI, period: 14, operator: Operator.LESS_THAN, compareType: 'STATIC', value: 30 }]
+    },
+    exitLogic: {
+        id: 'g2', type: 'GROUP', logic: Logic.AND,
+        conditions: [{ id: 'c2', indicator: IndicatorType.RSI, period: 14, operator: Operator.GREATER_THAN, compareType: 'STATIC', value: 70 }]
+    },
     stopLossPct: 2.0,
     takeProfitPct: 5.0,
+    useTrailingStop: false,
+    pyramiding: 1,
+    positionSizing: PositionSizeMode.FIXED_CAPITAL,
+    positionSizeValue: 100000,
     created: '2024-01-15'
   }
 ];
@@ -35,17 +46,12 @@ export const saveStrategy = async (strategy: Strategy): Promise<void> => {
     });
 };
 
-export interface BacktestConfig {
+export interface BacktestConfig extends Partial<Strategy> {
     slippage?: number;
     commission?: number;
     capital?: number;
-    entryRules?: any[];
-    exitRules?: any[];
-    filterRules?: any[]; // New
-    stopLossPct?: number;
-    takeProfitPct?: number;
     strategyName?: string;
-    universe?: string; // New
+    universe?: string; 
 }
 
 export const runBacktest = async (strategyId: string | null, symbol: string, config?: BacktestConfig): Promise<BacktestResult> => {

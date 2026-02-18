@@ -18,9 +18,16 @@ export enum IndicatorType {
   SMA = 'SMA',
   EMA = 'EMA',
   MACD = 'MACD',
+  MACD_SIGNAL = 'MACD Signal',
   BOL_UPPER = 'Bollinger Upper',
   BOL_LOWER = 'Bollinger Lower',
+  BOL_MID = 'Bollinger Mid',
+  SUPERTREND = 'SuperTrend',
+  ATR = 'ATR',
   CLOSE = 'Close Price',
+  OPEN = 'Open Price',
+  HIGH = 'High Price',
+  LOW = 'Low Price',
   VOLUME = 'Volume',
   IV = 'Implied Volatility',
   OI = 'Open Interest',
@@ -36,12 +43,57 @@ export enum Operator {
   BETWEEN = 'Between'
 }
 
+export enum Logic {
+  AND = 'AND',
+  OR = 'OR'
+}
+
+// Comparison: Can be a static number OR another Indicator
+export interface ComparisonValue {
+  type: 'STATIC' | 'INDICATOR';
+  value: number; // For static
+  indicator?: IndicatorType; // For indicator comparison
+  period?: number;
+}
+
 export interface Condition {
   id: string;
+  // Left Side
   indicator: IndicatorType;
   period: number;
+  timeframe?: Timeframe; // MTF Support: If undefined, uses Strategy Timeframe
+  multiplier?: number; // e.g., 2.0 * ATR
+  
+  // Logic
   operator: Operator;
-  value: number | string;
+  
+  // Right Side (Fixed value or another indicator)
+  compareType: 'STATIC' | 'INDICATOR';
+  value: number; 
+  rightIndicator?: IndicatorType;
+  rightPeriod?: number;
+  rightTimeframe?: Timeframe; // MTF Support for right side
+}
+
+export interface RuleGroup {
+  id: string;
+  type: 'GROUP';
+  logic: Logic; // AND / OR
+  conditions: (Condition | RuleGroup)[]; // Recursive
+}
+
+export enum PositionSizeMode {
+  FIXED_CAPITAL = 'Fixed Capital',
+  PERCENT_EQUITY = '% of Equity',
+  RISK_BASED = 'Risk Based (ATR)'
+}
+
+export enum RankingMethod {
+  NONE = 'No Ranking',
+  ROC = 'Rate of Change',
+  RSI = 'Relative Strength',
+  VOLATILITY = 'Volatility',
+  VOLUME = 'Volume'
 }
 
 export interface Strategy {
@@ -50,11 +102,31 @@ export interface Strategy {
   description: string;
   assetClass: AssetClass;
   timeframe: Timeframe;
-  entryRules: Condition[];
-  exitRules: Condition[];
-  filterRules?: Condition[]; // New: Market Regime Filters
+  
+  // Mode: Visual vs Code
+  mode: 'VISUAL' | 'CODE';
+  pythonCode?: string;
+
+  // Visual Rules (Root Group)
+  entryLogic: RuleGroup;
+  exitLogic: RuleGroup;
+  
+  // Advanced Settings
+  startTime?: string; // "09:30"
+  endTime?: string;   // "15:00"
+  pyramiding: number; // Max entries
+  
+  // Risk & Sizing
   stopLossPct: number;
   takeProfitPct: number;
+  useTrailingStop: boolean;
+  positionSizing: PositionSizeMode;
+  positionSizeValue: number; // e.g., 1 (lot) or 5 (%) or 100000 (cash)
+
+  // Universe Ranking (Feature #6)
+  rankingMethod?: RankingMethod;
+  rankingTopN?: number; // Select top N stocks
+
   created: string;
 }
 

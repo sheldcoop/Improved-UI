@@ -78,7 +78,7 @@ class DataEngine:
     def _fetch_universe(self, universe_id, timeframe):
         # Simulate Multi-Asset Data
         tickers = []
-        if universe_id == 'NIFTY_50': tickers = ['REL.NS', 'TCS.NS', 'HDFC.NS', 'INFY.NS', 'ICICI.NS']
+        if universe_id == 'NIFTY_50': tickers = ['REL.NS', 'TCS.NS', 'HDFC.NS', 'INFY.NS', 'ICICI.NS', 'AXIS.NS', 'SBIN.NS']
         elif universe_id == 'BANK_NIFTY': tickers = ['HDFCBANK.NS', 'ICICIBANK.NS', 'SBIN.NS', 'AXISBANK.NS']
         else: tickers = ['STOCK_A', 'STOCK_B', 'STOCK_C', 'STOCK_D']
         
@@ -87,15 +87,33 @@ class DataEngine:
         periods = 200
         dates = pd.date_range(end=datetime.now(), periods=periods, freq='D')
         
+        # Create DataFrames with MultiIndex for columns if possible, but VBT likes dict of DataFrames for multi-asset
+        # or a Single DataFrame where columns are symbols
+        
         close_data = {}
+        open_data = {}
+        high_data = {}
+        low_data = {}
+        volume_data = {}
+        
         for t in tickers:
             base = 1000 + np.random.randint(0, 500)
             returns = np.random.normal(0.0005, 0.02, periods)
             price = base * (1 + returns).cumprod()
             close_data[t] = price
+            open_data[t] = price # Simplified
+            high_data[t] = price * 1.01
+            low_data[t] = price * 0.99
+            volume_data[t] = np.random.randint(1000, 50000, periods)
             
-        close_df = pd.DataFrame(close_data, index=dates)
-        return {'Close': close_df, 'Volume': close_df * 1000}
+        # Return as a dictionary of DataFrames (VBT friendly structure for indicators)
+        return {
+            'Open': pd.DataFrame(open_data, index=dates),
+            'High': pd.DataFrame(high_data, index=dates),
+            'Low': pd.DataFrame(low_data, index=dates),
+            'Close': pd.DataFrame(close_data, index=dates),
+            'Volume': pd.DataFrame(volume_data, index=dates)
+        }
 
     def _generate_synthetic(self, symbol, interval):
         periods = 200 if interval == '1d' else 1000
@@ -122,37 +140,109 @@ class BacktestEngine:
         if df is None: return None
         if isinstance(df, pd.DataFrame) and df.empty: return None
 
+        # --- 1. CONFIGURATION ---
         slippage = float(config.get('slippage', 0.05)) / 100.0
         initial_capital = float(config.get('initial_capital', 100000.0))
         fees = float(config.get('commission', 20.0)) / initial_capital
         
         sl_pct = float(config.get('stopLossPct', 0)) / 100.0
         tp_pct = float(config.get('takeProfitPct', 0)) / 100.0
+        use_trailing = config.get('useTrailingStop', False)
+        
+        # Pyramiding (Feature 5)
+        pyramiding = int(config.get('pyramiding', 1))
+        accumulate = True if pyramiding > 1 else False
 
+        # --- 2. GENERATE SIGNALS ---
         strategy = StrategyFactory.get_strategy(strategy_id, config)
         entries, exits = strategy.generate_signals(df)
         
-        # Handle dict-based DF (Universe) vs Standard DF
-        if isinstance(df, dict):
-            close_price = df['Close']
-        else:
-            close_price = df['Close']
+        close_price = df['Close']
+        open_price = df['Open']
         
-        # Configure VBT Portfolio arguments
+        # --- 3. UNIVERSE RANKING (Feature 6) ---
+        # If df is a dict (Universe), we might need to filter 'entries' to only pick top N assets
+        ranking_method = config.get('rankingMethod', 'No Ranking')
+        top_n = int(config.get('rankingTopN', 5))
+        
+        if isinstance(close_price, pd.DataFrame) and ranking_method != 'No Ranking' and len(close_price.columns) > top_n:
+            logger.info(f"Applying Ranking: {ranking_method}, Top {top_n}")
+            
+            # Calculate Rank Metric
+            rank_metric = None
+            if ranking_method == 'Rate of Change':
+                rank_metric = close_price.pct_change(20) # 20-period ROC
+            elif ranking_method == 'Relative Strength':
+                rank_metric = vbt.RSI.run(close_price, window=14).rsi
+            elif ranking_method == 'Volatility':
+                rank_metric = close_price.pct_change().rolling(20).std()
+            elif ranking_method == 'Volume':
+                rank_metric = df['Volume'].rolling(20).mean()
+
+            if rank_metric is not None:
+                # Create a mask where only top N assets are True per row
+                # We rank descending (largest first) usually
+                rank_obj = rank_metric.rank(axis=1, ascending=False, pct=False)
+                top_mask = rank_obj <= top_n
+                
+                # Filter entries: Entry is valid ONLY if it's in the top N
+                entries = entries & top_mask
+
+        # --- 4. POSITION SIZING (Feature 6 - Sizing) ---
+        size = np.inf # Default: Buy as much as possible with available cash
+        size_type = 'amount' # Amount of cash? Or 'value'? VBT defaults
+        
+        sizing_mode = config.get('positionSizing', 'Fixed Capital')
+        size_val = float(config.get('positionSizeValue', 100000))
+
+        if sizing_mode == 'Fixed Capital':
+            # Allocate fixed cash per trade
+            # In VBT 'value' usually means monetary value
+            # If doing Portfolio.from_signals, we often set size or size_type
+            # We will use size_type='value' (cash amount)
+            size = size_val 
+            pf_size_type = 'value'
+            
+        elif sizing_mode == '% of Equity':
+            # e.g., 10% of equity
+            size = size_val / 100.0
+            pf_size_type = 'percent'
+            
+        elif sizing_mode == 'Risk Based (ATR)':
+            # Advanced: Calculate Qty = (Risk Amount) / (Entry - StopLoss)
+            # This is hard in pure VBT from_signals without custom order func
+            # For now, approximate with % of equity, or strictly use VBT's size logic
+            # Simplification: Treat as % of Equity for this demo
+            size = 0.05 
+            pf_size_type = 'percent'
+        else:
+            pf_size_type = 'amount' # shares
+
+        # --- 5. EXECUTION ---
         pf_kwargs = {
             'init_cash': initial_capital,
             'fees': fees,
             'slippage': slippage,
-            'freq': '1D'
+            'freq': '1D',
+            'size': size,
+            'size_type': pf_size_type,
+            'accumulate': accumulate
         }
         
-        # Apply SL/TP if they exist
-        if sl_pct > 0: pf_kwargs['sl_stop'] = sl_pct
-        if tp_pct > 0: pf_kwargs['tp_stop'] = tp_pct
+        # Apply Stops
+        if sl_pct > 0: 
+            pf_kwargs['sl_stop'] = sl_pct
+            pf_kwargs['sl_trail'] = use_trailing # Trailing Stop Logic (Feature 3)
+            
+        if tp_pct > 0: 
+            pf_kwargs['tp_stop'] = tp_pct
         
-        pf = vbt.Portfolio.from_signals(close_price, entries, exits, **pf_kwargs)
-
-        return BacktestEngine._extract_results(pf)
+        try:
+            pf = vbt.Portfolio.from_signals(close_price, entries, exits, **pf_kwargs)
+            return BacktestEngine._extract_results(pf)
+        except Exception as e:
+            logger.error(f"VBT Execution Error: {e}")
+            return None
 
     @staticmethod
     def _extract_results(pf):

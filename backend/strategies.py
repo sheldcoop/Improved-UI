@@ -1,7 +1,9 @@
+
 import pandas as pd
 import numpy as np
 import vectorbt as vbt
 from logging import getLogger
+import pandas_ta as ta # Ensure pandas_ta is installed for advanced indicators
 
 logger = getLogger(__name__)
 
@@ -14,124 +16,262 @@ class BaseStrategy:
 
 class DynamicStrategy(BaseStrategy):
     """
-    Parses frontend JSON rules and executes them using VectorBT.
+    Advanced Strategy Engine v2.0
+    Supports: Recursive Logic, Indicator Comparisons, Time Filters, Code Injection.
     """
-    def _get_series(self, df, indicator_type, period):
-        """Helper to get vectorbt series based on indicator type"""
+    
+    def _get_series(self, df, indicator_type, period=14, timeframe=None):
+        """
+        Helper to get indicator series (Left or Right side).
+        Handles Multi-Timeframe (MTF) Resampling.
+        """
+        base_df = df
+        
+        # 1. Handle MTF Resampling if 'timeframe' is specified
+        # If the strategy is running on 5m data, but rule says "1h", we need to resample
+        if timeframe and isinstance(df, pd.DataFrame):
+             # Mapping frontend Timeframe enum to Pandas offset aliases
+             # 1m -> 1T, 1h -> 1H, 1d -> 1D
+             tf_map = {'1m': '1T', '5m': '5T', '15m': '15T', '1h': '1H', '1d': '1D'}
+             pandas_freq = tf_map.get(timeframe)
+             
+             if pandas_freq:
+                 # Resample OHLCV
+                 # Note: This is computationally expensive, use sparingly
+                 try:
+                     resampled = df.resample(pandas_freq).agg({
+                         'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
+                     }).dropna()
+                     # We use this resampled DF for calculation, then reindex back to base
+                     base_df = resampled
+                 except Exception as e:
+                     logger.warning(f"MTF Resample Failed: {e}. Using base dataframe.")
+                     base_df = df
+
+        # 2. Extract Data Columns
+        close = base_df['Close']
+        high = base_df.get('High', close)
+        low = base_df.get('Low', close)
+        volume = base_df.get('Volume', None)
         period = int(period) if period else 14
-        
-        # Handle Universe (MultiIndex Columns) or Single Asset
-        # If df['Close'] is a DataFrame, VBT operations broadcast automatically.
-        
-        close = df['Close']
-        volume = df.get('Volume', None)
 
-        if indicator_type == 'RSI':
-            return vbt.RSI.run(close, window=period).rsi
-        elif indicator_type == 'SMA':
-            return vbt.MA.run(close, window=period).ma
-        elif indicator_type == 'EMA':
-            # VectorBT MA doesn't have direct EWM flag in simple API, using pandas for speed
-            return close.ewm(span=period, adjust=False).mean()
-        elif indicator_type == 'Close Price':
-            return close
-        elif indicator_type == 'Volume':
-            return volume if volume is not None else close # Fallback
-        else:
-            return close
+        result_series = None
 
-    def _evaluate_rule(self, df, rule):
-        """Converts a single rule into a boolean Series/DataFrame"""
         try:
-            # Left side
-            left_series = self._get_series(df, rule['indicator'], rule.get('period'))
+            if indicator_type == 'RSI':
+                result_series = vbt.RSI.run(close, window=period).rsi
             
-            # Right side (Value or another indicator - simplified to Value for now)
-            right_val = float(rule['value'])
+            elif indicator_type == 'SMA':
+                result_series = vbt.MA.run(close, window=period).ma
             
+            elif indicator_type == 'EMA':
+                result_series = close.ewm(span=period, adjust=False).mean()
+            
+            elif indicator_type == 'MACD':
+                # MACD Line
+                result_series = ta.macd(close, fast=12, slow=26, signal=9)['MACD_12_26_9']
+            
+            elif indicator_type == 'MACD Signal':
+                # Signal Line
+                result_series = ta.macd(close, fast=12, slow=26, signal=9)['MACDs_12_26_9']
+            
+            elif indicator_type == 'Bollinger Upper':
+                result_series = vbt.BBANDS.run(close, window=period).upper
+            
+            elif indicator_type == 'Bollinger Lower':
+                result_series = vbt.BBANDS.run(close, window=period).lower
+            
+            elif indicator_type == 'Bollinger Mid':
+                result_series = vbt.BBANDS.run(close, window=period).middle
+            
+            elif indicator_type == 'ATR':
+                result_series = vbt.ATR.run(high, low, close, window=period).atr
+            
+            elif indicator_type == 'Close Price': result_series = close
+            elif indicator_type == 'Open Price': result_series = base_df['Open']
+            elif indicator_type == 'High Price': result_series = high
+            elif indicator_type == 'Low Price': result_series = low
+            elif indicator_type == 'Volume': result_series = volume if volume is not None else close
+            
+            else:
+                result_series = close
+        except Exception as e:
+            logger.error(f"Indicator Error ({indicator_type}): {e}")
+            result_series = close
+
+        # 3. Post-Process MTF: Reindex back to original timeline
+        if timeframe and isinstance(df, pd.DataFrame) and result_series is not None:
+             # Forward fill the higher timeframe data onto the lower timeframe index
+             # e.g. The 10:00 1H RSI value applies to 10:00, 10:05, 10:10... until 11:00
+             result_series = result_series.reindex(df.index).ffill()
+
+        return result_series
+
+    def _evaluate_node(self, df, node):
+        """
+        Recursively evaluates a RuleGroup or a Condition.
+        node: Dict (RuleGroup or Condition)
+        """
+        # 1. Check if Group
+        if node.get('type') == 'GROUP':
+            children = node.get('conditions', [])
+            if not children:
+                return True # Empty group defaults to True
+
+            results = [self._evaluate_node(df, child) for child in children]
+            
+            # Combine results based on Logic
+            final_mask = results[0]
+            logic = node.get('logic', 'AND')
+            
+            for i in range(1, len(results)):
+                if logic == 'AND':
+                    final_mask = final_mask & results[i]
+                else: # OR
+                    final_mask = final_mask | results[i]
+            return final_mask
+
+        # 2. It's a Condition
+        return self._evaluate_condition(df, node)
+
+    def _evaluate_condition(self, df, rule):
+        try:
+            # Left Series (Supports MTF via rule['timeframe'])
+            left = self._get_series(df, rule['indicator'], rule.get('period', 14), rule.get('timeframe'))
+            
+            # Multiplier (e.g., for ATR bands)
+            if rule.get('multiplier'):
+                left = left * float(rule['multiplier'])
+
+            # Right Series (Value or Indicator, supports MTF via rule['rightTimeframe'])
+            if rule.get('compareType') == 'INDICATOR':
+                right = self._get_series(df, rule['rightIndicator'], rule.get('rightPeriod', 14), rule.get('rightTimeframe'))
+            else:
+                right = float(rule['value'])
+
             op = rule['operator']
             
             if op == 'Crosses Above':
-                return left_series.vbt.crossed_above(right_val)
+                return left.vbt.crossed_above(right)
             elif op == 'Crosses Below':
-                return left_series.vbt.crossed_below(right_val)
+                return left.vbt.crossed_below(right)
             elif op == '>':
-                return left_series > right_val
+                return left > right
             elif op == '<':
-                return left_series < right_val
+                return left < right
             elif op == '=':
-                return left_series == right_val
+                return left == right
             else:
                 return False
+
         except Exception as e:
-            logger.error(f"Rule Evaluation Error: {e}")
+            logger.error(f"Condition Eval Error: {e}")
             return False
 
-    def generate_signals(self, df):
-        # Initialize signals as all True (for AND logic)
-        # If df['Close'] is DataFrame (Universe), these will be DataFrames of True
-        entries = df['Close'] > -1 # Hack to get a True mask with correct shape
-        exits = df['Close'] > -1
+    def _apply_time_filter(self, df, entries, exits):
+        """Filters signals based on Start/End time logic"""
+        start_time = self.config.get('startTime')
+        end_time = self.config.get('endTime')
+
+        if not start_time and not end_time:
+            return entries, exits
         
-        entry_rules = self.config.get('entryRules', [])
-        exit_rules = self.config.get('exitRules', [])
-        filter_rules = self.config.get('filterRules', [])
+        # Convert index to datetime if not already
+        if not isinstance(df.index, pd.DatetimeIndex):
+            return entries, exits
 
-        # 1. Apply Regime Filters (Global "Green Light")
-        # Example: Close > SMA(200)
-        regime_mask = df['Close'] > -1
-        if filter_rules:
-            for rule in filter_rules:
-                regime_mask = regime_mask & self._evaluate_rule(df, rule)
-
-        # 2. Process Entry Rules (AND logic)
-        if not entry_rules:
-            entries = entries & False # No rules = No trades
+        # Create time mask
+        # Note: VectorBT might need raw boolean array if working with Universe
+        # Simplified: Using pandas between_time logic on the boolean series
+        
+        # We need a mask of the same shape as entries
+        time_mask = pd.Series(True, index=df.index)
+        
+        if start_time and end_time:
+            # Keep True only between times
+            indexer = df.index.indexer_between_time(start_time, end_time)
+            mask_array = np.zeros(len(df), dtype=bool)
+            mask_array[indexer] = True
+            time_mask = pd.Series(mask_array, index=df.index)
+        
+        # Apply mask
+        # If entries is DataFrame (Universe), broadcast the mask
+        if isinstance(entries, pd.DataFrame):
+            entries = entries.multiply(time_mask, axis=0)
+            exits = exits.multiply(time_mask, axis=0)
         else:
-            for rule in entry_rules:
-                entries = entries & self._evaluate_rule(df, rule)
-        
-        # Apply regime filter to entries
-        entries = entries & regime_mask
+            entries = entries & time_mask
+            exits = exits & time_mask
+            
+        return entries, exits
 
-        # 3. Process Exit Rules (AND logic)
-        if not exit_rules:
-            # If no exit rules, rely on Stop Loss / Take Profit exclusively
-            exits = exits & False 
+    def generate_signals(self, df):
+        # 1. CODE MODE CHECK
+        if self.config.get('mode') == 'CODE':
+            return self._execute_python_code(df)
+
+        # 2. VISUAL MODE
+        entry_group = self.config.get('entryLogic')
+        exit_group = self.config.get('exitLogic')
+
+        if not entry_group:
+            # Default to no entries if empty
+            entries = pd.Series(False, index=df.index) if isinstance(df, pd.DataFrame) else False
+            exits = entries
         else:
-            for rule in exit_rules:
-                exits = exits & self._evaluate_rule(df, rule)
-        
+            entries = self._evaluate_node(df, entry_group)
+            
+            if not exit_group:
+                # If no exit logic, rely on Stops
+                exits = pd.Series(False, index=df.index) if isinstance(df, pd.DataFrame) else False
+            else:
+                exits = self._evaluate_node(df, exit_group)
+
+        # 3. Time Filters
+        entries, exits = self._apply_time_filter(df, entries, exits)
+
         return entries, exits
 
-class SmaCrossover(BaseStrategy):
-    def generate_signals(self, df):
-        fast = int(self.config.get('fast', 10))
-        slow = int(self.config.get('slow', 50))
-        fast_ma = vbt.MA.run(df['Close'], window=fast)
-        slow_ma = vbt.MA.run(df['Close'], window=slow)
-        entries = fast_ma.ma_crossed_above(slow_ma)
-        exits = fast_ma.ma_crossed_below(slow_ma)
-        return entries, exits
-
-class RsiMeanReversion(BaseStrategy):
-    def generate_signals(self, df):
-        period = int(self.config.get('period', 14))
-        lower = int(self.config.get('lower', 30))
-        upper = int(self.config.get('upper', 70))
-        rsi = vbt.RSI.run(df['Close'], window=period)
-        entries = rsi.rsi_crossed_below(lower)
-        exits = rsi.rsi_crossed_above(upper)
-        return entries, exits
+    def _execute_python_code(self, df):
+        """
+        Dangerous but Powerful: Execute raw python code for signal generation.
+        Expected format:
+        def signal_logic(df):
+            # ... calculation ...
+            return entries, exits
+        """
+        code = self.config.get('pythonCode', '')
+        if not code:
+            return None, None
+            
+        try:
+            local_scope = {'df': df, 'vbt': vbt, 'pd': pd, 'np': np, 'ta': ta}
+            exec(code, globals(), local_scope)
+            
+            if 'signal_logic' in local_scope:
+                return local_scope['signal_logic'](df)
+            else:
+                logger.error("Python Code must define 'signal_logic(df)' function.")
+                return None, None
+        except Exception as e:
+            logger.error(f"Code Execution Error: {e}")
+            return None, None
 
 class StrategyFactory:
     @staticmethod
     def get_strategy(strategy_id, config):
-        # If config contains raw rules, use DynamicStrategy
-        if 'entryRules' in config and len(config['entryRules']) > 0:
-            return DynamicStrategy(config)
-            
-        # Fallback to hardcoded IDs
-        if strategy_id == "3": return SmaCrossover(config)
-        elif strategy_id == "1": return RsiMeanReversion(config)
-        else: return SmaCrossover(config)
+        # If ID is provided as preset, map it, otherwise check for custom config
+        if strategy_id == "3": 
+            # Convert simple SMA config to Dynamic Config for consistency
+            return DynamicStrategy({
+                'entryLogic': {
+                    'type': 'GROUP', 'logic': 'AND',
+                    'conditions': [{
+                        'indicator': 'SMA', 'period': config.get('fast', 10), 'operator': 'Crosses Above',
+                        'compareType': 'INDICATOR', 'rightIndicator': 'SMA', 'rightPeriod': config.get('slow', 50)
+                    }]
+                }
+            })
+        
+        # Default handler for Custom Strategy from Builder
+        return DynamicStrategy(config)
