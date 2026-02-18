@@ -63,13 +63,13 @@ export interface Condition {
   period: number;
   timeframe?: Timeframe; // MTF Support: If undefined, uses Strategy Timeframe
   multiplier?: number; // e.g., 2.0 * ATR
-  
+
   // Logic
   operator: Operator;
-  
+
   // Right Side (Fixed value or another indicator)
   compareType: 'STATIC' | 'INDICATOR';
-  value: number; 
+  value: number;
   rightIndicator?: IndicatorType;
   rightPeriod?: number;
   rightTimeframe?: Timeframe; // MTF Support for right side
@@ -102,7 +102,7 @@ export interface Strategy {
   description: string;
   assetClass: AssetClass;
   timeframe: Timeframe;
-  
+
   // Mode: Visual vs Code
   mode: 'VISUAL' | 'CODE';
   pythonCode?: string;
@@ -110,12 +110,12 @@ export interface Strategy {
   // Visual Rules (Root Group)
   entryLogic: RuleGroup;
   exitLogic: RuleGroup;
-  
+
   // Advanced Settings
   startTime?: string; // "09:30"
   endTime?: string;   // "15:00"
   pyramiding: number; // Max entries
-  
+
   // Risk & Sizing
   stopLossPct: number;
   takeProfitPct: number;
@@ -191,6 +191,8 @@ export interface BacktestResult {
   monthlyReturns: { year: number; month: number; returnPct: number }[];
   equityCurve: { date: string; value: number; drawdown: number }[];
   trades: Trade[];
+  isDynamic?: boolean;
+  paramHistory?: { start: string; end: string; params: Record<string, number> }[];
   status: 'running' | 'completed' | 'failed';
 }
 

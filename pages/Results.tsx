@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, ReferenceArea } from 'recharts';
 import { BacktestResult, Trade } from '../types';
-import { AlertTriangle, List, Activity, BarChart as BarChartIcon, ArrowLeft, ZoomOut } from 'lucide-react';
+import { AlertTriangle, List, Activity, BarChart as BarChartIcon, ArrowLeft, ZoomOut, Split } from 'lucide-react';
 import { MONTH_NAMES } from '../constants';
 import { CONFIG } from '../config';
 import { Card } from '../components/ui/Card';
@@ -82,8 +82,6 @@ const Results: React.FC = () => {
   useEffect(() => {
     if (location.state?.result) {
       const res = location.state.result as BacktestResult;
-      console.log("Results data received:", res);
-      console.log("Metrics object:", res.metrics);
       setResult(res);
 
       // Calculate Distribution
@@ -106,8 +104,6 @@ const Results: React.FC = () => {
   }, [location, navigate]);
 
   const handleTradeClick = (trade: Trade) => {
-    // Zoom into the trade period with padding
-    // Finding simple date range match logic
     const entryIdx = result?.equityCurve.findIndex(c => c.date === trade.entryDate) || 0;
     const exitIdx = result?.equityCurve.findIndex(c => c.date === trade.exitDate) || 0;
 
@@ -118,7 +114,7 @@ const Results: React.FC = () => {
     if (result?.equityCurve[startIdx] && result?.equityCurve[endIdx]) {
       setZoomLeft(result.equityCurve[startIdx].date);
       setZoomRight(result.equityCurve[endIdx].date);
-      setActiveTab('OVERVIEW'); // Switch to chart view
+      setActiveTab('OVERVIEW');
     }
   };
 
@@ -143,7 +139,7 @@ const Results: React.FC = () => {
         </div>
         <h2 className="text-2xl font-bold text-slate-100">Backtest Failed</h2>
         <p className="text-slate-400 max-w-md text-center">
-          The simulation could not be completed. This is usually due to insufficient historical data for the selected symbol and date range.
+          The simulation could not be completed. This is usually due to insufficient historical data.
         </p>
         <Button onClick={() => navigate('/backtest')} variant="primary" icon={<ArrowLeft className="w-4 h-4" />}>
           Adjust Configuration
@@ -160,7 +156,14 @@ const Results: React.FC = () => {
           <button onClick={() => navigate('/backtest')} className="flex items-center text-sm text-slate-500 hover:text-white mb-2 transition-colors">
             <ArrowLeft className="w-4 h-4 mr-1" /> Back to Config
           </button>
-          <h2 className="text-2xl font-bold text-slate-100">{result.strategyName}</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-bold text-slate-100">{result.strategyName}</h2>
+            {result.isDynamic && (
+              <Badge variant="info" className="animate-pulse bg-indigo-500/20 text-indigo-400 border-indigo-500/30">
+                <Split className="w-3 h-3 mr-1" /> Dynamic WFO
+              </Badge>
+            )}
+          </div>
           <div className="flex items-center space-x-2 text-sm text-slate-500 mt-1">
             <span className="bg-slate-800 px-2 py-0.5 rounded text-xs text-emerald-400 border border-emerald-500/20">{result.symbol}</span>
             <span>•</span>
@@ -181,14 +184,16 @@ const Results: React.FC = () => {
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
             <MetricBox label="Total Return" value={`${result.metrics?.totalReturnPct?.toFixed(1) || 0}%`} good={(result.metrics?.totalReturnPct ?? 0) > 0} />
             <MetricBox label="Sharpe" value={result.metrics?.sharpeRatio?.toFixed(2) || '0.00'} good={(result.metrics?.sharpeRatio ?? 0) > 1.5} />
-            <MetricBox label="Profit Factor" value={result.metrics?.profitFactor?.toFixed(2) || '0.00'} />
-            <MetricBox label="Win Rate" value={`${result.metrics?.winRate?.toFixed(1) || 0}%`} good={(result.metrics?.winRate ?? 0) > 50} />
             <MetricBox label="Max Drawdown" value={`-${result.metrics?.maxDrawdownPct?.toFixed(1) || 0}%`} good={(result.metrics?.maxDrawdownPct ?? 0) < 20} icon={<AlertTriangle className="w-4 h-4" />} />
+            <MetricBox label="Calmar" value={result.metrics?.calmarRatio?.toFixed(2) || '0.00'} good={(result.metrics?.calmarRatio ?? 0) > 2.0} />
+            <MetricBox label="Win Rate" value={`${result.metrics?.winRate?.toFixed(1) || 0}%`} good={(result.metrics?.winRate ?? 0) > 50} />
+            <MetricBox label="Expectancy" value={result.metrics?.expectancy?.toFixed(2) || '0.00'} good={(result.metrics?.expectancy ?? 0) > 0} />
+            <MetricBox label="Profit Factor" value={result.metrics?.profitFactor?.toFixed(2) || '0.00'} />
+            <MetricBox label="Kelly %" value={`${result.metrics?.kellyCriterion?.toFixed(1) || 0}%`} />
             <MetricBox label="Total Trades" value={result.metrics?.totalTrades?.toString() || '0'} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Equity Curve */}
             <Card
               title="Equity Curve & Drawdown"
               className="lg:col-span-2 h-[450px] flex flex-col"
@@ -222,18 +227,41 @@ const Results: React.FC = () => {
                         <ReferenceArea
                           x1={zoomLeft}
                           x2={zoomRight}
-                          {...({ fill: "#5153cbff", fillOpacity: 0.1 } as any)}
+                          yAxisId="left"
+                          {...({ fill: CONFIG.COLORS.PROFIT, fillOpacity: 0.1 } as any)}
                         />
                       )}
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <div className="flex-1 flex items-center justify-center text-slate-500">No equity data available.</div>
+                <div className="flex-1 flex items-center justify-center text-slate-600 italic">No equity data available.</div>
               )}
             </Card>
 
-            {/* Monthly Heatmap */}
+            {result.isDynamic && result.paramHistory && (
+              <Card title="WFO Parameter History" className="h-[450px] overflow-y-auto">
+                <div className="space-y-3">
+                  {result.paramHistory.map((h, i) => (
+                    <div key={i} className="bg-slate-900 border border-slate-800 p-3 rounded-lg">
+                      <div className="flex justify-between text-[10px] text-slate-500 uppercase font-bold mb-2">
+                        <span>Window {i + 1}</span>
+                        <span>{h.start} to {h.end}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {Object.entries(h.params).map(([k, v]) => (
+                          <div key={k} className="flex justify-between text-xs">
+                            <span className="text-slate-400 capitalize">{k}</span>
+                            <span className="text-emerald-400 font-mono">{v}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
+
             <Card title="Monthly Returns" className="h-[450px] flex flex-col">
               <div className="grid grid-cols-4 gap-2 flex-1 content-start overflow-y-auto">
                 {result.monthlyReturns?.map((m, idx) => {
@@ -258,7 +286,6 @@ const Results: React.FC = () => {
             </Card>
           </div>
 
-          {/* Recent Trades Snippet */}
           <div className="mt-6">
             <Card title="Recent Trades" action={<Button variant="ghost" size="sm" onClick={() => setActiveTab('TRADES')}>View All</Button>}>
               <TradeTable trades={result.trades.slice(0, 5)} onRowClick={handleTradeClick} />
@@ -273,10 +300,9 @@ const Results: React.FC = () => {
         </Card>
       )}
 
-      {/* Distribution Tab remains same... */}
       {activeTab === 'DISTRIBUTION' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card title="Return Distribution (Histogram)" className="h-[400px]">
+          <Card title="Return Distribution" className="h-[400px]">
             {distributionData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={distributionData}>
