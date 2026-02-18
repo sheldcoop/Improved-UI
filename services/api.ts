@@ -1,4 +1,3 @@
-
 import { BacktestResult, Strategy, Timeframe, AssetClass, IndicatorType, Operator, OptimizationResult, WFOResult, MonteCarloPath, PaperPosition, Trade, OptionChainItem } from '../types';
 import { CONFIG, API_ENDPOINTS } from '../config';
 
@@ -7,12 +6,21 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- HELPER: Generic API Fetcher ---
 // This ensures all real API calls follow the same structure (headers, error handling)
+// UPDATED: Reads credentials from localStorage to send to backend
 async function fetchClient<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const dhanClientId = localStorage.getItem('DHAN_CLIENT_ID') || '';
+  const dhanAccessToken = localStorage.getItem('DHAN_ACCESS_TOKEN') || '';
+  const alphaVantageKey = localStorage.getItem('ALPHA_VANTAGE_KEY') || '';
+  const useAlphaVantage = localStorage.getItem('USE_ALPHA_VANTAGE') === 'true';
+
   try {
     const response = await fetch(`${CONFIG.API_BASE_URL}${endpoint}`, {
       headers: {
         'Content-Type': 'application/json',
-        // Add Authorization header here if needed later
+        'x-dhan-client-id': dhanClientId,
+        'x-dhan-access-token': dhanAccessToken,
+        'x-alpha-vantage-key': alphaVantageKey,
+        'x-use-alpha-vantage': useAlphaVantage ? 'true' : 'false'
       },
       ...options,
     });

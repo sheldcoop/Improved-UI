@@ -1,6 +1,6 @@
 export const CONFIG = {
   // Toggle this to switch between Mock Data and your Python Flask Backend
-  USE_MOCK_DATA: true,
+  USE_MOCK_DATA: false,
 
   // Your Backend URL (e.g., Python Flask running on port 5000)
   API_BASE_URL: 'http://localhost:5000/api/v1',
@@ -9,6 +9,10 @@ export const CONFIG = {
   DEFAULT_TIMEFRAME: '1d',
   DEFAULT_ASSET_CLASS: 'EQUITY',
   
+  // Supported Data Providers
+  BROKER: 'PAPER', 
+  DATA_PROVIDER: 'ALPHA_VANTAGE',
+
   // Charting Colors
   COLORS: {
     PROFIT: '#10b981', // Emerald 500
