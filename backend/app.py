@@ -1,4 +1,7 @@
 
+from dotenv import load_dotenv
+load_dotenv()  # Load .env before anything else (Issue #7)
+
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 import time
@@ -10,6 +13,7 @@ import os
 
 # Import Blueprints
 from routes.backtest_routes import backtest_bp
+from routes.broker_routes import broker_bp
 from routes.market_routes import market_bp
 from routes.optimization_routes import optimization_bp
 from routes.risk_routes import risk_bp
@@ -53,6 +57,7 @@ os.makedirs('data', exist_ok=True)
 
 # --- REGISTER BLUEPRINTS ---
 app.register_blueprint(backtest_bp, url_prefix='/api/v1/backtest')
+app.register_blueprint(broker_bp, url_prefix='/api/v1/broker')
 app.register_blueprint(market_bp, url_prefix='/api/v1/market')
 app.register_blueprint(optimization_bp, url_prefix='/api/v1/optimization')
 app.register_blueprint(risk_bp, url_prefix='/api/v1/risk')
