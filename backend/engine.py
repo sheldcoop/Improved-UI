@@ -8,6 +8,7 @@ import logging
 import vectorbt as vbt
 import optuna
 from strategies import StrategyFactory
+import io
 
 # Set Optuna logging to warning to avoid console spam
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -20,7 +21,7 @@ class DataEngine:
         self.use_av = headers.get('x-use-alpha-vantage') == 'true'
 
     def fetch_historical_data(self, symbol, timeframe='1d'):
-        # Check if symbol is a Universe ID
+        # 1. Handle Synthetic/Universe IDs
         if symbol in ['NIFTY_50', 'BANK_NIFTY', 'IT_SECTOR', 'MOMENTUM']:
             return self._fetch_universe(symbol, timeframe)
             
@@ -31,15 +32,36 @@ class DataEngine:
         }
         ticker = ticker_map.get(symbol, symbol)
         
-        interval_map = {
-            '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '1d': '1d'
-        }
-        interval = interval_map.get(timeframe, '1d')
-        period = "2y"
-        if interval in ['1m', '5m', '15m', '1h']:
-            period = "59d"
+        # 2. Try AlphaVantage if Enabled
+        if self.use_av and self.av_key:
+            logger.info(f"Fetching {symbol} via AlphaVantage...")
+            try:
+                # Map timeframe to AV functions
+                function = 'TIME_SERIES_INTRADAY' if timeframe in ['1m', '5m', '15m', '1h'] else 'TIME_SERIES_DAILY'
+                interval_param = f"&interval={timeframe}" if function == 'TIME_SERIES_INTRADAY' else ""
+                
+                url = f"https://www.alphavantage.co/query?function={function}&symbol={symbol}&apikey={self.av_key}&datatype=csv{interval_param}"
+                df = pd.read_csv(url)
+                
+                # Standardize Columns
+                df = df.rename(columns={
+                    'timestamp': 'Date', 'time': 'Date',
+                    'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'
+                })
+                df['Date'] = pd.to_datetime(df['Date'])
+                df = df.set_index('Date').sort_index()
+                
+                if not df.empty:
+                    return df
+            except Exception as e:
+                logger.error(f"AlphaVantage failed: {e}. Falling back to YFinance.")
 
-        logger.info(f"Fetching {ticker} [{interval}]...")
+        # 3. Fallback to YFinance
+        interval_map = { '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '1d': '1d' }
+        interval = interval_map.get(timeframe, '1d')
+        period = "59d" if interval in ['1m', '5m', '15m', '1h'] else "2y"
+
+        logger.info(f"Fetching {ticker} via YFinance [{interval}]...")
         try:
             df = yf.download(ticker, period=period, interval=interval, progress=False)
             if not df.empty:
@@ -50,6 +72,7 @@ class DataEngine:
         except Exception as e:
             logger.error(f"yfinance failed: {e}")
 
+        # 4. Final Fallback: Synthetic
         return self._generate_synthetic(symbol, interval)
 
     def _fetch_universe(self, universe_id, timeframe):
@@ -90,6 +113,7 @@ class DataEngine:
         }, index=dates)
 
     def fetch_option_chain(self, symbol, expiry):
+        # In a production app, this would hit a broker API
         return []
 
 class BacktestEngine:
@@ -102,7 +126,6 @@ class BacktestEngine:
         initial_capital = float(config.get('initial_capital', 100000.0))
         fees = float(config.get('commission', 20.0)) / initial_capital
         
-        # CRITICAL FIX: Parse Stop Loss and Take Profit
         sl_pct = float(config.get('stopLossPct', 0)) / 100.0
         tp_pct = float(config.get('takeProfitPct', 0)) / 100.0
 
@@ -123,7 +146,7 @@ class BacktestEngine:
             'freq': '1D'
         }
         
-        # Apply SL/TP if they exist (VBT handles these as % away from entry)
+        # Apply SL/TP if they exist
         if sl_pct > 0: pf_kwargs['sl_stop'] = sl_pct
         if tp_pct > 0: pf_kwargs['tp_stop'] = tp_pct
         
@@ -210,41 +233,30 @@ class OptimizationEngine:
         df = data_engine.fetch_historical_data(symbol)
         if df.empty: return {"error": "No data"}
 
-        # Define Objective Function for Optuna
         def objective(trial):
-            # Construct config dynamically from ranges
             config = {}
             for param, constraints in ranges.items():
                 p_min = int(constraints.get('min', 10))
                 p_max = int(constraints.get('max', 50))
                 p_step = int(constraints.get('step', 1))
-                
-                # Optuna suggests a value for this parameter
                 config[param] = trial.suggest_int(param, p_min, p_max, step=p_step)
             
-            # Run Backtest with this config
             strategy = StrategyFactory.get_strategy(strategy_id, config)
             try:
                 entries, exits = strategy.generate_signals(df)
                 pf = vbt.Portfolio.from_signals(df['Close'], entries, exits, freq='1D', fees=0.001)
-                
-                # Metric to Maximize: Sharpe Ratio
                 sharpe = pf.sharpe_ratio()
                 return -999 if np.isnan(sharpe) else sharpe
             except Exception as e:
                 return -999
 
-        # Run Study
         study = optuna.create_study(direction='maximize')
         study.optimize(objective, n_trials=n_trials)
 
-        # Collect Results
         grid_results = []
         for t in study.trials:
             if t.value is None or t.value == -999: continue
             
-            # Re-run to get other metrics (Return, DD) 
-            # Note: In production, we would cache this to avoid re-running
             config = t.params
             strategy = StrategyFactory.get_strategy(strategy_id, config)
             entries, exits = strategy.generate_signals(df)
@@ -261,7 +273,6 @@ class OptimizationEngine:
 
     @staticmethod
     def run_wfo(symbol, strategy_id, ranges, wfo_config):
-        # REAL Walk Forward Optimization
         data_engine = DataEngine({})
         df = data_engine.fetch_historical_data(symbol)
         
@@ -277,17 +288,11 @@ class OptimizationEngine:
         run_count = 1
         
         while current_idx + test_window <= total_len:
-            # 1. SLICE DATA (Train)
             train_df = df.iloc[current_idx - train_window : current_idx]
-            
-            # 2. OPTIMIZE on Train Data (Find Best Params)
-            # We run a small Optuna study here
             best_params = OptimizationEngine._find_best_params(train_df, strategy_id, ranges)
             
-            # 3. SLICE DATA (Test)
             test_df = df.iloc[current_idx : current_idx + test_window]
             
-            # 4. VALIDATE on Test Data
             strategy = StrategyFactory.get_strategy(strategy_id, best_params)
             entries, exits = strategy.generate_signals(test_df)
             pf = vbt.Portfolio.from_signals(test_df['Close'], entries, exits, freq='1D', fees=0.001)
@@ -318,24 +323,49 @@ class OptimizationEngine:
             
             strategy = StrategyFactory.get_strategy(strategy_id, config)
             entries, exits = strategy.generate_signals(df)
-            # Fast VBT simulation
             return vbt.Portfolio.from_signals(df['Close'], entries, exits, freq='1D').sharpe_ratio()
 
         study = optuna.create_study(direction='maximize')
-        study.optimize(objective, n_trials=10) # Small trial count for speed inside WFO loop
+        study.optimize(objective, n_trials=10) 
         return study.best_params
 
 class MonteCarloEngine:
     @staticmethod
     def run(simulations, vol_mult):
-        # Simulate standard random walks for now
-        # In a real engine, this would bootstrap historical returns
+        # 1. Fetch Real Data Benchmark (NIFTY 50)
+        # This makes the risk analysis actually relevant to the market
+        data_engine = DataEngine({})
+        df = data_engine.fetch_historical_data('NIFTY 50')
+        
+        if df is None or df.empty:
+            # Fallback to pure random if data fetch fails
+            mu, sigma = 0.0005, 0.015
+            last_price = 100
+        else:
+            returns = df['Close'].pct_change().dropna()
+            mu = returns.mean()
+            sigma = returns.std()
+            last_price = df['Close'].iloc[-1]
+            
+        # Apply user stress test multiplier
+        sigma = sigma * vol_mult
+        
         paths = []
+        days = 252 # 1 trading year
+        
+        # 2. Run Geometric Brownian Motion Simulations
         for i in range(simulations):
-            returns = np.random.normal(0.0005, 0.015 * vol_mult, 100)
-            price_path = 100 * (1 + returns).cumprod()
+            # Generate random shocks
+            shocks = np.random.normal(mu, sigma, days)
+            price_path = np.zeros(days)
+            price_path[0] = last_price
+            
+            for t in range(1, days):
+                price_path[t] = price_path[t-1] * (1 + shocks[t])
+                
             paths.append({
                 "id": i,
                 "values": price_path.tolist()
             })
+            
         return paths
