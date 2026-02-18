@@ -1,10 +1,11 @@
+
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, ArrowRight, Zap, RefreshCw, BarChart2, BookOpen, Sliders } from 'lucide-react';
 import PayoffChart from '../components/PayoffChart';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
-import { OptionStrategy, OptionLeg } from '../types';
+import { OptionStrategy, OptionLeg, OptionChainItem } from '../types';
 import { getOptionChain } from '../services/api';
 
 const OptionsBuilder: React.FC = () => {
@@ -13,7 +14,7 @@ const OptionsBuilder: React.FC = () => {
   const [spotPrice, setSpotPrice] = useState(22150);
   const [strategyName, setStrategyName] = useState('Custom Strategy');
   const [legs, setLegs] = useState<OptionLeg[]>([]);
-  const [optionChain, setOptionChain] = useState<any[]>([]);
+  const [optionChain, setOptionChain] = useState<OptionChainItem[]>([]);
   const [loading, setLoading] = useState(false);
   
   // Scenario Analysis State

@@ -1,9 +1,37 @@
-import { BacktestResult, Strategy, Timeframe, AssetClass, IndicatorType, Operator, OptimizationResult, WFOResult, MonteCarloPath, PaperPosition, Trade } from '../types';
 
-// Simulate network delay
+import { BacktestResult, Strategy, Timeframe, AssetClass, IndicatorType, Operator, OptimizationResult, WFOResult, MonteCarloPath, PaperPosition, Trade, OptionChainItem } from '../types';
+import { CONFIG, API_ENDPOINTS } from '../config';
+
+// --- HELPER: Network Delay Simulation ---
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Mock Data
+// --- HELPER: Generic API Fetcher ---
+// This ensures all real API calls follow the same structure (headers, error handling)
+async function fetchClient<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  try {
+    const response = await fetch(`${CONFIG.API_BASE_URL}${endpoint}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        // Add Authorization header here if needed later
+      },
+      ...options,
+    });
+
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("API Call Failed:", error);
+    throw error;
+  }
+}
+
+// ============================================================================
+// STRATEGY SERVICE
+// ============================================================================
+
 let mockStrategies: Strategy[] = [
   {
     id: '1',
@@ -20,12 +48,24 @@ let mockStrategies: Strategy[] = [
 ];
 
 export const fetchStrategies = async (): Promise<Strategy[]> => {
-  await delay(500);
+  if (!CONFIG.USE_MOCK_DATA) {
+    return fetchClient<Strategy[]>(API_ENDPOINTS.STRATEGIES);
+  }
+
+  await delay(CONFIG.MOCK_DELAY_MS);
   return [...mockStrategies];
 };
 
 export const saveStrategy = async (strategy: Strategy): Promise<void> => {
-  await delay(800);
+  if (!CONFIG.USE_MOCK_DATA) {
+    await fetchClient(API_ENDPOINTS.STRATEGIES, {
+      method: 'POST',
+      body: JSON.stringify(strategy)
+    });
+    return;
+  }
+
+  await delay(CONFIG.MOCK_DELAY_MS);
   const existingIndex = mockStrategies.findIndex(s => s.id === strategy.id);
   if (existingIndex >= 0) {
     mockStrategies[existingIndex] = strategy;
@@ -34,54 +74,68 @@ export const saveStrategy = async (strategy: Strategy): Promise<void> => {
   }
 };
 
+// ============================================================================
+// BACKTEST SERVICE
+// ============================================================================
+
 export const runBacktest = async (strategyId: string, symbol: string): Promise<BacktestResult> => {
+  if (!CONFIG.USE_MOCK_DATA) {
+    return fetchClient<BacktestResult>(API_ENDPOINTS.BACKTEST, {
+      method: 'POST',
+      body: JSON.stringify({ strategyId, symbol })
+    });
+  }
+
   await delay(2000); 
   
-  // Generate fake equity curve
-  const equityCurve = [];
+  // --- MOCK LOGIC GENERATOR ---
   const trades: Trade[] = [];
+  const equityCurve = [];
   let value = 100000;
   let peak = 100000;
-  
+  const startDate = new Date('2023-01-01');
+
+  // Generate 250 days of data
   for (let i = 0; i < 250; i++) {
+    const currentDate = new Date(startDate);
+    currentDate.setDate(startDate.getDate() + i);
+    const dateStr = currentDate.toISOString().split('T')[0];
+
     const dailyReturn = (Math.random() - 0.48) * 0.02; // Daily % change
     const change = value * dailyReturn;
     value += change;
     
     if (value > peak) peak = value;
-    const drawdown = ((peak - value) / peak) * 100;
+    const drawdown = peak > 0 ? ((peak - value) / peak) * 100 : 0;
     
     equityCurve.push({
-      date: new Date(2023, 0, 1 + i).toISOString().split('T')[0],
-      value: value,
-      drawdown: drawdown
+      date: dateStr,
+      value: Number(value.toFixed(2)),
+      drawdown: Number(drawdown.toFixed(2))
     });
 
-    // Generate random trades occasionally
+    // Generate random trades (~20% probability per day)
     if (Math.random() > 0.8) {
         const isWin = Math.random() > 0.45;
+        const entryPrice = 100 + (Math.random() * 50);
+        const exitPrice = isWin ? entryPrice * 1.05 : entryPrice * 0.97;
+        const pnl = (exitPrice - entryPrice) * 100; // Assume 100 qty
+
         trades.push({
             id: `t-${i}`,
-            entryDate: new Date(2023, 0, 1 + i).toISOString().split('T')[0],
-            exitDate: new Date(2023, 0, 3 + i).toISOString().split('T')[0],
+            entryDate: dateStr,
+            exitDate: new Date(currentDate.setDate(currentDate.getDate() + 2)).toISOString().split('T')[0],
             side: Math.random() > 0.5 ? 'LONG' : 'SHORT',
-            entryPrice: 100 + (Math.random() * 50),
-            exitPrice: isWin ? 110 : 95,
-            pnl: isWin ? 1500 : -800,
-            pnlPct: isWin ? 5.2 : -3.1,
+            entryPrice: Number(entryPrice.toFixed(2)),
+            exitPrice: Number(exitPrice.toFixed(2)),
+            pnl: Number(pnl.toFixed(2)),
+            pnlPct: Number(((exitPrice - entryPrice)/entryPrice * 100).toFixed(2)),
             status: isWin ? 'WIN' : 'LOSS'
         });
     }
   }
 
-  const monthlyReturns = [];
-  for(let m=0; m<12; m++) {
-    monthlyReturns.push({
-      year: 2023,
-      month: m,
-      returnPct: (Math.random() * 10) - 3 
-    });
-  }
+  const totalReturn = ((value - 100000) / 100000) * 100;
 
   return {
     id: Math.random().toString(36).substring(7),
@@ -91,8 +145,8 @@ export const runBacktest = async (strategyId: string, symbol: string): Promise<B
     startDate: '2023-01-01',
     endDate: '2023-12-31',
     metrics: {
-      totalReturnPct: 24.5,
-      cagr: 24.5,
+      totalReturnPct: Number(totalReturn.toFixed(2)),
+      cagr: Number(totalReturn.toFixed(2)),
       sharpeRatio: 1.95,
       sortinoRatio: 2.4,
       calmarRatio: 1.8,
@@ -108,17 +162,32 @@ export const runBacktest = async (strategyId: string, symbol: string): Promise<B
       volatility: 14.2,
       expectancy: 0.45
     },
-    monthlyReturns,
+    monthlyReturns: Array.from({length: 12}, (_, i) => ({
+      year: 2023,
+      month: i,
+      returnPct: Number(((Math.random() * 10) - 3).toFixed(2))
+    })),
     equityCurve,
     trades: trades.sort((a,b) => new Date(b.entryDate).getTime() - new Date(a.entryDate).getTime()),
     status: 'completed'
   };
 };
 
-export const getOptionChain = async (symbol: string, expiry: string) => {
+// ============================================================================
+// MARKET DATA SERVICE
+// ============================================================================
+
+export const getOptionChain = async (symbol: string, expiry: string): Promise<OptionChainItem[]> => {
+    if (!CONFIG.USE_MOCK_DATA) {
+        return fetchClient<OptionChainItem[]>(API_ENDPOINTS.OPTION_CHAIN, {
+            method: 'POST',
+            body: JSON.stringify({ symbol, expiry })
+        });
+    }
+
     const spot = symbol === 'NIFTY 50' ? 22150 : 46500;
     const step = symbol === 'NIFTY 50' ? 50 : 100;
-    const strikes = [];
+    const strikes: OptionChainItem[] = [];
     for(let i=-10; i<=10; i++) {
         const strike = Math.round(spot/step)*step + (i*step);
         strikes.push({
@@ -134,18 +203,22 @@ export const getOptionChain = async (symbol: string, expiry: string) => {
     return strikes;
 };
 
-// --- NEW MOCK SERVICES ---
+// ============================================================================
+// OPTIMIZATION & RISK SERVICE
+// ============================================================================
 
 export const runOptimization = async (): Promise<{ grid: OptimizationResult[], wfo: WFOResult[] }> => {
-    await delay(1500);
+    if (!CONFIG.USE_MOCK_DATA) return fetchClient(API_ENDPOINTS.OPTIMIZATION);
+
+    await delay(CONFIG.MOCK_DELAY_MS);
     const grid = [];
     for(let i=10; i<=20; i+=2) { // RSI Period
         for(let j=2; j<=6; j+=1) { // Stop Loss
             grid.push({
                 paramSet: { rsi: i, stopLoss: j },
-                sharpe: 1 + Math.random(),
-                returnPct: (Math.random() * 20) + 5,
-                drawdown: 10 + Math.random() * 10
+                sharpe: Number((1 + Math.random()).toFixed(2)),
+                returnPct: Number(((Math.random() * 20) + 5).toFixed(2)),
+                drawdown: Number((10 + Math.random() * 10).toFixed(2))
             });
         }
     }
@@ -160,6 +233,13 @@ export const runOptimization = async (): Promise<{ grid: OptimizationResult[], w
 };
 
 export const runMonteCarlo = async (simulations: number = 100): Promise<MonteCarloPath[]> => {
+    if (!CONFIG.USE_MOCK_DATA) {
+        return fetchClient<MonteCarloPath[]>(API_ENDPOINTS.MONTE_CARLO, {
+             method: 'POST',
+             body: JSON.stringify({ simulations })
+        });
+    }
+
     await delay(1000);
     const paths: MonteCarloPath[] = [];
     const days = 100;
@@ -176,6 +256,8 @@ export const runMonteCarlo = async (simulations: number = 100): Promise<MonteCar
 };
 
 export const getPaperPositions = async (): Promise<PaperPosition[]> => {
+    if (!CONFIG.USE_MOCK_DATA) return fetchClient(API_ENDPOINTS.PAPER_TRADING);
+
     await delay(500);
     return [
         { id: 'p1', symbol: 'NIFTY 50', side: 'LONG', qty: 50, avgPrice: 22100, ltp: 22150, pnl: 2500, pnlPct: 0.22, entryTime: '10:30 AM', status: 'OPEN' },

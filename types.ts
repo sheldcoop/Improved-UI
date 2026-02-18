@@ -1,3 +1,4 @@
+
 export enum AssetClass {
   EQUITY = 'EQUITY',
   OPTIONS = 'OPTIONS',
@@ -178,4 +179,14 @@ export interface PaperPosition {
   pnlPct: number;
   entryTime: string;
   status: 'OPEN' | 'CLOSED';
+}
+
+export interface OptionChainItem {
+  strike: number;
+  cePremium: number;
+  pePremium: number;
+  ceIv: number;
+  peIv: number;
+  ceOi: number;
+  peOi: number;
 }
