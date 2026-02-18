@@ -113,6 +113,7 @@ const Backtest: React.FC = () => {
   const [autoTuneConfig, setAutoTuneConfig] = useState({ lookbackMonths: 12, trials: 30, metric: 'sharpe' });
   const [paramRanges, setParamRanges] = useState<Record<string, { min: number, max: number, step: number }>>({});
   const [isAutoTuning, setIsAutoTuning] = useState(false);
+  const [showRanges, setShowRanges] = useState(false);
 
   // Load Strategies on Mount
   useEffect(() => {
@@ -147,6 +148,7 @@ const Backtest: React.FC = () => {
       setParams({});
       setParamRanges({});
     }
+    setShowRanges(false);
   }, [strategyId]);
 
   // Reset data status when key inputs change
@@ -213,6 +215,12 @@ const Backtest: React.FC = () => {
       alert("Please select a symbol first.");
       return;
     }
+
+    if (!showRanges) {
+      setShowRanges(true);
+      return;
+    }
+
     setIsAutoTuning(true);
     try {
       const result = await fetchClient<{ bestParams: Record<string, number>, score: number, period: string }>('/optimization/auto-tune', {
@@ -228,6 +236,7 @@ const Backtest: React.FC = () => {
       });
       if (result.bestParams) {
         setParams(result.bestParams);
+        setShowRanges(false); // Hide ranges after successful tune
       }
     } catch (e) {
       console.error("Auto-tune failed", e);
@@ -384,15 +393,36 @@ const Backtest: React.FC = () => {
                     <>
                       <div>
                         <label className="text-xs text-slate-500 block mb-1">Period</label>
-                        <input type="number" value={params.period || 14} onChange={(e) => setParams({ ...params, period: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
+                        {!showRanges ? (
+                          <input type="number" value={params.period || 14} onChange={(e) => setParams({ ...params, period: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
+                        ) : (
+                          <div className="flex gap-1">
+                            <input type="number" placeholder="Min" value={paramRanges.period?.min || 10} onChange={(e) => setParamRanges({ ...paramRanges, period: { ...(paramRanges.period || {}), min: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
+                            <input type="number" placeholder="Max" value={paramRanges.period?.max || 30} onChange={(e) => setParamRanges({ ...paramRanges, period: { ...(paramRanges.period || {}), max: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
+                          </div>
+                        )}
                       </div>
                       <div>
                         <label className="text-xs text-slate-500 block mb-1">Oversold</label>
-                        <input type="number" value={params.lower || 30} onChange={(e) => setParams({ ...params, lower: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
+                        {!showRanges ? (
+                          <input type="number" value={params.lower || 30} onChange={(e) => setParams({ ...params, lower: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
+                        ) : (
+                          <div className="flex gap-1">
+                            <input type="number" placeholder="Min" value={paramRanges.lower?.min || 10} onChange={(e) => setParamRanges({ ...paramRanges, lower: { ...(paramRanges.lower || {}), min: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
+                            <input type="number" placeholder="Max" value={paramRanges.lower?.max || 40} onChange={(e) => setParamRanges({ ...paramRanges, lower: { ...(paramRanges.lower || {}), max: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
+                          </div>
+                        )}
                       </div>
                       <div>
                         <label className="text-xs text-slate-500 block mb-1">Overbought</label>
-                        <input type="number" value={params.upper || 70} onChange={(e) => setParams({ ...params, upper: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
+                        {!showRanges ? (
+                          <input type="number" value={params.upper || 70} onChange={(e) => setParams({ ...params, upper: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
+                        ) : (
+                          <div className="flex gap-1">
+                            <input type="number" placeholder="Min" value={paramRanges.upper?.min || 60} onChange={(e) => setParamRanges({ ...paramRanges, upper: { ...(paramRanges.upper || {}), min: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
+                            <input type="number" placeholder="Max" value={paramRanges.upper?.max || 90} onChange={(e) => setParamRanges({ ...paramRanges, upper: { ...(paramRanges.upper || {}), max: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
+                          </div>
+                        )}
                       </div>
                     </>
                   )}
@@ -400,11 +430,25 @@ const Backtest: React.FC = () => {
                     <>
                       <div>
                         <label className="text-xs text-slate-500 block mb-1">Fast Period</label>
-                        <input type="number" value={params.fast || 10} onChange={(e) => setParams({ ...params, fast: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
+                        {!showRanges ? (
+                          <input type="number" value={params.fast || 10} onChange={(e) => setParams({ ...params, fast: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
+                        ) : (
+                          <div className="flex gap-1">
+                            <input type="number" placeholder="Min" value={paramRanges.fast?.min || 5} onChange={(e) => setParamRanges({ ...paramRanges, fast: { ...(paramRanges.fast || {}), min: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
+                            <input type="number" placeholder="Max" value={paramRanges.fast?.max || 50} onChange={(e) => setParamRanges({ ...paramRanges, fast: { ...(paramRanges.fast || {}), max: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
+                          </div>
+                        )}
                       </div>
                       <div>
                         <label className="text-xs text-slate-500 block mb-1">Slow Period</label>
-                        <input type="number" value={params.slow || 50} onChange={(e) => setParams({ ...params, slow: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
+                        {!showRanges ? (
+                          <input type="number" value={params.slow || 50} onChange={(e) => setParams({ ...params, slow: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
+                        ) : (
+                          <div className="flex gap-1">
+                            <input type="number" placeholder="Min" value={paramRanges.slow?.min || 20} onChange={(e) => setParamRanges({ ...paramRanges, slow: { ...(paramRanges.slow || {}), min: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
+                            <input type="number" placeholder="Max" value={paramRanges.slow?.max || 200} onChange={(e) => setParamRanges({ ...paramRanges, slow: { ...(paramRanges.slow || {}), max: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
+                          </div>
+                        )}
                       </div>
                     </>
                   )}
@@ -445,7 +489,7 @@ const Backtest: React.FC = () => {
                       className="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 text-xs font-bold px-4 py-2 rounded border border-emerald-600/30 transition-all flex items-center h-fit mt-4"
                     >
                       {isAutoTuning ? <div className="w-3 h-3 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin mr-2" /> : <Sliders className="w-3 h-3 mr-2" />}
-                      Auto-Tune
+                      {showRanges ? 'Run Auto-Tune' : 'Auto-Tune'}
                     </button>
                   </div>
                 )}

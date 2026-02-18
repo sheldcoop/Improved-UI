@@ -120,26 +120,34 @@ def auto_tune():
 
         # 1. Fetch data for lookback period
         try:
+            from datetime import timedelta
             start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
         except ValueError:
             return jsonify({"status": "error", "message": "Invalid date format"}), 400
             
-        is_end = start_date
+        # Strict logic: Lookback ends exactly 1 day before Backtest starts
+        is_end = start_date - timedelta(days=1)
         is_start = is_end - relativedelta(months=lookback)
+        
+        logger.info(f"--- Temporal Separation Verification ---")
+        logger.info(f"Auto-Tune Lookback: {is_start.date()} to {is_end.date()}")
+        logger.info(f"Backtest Start:    {start_date.date()}")
+        logger.info(f"----------------------------------------")
         
         # We need a DataFetcher to get data
         fetcher = DataFetcher(request.headers)
-        df = fetcher.fetch_historical_data(symbol)
+        # Fetch with buffer to ensure we cover the lookback
+        df = fetcher.fetch_historical_data(symbol, from_date=str(is_start.date()), to_date=start_date_str)
         
         if df is None or df.empty:
             return jsonify({"status": "error", "message": "No data found for symbol"}), 404
             
-        # Slice to in-sample period
+        # Slice to in-sample period (the 'is' in is_df stands for In-Sample for Auto-Tune)
         mask = (df.index >= pd.Timestamp(is_start)) & (df.index <= pd.Timestamp(is_end))
         is_df = df.loc[mask]
         
         if len(is_df) < 20:
-            return jsonify({"status": "error", "message": f"Insufficient data for {lookback}m lookback."}), 400
+            return jsonify({"status": "error", "message": f"Insufficient data for {lookback}m lookback before {start_date_str}."}), 400
 
         # 2. Run Optimization on slice
         best_params = OptimizationEngine._find_best_params(is_df, strategy_id, ranges, metric)
