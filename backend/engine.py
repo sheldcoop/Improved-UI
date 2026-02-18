@@ -9,11 +9,17 @@ import vectorbt as vbt
 import optuna
 from strategies import StrategyFactory
 import io
+import os
+from diskcache import Cache
 
 # Set Optuna logging to warning to avoid console spam
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 logger = logging.getLogger(__name__)
+
+# --- CACHE SETUP ---
+# Cache data for 1 day to respect API limits and improve speed
+cache = Cache('./cache_dir')
 
 class DataEngine:
     def __init__(self, headers):
@@ -21,6 +27,25 @@ class DataEngine:
         self.use_av = headers.get('x-use-alpha-vantage') == 'true'
 
     def fetch_historical_data(self, symbol, timeframe='1d'):
+        # Create a unique cache key
+        cache_key = f"{symbol}_{timeframe}_{'AV' if self.use_av else 'YF'}"
+        
+        # 1. Check Cache
+        cached_df = cache.get(cache_key)
+        if cached_df is not None:
+            logger.info(f"⚡ Cache Hit for {symbol} [{timeframe}]")
+            return cached_df
+
+        # 2. Fetch Data (if not cached)
+        df = self._fetch_live(symbol, timeframe)
+        
+        # 3. Store in Cache (Expire in 24 hours)
+        if df is not None and not df.empty:
+            cache.set(cache_key, df, expire=86400)
+            
+        return df
+
+    def _fetch_live(self, symbol, timeframe):
         # 1. Handle Synthetic/Universe IDs
         if symbol in ['NIFTY_50', 'BANK_NIFTY', 'IT_SECTOR', 'MOMENTUM']:
             return self._fetch_universe(symbol, timeframe)
@@ -87,9 +112,6 @@ class DataEngine:
         periods = 200
         dates = pd.date_range(end=datetime.now(), periods=periods, freq='D')
         
-        # Create DataFrames with MultiIndex for columns if possible, but VBT likes dict of DataFrames for multi-asset
-        # or a Single DataFrame where columns are symbols
-        
         close_data = {}
         open_data = {}
         high_data = {}
@@ -149,7 +171,7 @@ class BacktestEngine:
         tp_pct = float(config.get('takeProfitPct', 0)) / 100.0
         use_trailing = config.get('useTrailingStop', False)
         
-        # Pyramiding (Feature 5)
+        # Pyramiding
         pyramiding = int(config.get('pyramiding', 1))
         accumulate = True if pyramiding > 1 else False
 
@@ -158,65 +180,12 @@ class BacktestEngine:
         entries, exits = strategy.generate_signals(df)
         
         close_price = df['Close']
-        open_price = df['Open']
         
-        # --- 3. UNIVERSE RANKING (Feature 6) ---
-        # If df is a dict (Universe), we might need to filter 'entries' to only pick top N assets
-        ranking_method = config.get('rankingMethod', 'No Ranking')
-        top_n = int(config.get('rankingTopN', 5))
-        
-        if isinstance(close_price, pd.DataFrame) and ranking_method != 'No Ranking' and len(close_price.columns) > top_n:
-            logger.info(f"Applying Ranking: {ranking_method}, Top {top_n}")
-            
-            # Calculate Rank Metric
-            rank_metric = None
-            if ranking_method == 'Rate of Change':
-                rank_metric = close_price.pct_change(20) # 20-period ROC
-            elif ranking_method == 'Relative Strength':
-                rank_metric = vbt.RSI.run(close_price, window=14).rsi
-            elif ranking_method == 'Volatility':
-                rank_metric = close_price.pct_change().rolling(20).std()
-            elif ranking_method == 'Volume':
-                rank_metric = df['Volume'].rolling(20).mean()
+        # --- 3. UNIVERSE RANKING ---
+        entries = BacktestEngine._apply_ranking(entries, df, config)
 
-            if rank_metric is not None:
-                # Create a mask where only top N assets are True per row
-                # We rank descending (largest first) usually
-                rank_obj = rank_metric.rank(axis=1, ascending=False, pct=False)
-                top_mask = rank_obj <= top_n
-                
-                # Filter entries: Entry is valid ONLY if it's in the top N
-                entries = entries & top_mask
-
-        # --- 4. POSITION SIZING (Feature 6 - Sizing) ---
-        size = np.inf # Default: Buy as much as possible with available cash
-        size_type = 'amount' # Amount of cash? Or 'value'? VBT defaults
-        
-        sizing_mode = config.get('positionSizing', 'Fixed Capital')
-        size_val = float(config.get('positionSizeValue', 100000))
-
-        if sizing_mode == 'Fixed Capital':
-            # Allocate fixed cash per trade
-            # In VBT 'value' usually means monetary value
-            # If doing Portfolio.from_signals, we often set size or size_type
-            # We will use size_type='value' (cash amount)
-            size = size_val 
-            pf_size_type = 'value'
-            
-        elif sizing_mode == '% of Equity':
-            # e.g., 10% of equity
-            size = size_val / 100.0
-            pf_size_type = 'percent'
-            
-        elif sizing_mode == 'Risk Based (ATR)':
-            # Advanced: Calculate Qty = (Risk Amount) / (Entry - StopLoss)
-            # This is hard in pure VBT from_signals without custom order func
-            # For now, approximate with % of equity, or strictly use VBT's size logic
-            # Simplification: Treat as % of Equity for this demo
-            size = 0.05 
-            pf_size_type = 'percent'
-        else:
-            pf_size_type = 'amount' # shares
+        # --- 4. POSITION SIZING ---
+        size, size_type = BacktestEngine._calculate_sizing(config)
 
         # --- 5. EXECUTION ---
         pf_kwargs = {
@@ -225,14 +194,13 @@ class BacktestEngine:
             'slippage': slippage,
             'freq': '1D',
             'size': size,
-            'size_type': pf_size_type,
+            'size_type': size_type,
             'accumulate': accumulate
         }
         
-        # Apply Stops
         if sl_pct > 0: 
             pf_kwargs['sl_stop'] = sl_pct
-            pf_kwargs['sl_trail'] = use_trailing # Trailing Stop Logic (Feature 3)
+            pf_kwargs['sl_trail'] = use_trailing
             
         if tp_pct > 0: 
             pf_kwargs['tp_stop'] = tp_pct
@@ -243,6 +211,50 @@ class BacktestEngine:
         except Exception as e:
             logger.error(f"VBT Execution Error: {e}")
             return None
+            
+    @staticmethod
+    def _apply_ranking(entries, df, config):
+        """Applies Universe Ranking logic (e.g. Top 5 by ROC)"""
+        ranking_method = config.get('rankingMethod', 'No Ranking')
+        top_n = int(config.get('rankingTopN', 5))
+        close_price = df['Close']
+        
+        if isinstance(close_price, pd.DataFrame) and ranking_method != 'No Ranking' and len(close_price.columns) > top_n:
+            logger.info(f"Applying Ranking: {ranking_method}, Top {top_n}")
+            
+            rank_metric = None
+            if ranking_method == 'Rate of Change':
+                rank_metric = close_price.pct_change(20)
+            elif ranking_method == 'Relative Strength':
+                rank_metric = vbt.RSI.run(close_price, window=14).rsi
+            elif ranking_method == 'Volatility':
+                rank_metric = close_price.pct_change().rolling(20).std()
+            elif ranking_method == 'Volume':
+                rank_metric = df['Volume'].rolling(20).mean()
+
+            if rank_metric is not None:
+                # Rank descending (Top values get rank 1)
+                rank_obj = rank_metric.rank(axis=1, ascending=False, pct=False)
+                top_mask = rank_obj <= top_n
+                return entries & top_mask
+        
+        return entries
+
+    @staticmethod
+    def _calculate_sizing(config):
+        """Determines position sizing parameters for VectorBT"""
+        sizing_mode = config.get('positionSizing', 'Fixed Capital')
+        size_val = float(config.get('positionSizeValue', 100000))
+
+        if sizing_mode == 'Fixed Capital':
+            return size_val, 'value'
+        elif sizing_mode == '% of Equity':
+            return size_val / 100.0, 'percent'
+        elif sizing_mode == 'Risk Based (ATR)':
+            # Placeholder for complex ATR risk sizing
+            return 0.05, 'percent'
+        
+        return np.inf, 'amount'
 
     @staticmethod
     def _extract_results(pf):
@@ -319,6 +331,7 @@ class BacktestEngine:
 class OptimizationEngine:
     @staticmethod
     def run_optuna(symbol, strategy_id, ranges, n_trials=30):
+        # Optimization engine logic remains the same, but uses new DataEngine (with caching)
         data_engine = DataEngine({})
         df = data_engine.fetch_historical_data(symbol)
         if df.empty: return {"error": "No data"}
@@ -422,13 +435,10 @@ class OptimizationEngine:
 class MonteCarloEngine:
     @staticmethod
     def run(simulations, vol_mult):
-        # 1. Fetch Real Data Benchmark (NIFTY 50)
-        # This makes the risk analysis actually relevant to the market
         data_engine = DataEngine({})
         df = data_engine.fetch_historical_data('NIFTY 50')
         
         if df is None or df.empty:
-            # Fallback to pure random if data fetch fails
             mu, sigma = 0.0005, 0.015
             last_price = 100
         else:
@@ -437,15 +447,12 @@ class MonteCarloEngine:
             sigma = returns.std()
             last_price = df['Close'].iloc[-1]
             
-        # Apply user stress test multiplier
         sigma = sigma * vol_mult
         
         paths = []
-        days = 252 # 1 trading year
+        days = 252 
         
-        # 2. Run Geometric Brownian Motion Simulations
         for i in range(simulations):
-            # Generate random shocks
             shocks = np.random.normal(mu, sigma, days)
             price_path = np.zeros(days)
             price_path[0] = last_price

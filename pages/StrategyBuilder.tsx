@@ -1,12 +1,13 @@
 
 import React, { useState, useMemo } from 'react';
-import { Plus, Trash2, Save, PlayCircle, Filter, Code, Cpu, GitBranch, Clock, Zap, MessageSquare, ChevronDown, ChevronRight, Activity } from 'lucide-react';
+import { PlayCircle, Filter, Code, Cpu, MessageSquare, Zap, Activity, Plus } from 'lucide-react';
 import { AssetClass, Timeframe, IndicatorType, Operator, Strategy, Logic, RuleGroup, Condition, PositionSizeMode, RankingMethod } from '../types';
 import { saveStrategy, runBacktest } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { GroupRenderer } from '../components/strategy/GroupRenderer';
 
 // --- INITIAL STATE ---
 const INITIAL_GROUP: RuleGroup = {
@@ -55,7 +56,6 @@ const StrategyBuilder: React.FC = () => {
 
   const [aiPrompt, setAiPrompt] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
 
   // --- HELPERS ---
@@ -80,7 +80,6 @@ const StrategyBuilder: React.FC = () => {
   const handleAiGenerate = () => {
       if(!aiPrompt) return;
       setIsAiLoading(true);
-      // MOCK AI GENERATION
       setTimeout(() => {
           setStrategy(prev => ({
               ...prev,
@@ -103,7 +102,6 @@ const StrategyBuilder: React.FC = () => {
   const handleRun = async () => {
       setRunning(true);
       try {
-        // Flatten payload for backend
         const result = await runBacktest(null, 'NIFTY 50', {
             ...strategy,
             capital: strategy.positionSizeValue,
@@ -116,168 +114,6 @@ const StrategyBuilder: React.FC = () => {
           setRunning(false);
       }
   };
-
-  // --- RENDERERS ---
-
-  // Recursive Group Renderer
-  const GroupRenderer: React.FC<{ group: RuleGroup, onChange: (g: RuleGroup) => void, depth?: number }> = ({ group, onChange, depth = 0 }) => {
-      
-      const addCondition = () => {
-          const newCond: Condition = { id: Date.now().toString(), indicator: IndicatorType.RSI, period: 14, operator: Operator.GREATER_THAN, compareType: 'STATIC', value: 50 };
-          onChange({ ...group, conditions: [...group.conditions, newCond] });
-      };
-
-      const addGroup = () => {
-           const newGroup: RuleGroup = { id: Date.now().toString() + '_g', type: 'GROUP', logic: Logic.OR, conditions: [] };
-           onChange({ ...group, conditions: [...group.conditions, newGroup] });
-      };
-
-      const removeChild = (idx: number) => {
-          const newConds = [...group.conditions];
-          newConds.splice(idx, 1);
-          onChange({ ...group, conditions: newConds });
-      };
-
-      const updateChild = (idx: number, newVal: Condition | RuleGroup) => {
-          const newConds = [...group.conditions];
-          newConds[idx] = newVal;
-          onChange({ ...group, conditions: newConds });
-      };
-
-      return (
-          <div className={`p-4 rounded-xl border ${depth === 0 ? 'bg-slate-900 border-slate-800' : 'bg-slate-950 border-slate-700 ml-6 mt-2 relative'}`}>
-              {depth > 0 && <div className="absolute -left-6 top-6 w-6 h-[1px] bg-slate-700"></div>}
-              
-              <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center space-x-2">
-                      {depth > 0 && <span className="text-xs text-slate-500 font-mono">GROUP</span>}
-                      <div className="flex bg-slate-800 rounded p-1">
-                          <button onClick={() => onChange({...group, logic: Logic.AND})} className={`px-3 py-1 text-xs rounded ${group.logic === Logic.AND ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}>AND</button>
-                          <button onClick={() => onChange({...group, logic: Logic.OR})} className={`px-3 py-1 text-xs rounded ${group.logic === Logic.OR ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}>OR</button>
-                      </div>
-                  </div>
-                  <div className="flex space-x-2">
-                      <button onClick={addCondition} className="text-xs text-emerald-400 hover:bg-emerald-900/30 px-2 py-1 rounded flex items-center"><Plus className="w-3 h-3 mr-1"/> Rule</button>
-                      <button onClick={addGroup} className="text-xs text-indigo-400 hover:bg-indigo-900/30 px-2 py-1 rounded flex items-center"><GitBranch className="w-3 h-3 mr-1"/> Group</button>
-                  </div>
-              </div>
-
-              <div className="space-y-3">
-                  {group.conditions.map((child, idx) => (
-                      <div key={child.id} className="relative">
-                          {'type' in child && child.type === 'GROUP' ? (
-                              <div className="flex items-start">
-                                  <div className="flex-1">
-                                    <GroupRenderer group={child as RuleGroup} onChange={(g) => updateChild(idx, g)} depth={depth + 1} />
-                                  </div>
-                                  <button onClick={() => removeChild(idx)} className="ml-2 mt-6 text-slate-600 hover:text-red-400"><Trash2 className="w-4 h-4"/></button>
-                              </div>
-                          ) : (
-                              <RuleRow condition={child as Condition} onChange={(c) => updateChild(idx, c)} onRemove={() => removeChild(idx)} />
-                          )}
-                          {idx < group.conditions.length - 1 && (
-                              <div className="flex justify-center my-1">
-                                  <div className="h-4 w-[1px] bg-slate-800"></div>
-                              </div>
-                          )}
-                      </div>
-                  ))}
-                  {group.conditions.length === 0 && (
-                      <div className="text-center py-4 text-xs text-slate-600 border border-dashed border-slate-800 rounded">
-                          No conditions yet. Add a rule to start.
-                      </div>
-                  )}
-              </div>
-          </div>
-      );
-  };
-
-  const RuleRow: React.FC<{ condition: Condition, onChange: (c: Condition) => void, onRemove: () => void }> = ({ condition, onChange, onRemove }) => (
-      <div className="flex items-center space-x-2 bg-slate-950 p-2 rounded border border-slate-800 hover:border-slate-600 transition-colors">
-          {/* LEFT SIDE */}
-          <div className="flex items-center space-x-1">
-            {/* Multi-Timeframe Selector */}
-            <select
-                value={condition.timeframe || ''}
-                onChange={(e) => onChange({...condition, timeframe: e.target.value ? e.target.value as Timeframe : undefined})}
-                className="bg-slate-900 border border-slate-700 text-purple-300 text-[10px] rounded px-1 py-1 w-14 outline-none mr-1"
-                title="Timeframe Override"
-            >
-                <option value="">Curr</option>
-                {Object.values(Timeframe).map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-            <select 
-                value={condition.indicator} 
-                onChange={(e) => onChange({...condition, indicator: e.target.value as IndicatorType})}
-                className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 w-28 outline-none"
-            >
-                {Object.values(IndicatorType).map(i => <option key={i} value={i}>{i}</option>)}
-            </select>
-            <input 
-                type="number" 
-                value={condition.period} 
-                onChange={(e) => onChange({...condition, period: parseInt(e.target.value)})}
-                className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-1 py-1 w-12 text-center"
-                placeholder="14"
-            />
-          </div>
-
-          {/* OPERATOR */}
-          <select 
-             value={condition.operator}
-             onChange={(e) => onChange({...condition, operator: e.target.value as Operator})}
-             className="bg-slate-900 border border-slate-700 text-emerald-400 font-bold text-xs rounded px-2 py-1 outline-none"
-          >
-              {Object.values(Operator).map(o => <option key={o} value={o}>{o}</option>)}
-          </select>
-
-          {/* RIGHT SIDE */}
-          <div className="flex items-center space-x-1 flex-1">
-             <button 
-                onClick={() => onChange({...condition, compareType: condition.compareType === 'STATIC' ? 'INDICATOR' : 'STATIC'})}
-                className={`text-[10px] px-1 py-1 rounded border ${condition.compareType === 'STATIC' ? 'bg-slate-800 border-slate-600 text-slate-300' : 'bg-purple-900/30 border-purple-500 text-purple-400'}`}
-             >
-                 {condition.compareType === 'STATIC' ? '123' : 'IND'}
-             </button>
-
-             {condition.compareType === 'STATIC' ? (
-                 <input 
-                    type="number" 
-                    value={condition.value}
-                    onChange={(e) => onChange({...condition, value: parseFloat(e.target.value)})}
-                    className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 w-24"
-                 />
-             ) : (
-                 <>
-                    {/* MTF for Right Side */}
-                    <select
-                        value={condition.rightTimeframe || ''}
-                        onChange={(e) => onChange({...condition, rightTimeframe: e.target.value ? e.target.value as Timeframe : undefined})}
-                        className="bg-slate-900 border border-slate-700 text-purple-300 text-[10px] rounded px-1 py-1 w-14 outline-none mr-1"
-                    >
-                        <option value="">Curr</option>
-                        {Object.values(Timeframe).map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                    <select 
-                        value={condition.rightIndicator} 
-                        onChange={(e) => onChange({...condition, rightIndicator: e.target.value as IndicatorType})}
-                        className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 w-28 outline-none"
-                    >
-                        {Object.values(IndicatorType).map(i => <option key={i} value={i}>{i}</option>)}
-                    </select>
-                    <input 
-                        type="number" 
-                        value={condition.rightPeriod || 14} 
-                        onChange={(e) => onChange({...condition, rightPeriod: parseInt(e.target.value)})}
-                        className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-1 py-1 w-12 text-center"
-                    />
-                 </>
-             )}
-          </div>
-
-          <button onClick={onRemove} className="text-slate-600 hover:text-red-400 p-1"><Trash2 className="w-3 h-3"/></button>
-      </div>
-  );
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-[calc(100vh-8rem)]">
