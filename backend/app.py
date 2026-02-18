@@ -6,6 +6,7 @@ import logging
 import json
 from collections import deque
 from datetime import datetime
+import os
 
 # Import Blueprints
 from routes.backtest_routes import backtest_bp
@@ -13,6 +14,7 @@ from routes.market_routes import market_bp
 from routes.optimization_routes import optimization_bp
 from routes.risk_routes import risk_bp
 from routes.paper_routes import paper_bp
+from routes.strategy_routes import strategy_bp
 
 # --- LOGGING SETUP ---
 LOG_BUFFER = deque(maxlen=500)
@@ -46,12 +48,16 @@ logger.addHandler(memory_handler)
 app = Flask(__name__)
 CORS(app)
 
+# Ensure data directory exists
+os.makedirs('data', exist_ok=True)
+
 # --- REGISTER BLUEPRINTS ---
 app.register_blueprint(backtest_bp, url_prefix='/api/v1/backtest')
 app.register_blueprint(market_bp, url_prefix='/api/v1/market')
 app.register_blueprint(optimization_bp, url_prefix='/api/v1/optimization')
 app.register_blueprint(risk_bp, url_prefix='/api/v1/risk')
 app.register_blueprint(paper_bp, url_prefix='/api/v1/paper-trading')
+app.register_blueprint(strategy_bp, url_prefix='/api/v1/strategies')
 
 # --- MIDDLEWARE ---
 @app.before_request

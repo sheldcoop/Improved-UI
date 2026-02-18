@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { PlayCircle, Filter, Code, Cpu, MessageSquare, Zap, Activity, Plus } from 'lucide-react';
+import { PlayCircle, Filter, Code, Cpu, MessageSquare, Zap, Activity, Plus, Save } from 'lucide-react';
 import { AssetClass, Timeframe, IndicatorType, Operator, Strategy, Logic, RuleGroup, Condition, PositionSizeMode, RankingMethod } from '../types';
 import { saveStrategy, runBacktest } from '../services/api';
 import { useNavigate } from 'react-router-dom';
@@ -57,6 +57,7 @@ const StrategyBuilder: React.FC = () => {
   const [aiPrompt, setAiPrompt] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [running, setRunning] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // --- HELPERS ---
   const generateSummary = useMemo(() => {
@@ -97,6 +98,18 @@ const StrategyBuilder: React.FC = () => {
           setIsAiLoading(false);
           setAiPrompt('');
       }, 1500);
+  };
+
+  const handleSave = async () => {
+      setSaving(true);
+      try {
+          await saveStrategy(strategy);
+          alert("Strategy Saved Successfully!");
+      } catch (e) {
+          alert("Error saving strategy: " + e);
+      } finally {
+          setSaving(false);
+      }
   };
 
   const handleRun = async () => {
@@ -187,8 +200,11 @@ const StrategyBuilder: React.FC = () => {
              </div>
          </Card>
 
-         <div className="mt-auto">
-             <Button onClick={handleRun} disabled={running} className="w-full py-3 mb-2 shadow-emerald-900/40" icon={running ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <PlayCircle className="w-5 h-5"/>}>
+         <div className="mt-auto space-y-2">
+             <Button variant="secondary" onClick={handleSave} disabled={saving} className="w-full" icon={saving ? <div className="w-3 h-3 border-2 border-slate-400 border-t-white rounded-full animate-spin"></div> : <Save className="w-4 h-4"/>}>
+                 {saving ? 'Saving...' : 'Save Strategy'}
+             </Button>
+             <Button onClick={handleRun} disabled={running} className="w-full py-3 shadow-emerald-900/40" icon={running ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <PlayCircle className="w-5 h-5"/>}>
                  {running ? 'Simulating...' : 'Run Strategy'}
              </Button>
          </div>

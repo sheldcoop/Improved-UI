@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Clock, Globe, Sliders, AlertCircle, CheckCircle, Split, Info, Database, BarChart, AlertTriangle, CloudRain, CheckSquare } from 'lucide-react';
+import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Database, Sliders, AlertCircle, CheckCircle, Split, Info, AlertTriangle, CheckSquare, Clock } from 'lucide-react';
 import { MOCK_SYMBOLS, UNIVERSES } from '../constants'; 
-import { runBacktest, validateMarketData, DataHealthReport } from '../services/api';
-import { Timeframe } from '../types';
+import { runBacktest, validateMarketData, DataHealthReport, fetchStrategies } from '../services/api';
+import { Timeframe, Strategy } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -18,7 +18,10 @@ const Backtest: React.FC = () => {
   const [symbol, setSymbol] = useState(MOCK_SYMBOLS[0].symbol);
   const [universe, setUniverse] = useState(UNIVERSES[0].id);
   const [timeframe, setTimeframe] = useState<Timeframe>(Timeframe.D1);
+  
+  // Strategy State
   const [strategyId, setStrategyId] = useState('1');
+  const [customStrategies, setCustomStrategies] = useState<Strategy[]>([]);
   
   // Date Range
   const [startDate, setStartDate] = useState('2023-01-01');
@@ -40,6 +43,19 @@ const Backtest: React.FC = () => {
   const [dataStatus, setDataStatus] = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
   const [healthReport, setHealthReport] = useState<DataHealthReport | null>(null);
 
+  // Load Strategies on Mount
+  useEffect(() => {
+      const loadStrats = async () => {
+          try {
+              const strats = await fetchStrategies();
+              setCustomStrategies(strats);
+          } catch (e) {
+              console.error("Failed to load strategies", e);
+          }
+      };
+      loadStrats();
+  }, []);
+
   // Initialize defaults based on strategy selection
   useEffect(() => {
     if (strategyId === '1') { // RSI
@@ -47,6 +63,7 @@ const Backtest: React.FC = () => {
     } else if (strategyId === '3') { // SMA
         setParams({ fast: 10, slow: 50 });
     } else {
+        // Clear params for custom strategies as they are embedded in the strategy object
         setParams({});
     }
   }, [strategyId]);
@@ -159,6 +176,13 @@ const Backtest: React.FC = () => {
                                 <option value="3">Moving Average Crossover</option>
                                 <option value="1">RSI Mean Reversion</option>
                             </optgroup>
+                            {customStrategies.length > 0 && (
+                                <optgroup label="My Custom Strategies">
+                                    {customStrategies.map(s => (
+                                        <option key={s.id} value={s.id}>{s.name}</option>
+                                    ))}
+                                </optgroup>
+                            )}
                         </select>
                     </div>
 
@@ -194,6 +218,11 @@ const Backtest: React.FC = () => {
                                     <span className="text-xs text-slate-500">Cross Logic Active</span>
                                 </div>
                             </>
+                        )}
+                        {strategyId !== '1' && strategyId !== '3' && (
+                             <div className="col-span-3 flex items-center justify-center text-xs text-slate-500 italic h-full">
+                                 Using saved parameters from Strategy Builder.
+                             </div>
                         )}
                     </div>
                 </div>
@@ -237,7 +266,7 @@ const Backtest: React.FC = () => {
                  ) : (
                      <div>
                       <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center">
-                          <Globe className="w-4 h-4 mr-2 text-indigo-400" /> Universe
+                          <Database className="w-4 h-4 mr-2 text-indigo-400" /> Universe
                       </label>
                       <select 
                         value={universe}
@@ -409,3 +438,4 @@ const Backtest: React.FC = () => {
 };
 
 export default Backtest;
+    

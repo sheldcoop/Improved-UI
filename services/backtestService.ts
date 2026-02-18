@@ -38,7 +38,10 @@ export const fetchStrategies = async (): Promise<Strategy[]> => {
 };
 
 export const saveStrategy = async (strategy: Strategy): Promise<void> => {
-    return executeWithFallback(API_ENDPOINTS.STRATEGIES, { method: 'POST', body: JSON.stringify(strategy) }, async () => {
+    // If saving to backend, we post to the strategies endpoint
+    const endpoint = API_ENDPOINTS.STRATEGIES; // Now maps to /strategies
+    
+    return executeWithFallback(endpoint, { method: 'POST', body: JSON.stringify(strategy) }, async () => {
         await delay(CONFIG.MOCK_DELAY_MS);
         const existingIndex = mockStrategies.findIndex(s => s.id === strategy.id);
         if (existingIndex >= 0) mockStrategies[existingIndex] = strategy;
