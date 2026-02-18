@@ -19,3 +19,18 @@ def run_optimization():
     except Exception as e:
         logger.error(f"Optimization Error: {e}")
         return jsonify({"error": str(e)}), 500
+
+@optimization_bp.route('/wfo', methods=['POST'])
+def run_wfo():
+    try:
+        symbol = request.json.get('symbol', 'NIFTY 50')
+        strategy_id = request.json.get('strategyId', '1')
+        config = request.json.get('wfoConfig', {}) # { trainWindow, testWindow }
+        
+        logger.info(f"Running WFO for {symbol}")
+        
+        results = OptimizationEngine.run_wfo(symbol, strategy_id, config)
+        return jsonify(results)
+    except Exception as e:
+        logger.error(f"WFO Error: {e}")
+        return jsonify({"error": str(e)}), 500

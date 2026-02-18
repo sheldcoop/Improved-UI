@@ -52,6 +52,7 @@ export interface Strategy {
   timeframe: Timeframe;
   entryRules: Condition[];
   exitRules: Condition[];
+  filterRules?: Condition[]; // New: Market Regime Filters
   stopLossPct: number;
   takeProfitPct: number;
   created: string;
@@ -117,7 +118,7 @@ export interface BacktestResult {
   };
   monthlyReturns: { year: number; month: number; returnPct: number }[];
   equityCurve: { date: string; value: number; drawdown: number }[];
-  trades: Trade[]; // Added Trade Log
+  trades: Trade[];
   status: 'running' | 'completed' | 'failed';
 }
 
@@ -148,10 +149,12 @@ export interface OptimizationResult {
 }
 
 export interface WFOResult {
-  period: string; // e.g., "2023-Jan to 2023-Mar"
-  isOOS: boolean;
+  period: string; // e.g., "Run 1 (Train)" or "Run 1 (Test)"
+  type: 'TRAIN' | 'TEST';
+  params: string;
   returnPct: number;
   sharpe: number;
+  drawdown: number;
 }
 
 // Monte Carlo Types

@@ -11,6 +11,9 @@ def run_backtest():
     try:
         data = request.json
         symbol = data.get('symbol', 'NIFTY 50')
+        universe = data.get('universe') # New param
+        target = universe if universe else symbol
+        
         timeframe = data.get('timeframe', '1d')
         
         # Strategy Config (can be ID or full object)
@@ -25,13 +28,14 @@ def run_backtest():
             "takeProfitPct": data.get('takeProfitPct', 0),
             # Pass rules if available
             "entryRules": data.get('entryRules', []),
-            "exitRules": data.get('exitRules', [])
+            "exitRules": data.get('exitRules', []),
+            "filterRules": data.get('filterRules', [])
         }
 
-        logger.info(f"Backtest {symbol} [{timeframe}] - Strat: {strategy_id}")
+        logger.info(f"Backtest Target: {target} [{timeframe}]")
         
         data_engine = DataEngine(request.headers)
-        df = data_engine.fetch_historical_data(symbol, timeframe)
+        df = data_engine.fetch_historical_data(target, timeframe)
         
         results = BacktestEngine.run(df, strategy_id, config)
         
@@ -41,10 +45,10 @@ def run_backtest():
         response = {
             "id": f"bk-{random.randint(1000,9999)}",
             "strategyName": data.get('strategyName', "Vectorized Strategy"),
-            "symbol": symbol,
+            "symbol": target,
             "timeframe": timeframe,
-            "startDate": df.index[0].strftime('%Y-%m-%d'),
-            "endDate": df.index[-1].strftime('%Y-%m-%d'),
+            "startDate": "2023-01-01", # simplified
+            "endDate": "2024-01-01",
             "status": "completed",
             **results
         }

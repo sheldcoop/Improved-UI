@@ -41,9 +41,11 @@ export interface BacktestConfig {
     capital?: number;
     entryRules?: any[];
     exitRules?: any[];
+    filterRules?: any[]; // New
     stopLossPct?: number;
     takeProfitPct?: number;
     strategyName?: string;
+    universe?: string; // New
 }
 
 export const runBacktest = async (strategyId: string | null, symbol: string, config?: BacktestConfig): Promise<BacktestResult> => {
@@ -53,7 +55,6 @@ export const runBacktest = async (strategyId: string | null, symbol: string, con
       // MOCK FALLBACK ONLY IF BACKEND IS DOWN
       await delay(1500); 
       console.warn("Using Fallback Mock for Backtest");
-      const trades: Trade[] = [];
       const equityCurve = [];
       let value = config?.capital || 100000;
       let peak = value;
@@ -101,7 +102,6 @@ export interface OptimizationRanges {
 }
 
 export const runOptimization = async (symbol: string = 'NIFTY 50', strategyId: string = '1', ranges: OptimizationRanges = {}): Promise<{ grid: OptimizationResult[], wfo: WFOResult[] }> => {
-    // Call the REAL backend optimization endpoint with ranges
     return executeWithFallback(API_ENDPOINTS.OPTIMIZATION, { method: 'POST', body: JSON.stringify({ symbol, strategyId, ranges }) }, async () => {
         await delay(1000);
         return { 
@@ -111,6 +111,16 @@ export const runOptimization = async (symbol: string = 'NIFTY 50', strategyId: s
             ], 
             wfo: [] 
         };
+    });
+};
+
+export const runWFO = async (symbol: string, strategyId: string, wfoConfig: any): Promise<WFOResult[]> => {
+    return executeWithFallback(`${API_ENDPOINTS.OPTIMIZATION.replace('/run', '')}/wfo`, { method: 'POST', body: JSON.stringify({ symbol, strategyId, wfoConfig }) }, async () => {
+        await delay(1000);
+        return [
+            { period: 'Window 1', type: 'TEST', params: 'P=14', returnPct: 5, sharpe: 1.2, drawdown: 2 },
+            { period: 'Window 2', type: 'TEST', params: 'P=16', returnPct: -2, sharpe: 0.5, drawdown: 8 },
+        ];
     });
 };
 

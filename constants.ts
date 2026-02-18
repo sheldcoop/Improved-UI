@@ -32,3 +32,10 @@ export const MOCK_SYMBOLS = [
 ];
 
 export const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export const UNIVERSES = [
+    { id: 'NIFTY_50', name: 'NIFTY 50 Constituents' },
+    { id: 'BANK_NIFTY', name: 'NIFTY BANK Sector' },
+    { id: 'IT_SECTOR', name: 'NIFTY IT Sector' },
+    { id: 'MOMENTUM', name: 'High Momentum Stocks' }
+];

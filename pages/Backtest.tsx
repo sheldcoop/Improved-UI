@@ -1,8 +1,8 @@
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Clock } from 'lucide-react';
-import { MOCK_SYMBOLS } from '../constants';
+import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Clock, Globe } from 'lucide-react';
+import { MOCK_SYMBOLS, UNIVERSES } from '../constants'; // UNIVERSES imported
 import { runBacktest } from '../services/api';
 import { Timeframe } from '../types';
 import { Card } from '../components/ui/Card';
@@ -10,7 +10,10 @@ import { Card } from '../components/ui/Card';
 const Backtest: React.FC = () => {
   const navigate = useNavigate();
   const [running, setRunning] = useState(false);
+  const [mode, setMode] = useState<'SINGLE' | 'UNIVERSE'>('SINGLE');
   const [symbol, setSymbol] = useState(MOCK_SYMBOLS[0].symbol);
+  const [universe, setUniverse] = useState(UNIVERSES[0].id);
+  
   const [timeframe, setTimeframe] = useState<Timeframe>(Timeframe.D1);
   const [strategyId, setStrategyId] = useState('1');
   
@@ -22,16 +25,16 @@ const Backtest: React.FC = () => {
 
   const handleRun = async () => {
     setRunning(true);
-    // Pass config to the API including granular timeframe
-    // Note: strategyId is passed. If custom rules were needed, StrategyBuilder should be used.
-    // This page is for "Quick Backtest" of preset/saved strategies.
     try {
-        const result = await runBacktest(strategyId, symbol, {
-            capital,
-            slippage,
-            commission
-        });
-        // We need to inject the timeframe into the result since the mock might default it
+        const config: any = { capital, slippage, commission };
+        
+        // Pass Universe if mode is UNIVERSE
+        if (mode === 'UNIVERSE') {
+            config.universe = universe;
+        }
+
+        const result = await runBacktest(strategyId, mode === 'SINGLE' ? symbol : universe, config);
+        
         if (result) result.timeframe = timeframe; 
         navigate('/results', { state: { result } });
     } catch (e) {
@@ -66,26 +69,56 @@ const Backtest: React.FC = () => {
                     <option value="1">RSI Mean Reversion (Equity)</option>
                 </optgroup>
               </select>
-              <p className="text-xs text-slate-500 mt-2">
-                 To test custom rules, use the <span className="text-emerald-400 cursor-pointer hover:underline" onClick={() => navigate('/strategy')}>Strategy Builder</span>.
-              </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Symbol & Timeframe */}
+              {/* Asset Selection */}
               <div className="space-y-6">
                  <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-2">Symbol</label>
-                  <div className="relative">
-                    <select 
-                      value={symbol}
-                      onChange={(e) => setSymbol(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-emerald-500 outline-none"
-                    >
-                      {MOCK_SYMBOLS.map(s => <option key={s.symbol} value={s.symbol}>{s.symbol} ({s.exchange})</option>)}
-                    </select>
-                  </div>
-                </div>
+                    <label className="block text-sm font-medium text-slate-400 mb-2">Backtest Mode</label>
+                    <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-700">
+                        <button 
+                            onClick={() => setMode('SINGLE')} 
+                            className={`flex-1 py-1.5 text-sm rounded-md transition-all ${mode === 'SINGLE' ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                        >
+                            Single Symbol
+                        </button>
+                        <button 
+                            onClick={() => setMode('UNIVERSE')} 
+                            className={`flex-1 py-1.5 text-sm rounded-md transition-all ${mode === 'UNIVERSE' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                        >
+                            Multi-Asset Universe
+                        </button>
+                    </div>
+                 </div>
+
+                 {mode === 'SINGLE' ? (
+                     <div>
+                      <label className="block text-sm font-medium text-slate-400 mb-2">Symbol</label>
+                      <select 
+                        value={symbol}
+                        onChange={(e) => setSymbol(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-emerald-500 outline-none"
+                      >
+                        {MOCK_SYMBOLS.map(s => <option key={s.symbol} value={s.symbol}>{s.symbol} ({s.exchange})</option>)}
+                      </select>
+                    </div>
+                 ) : (
+                     <div>
+                      <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center">
+                          <Globe className="w-4 h-4 mr-2 text-indigo-400" /> Universe
+                      </label>
+                      <select 
+                        value={universe}
+                        onChange={(e) => setUniverse(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-indigo-500 outline-none"
+                      >
+                        {UNIVERSES && UNIVERSES.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </select>
+                      <p className="text-xs text-slate-500 mt-2">Backtest runs on all constituents simultaneously.</p>
+                    </div>
+                 )}
+
                  <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center">
                      <Clock className="w-4 h-4 mr-2" /> Timeframe
@@ -132,43 +165,27 @@ const Backtest: React.FC = () => {
 
             {/* Advanced Settings Toggle */}
             <div className="border-t border-slate-800 pt-4">
-                 <button 
-                    onClick={() => setShowAdvanced(!showAdvanced)}
-                    className="flex items-center text-sm text-slate-400 hover:text-emerald-400 transition-colors"
-                 >
+                 <button onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center text-sm text-slate-400 hover:text-emerald-400 transition-colors">
                      <Settings className="w-4 h-4 mr-2" />
                      Advanced Configuration
                      <ChevronDown className={`w-4 h-4 ml-2 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
                  </button>
-
                  {showAdvanced && (
                      <div className="grid grid-cols-2 gap-6 mt-4 bg-slate-950 p-4 rounded-xl border border-slate-800 animate-in fade-in slide-in-from-top-2">
                          <div>
                              <label className="text-xs text-slate-500 block mb-1">Slippage (%)</label>
-                             <input 
-                                type="number" step="0.01"
-                                value={slippage} onChange={(e) => setSlippage(parseFloat(e.target.value))}
-                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" 
-                             />
+                             <input type="number" step="0.01" value={slippage} onChange={(e) => setSlippage(parseFloat(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
                          </div>
                          <div>
                              <label className="text-xs text-slate-500 block mb-1">Commission (Flat ₹)</label>
-                             <input 
-                                type="number" 
-                                value={commission} onChange={(e) => setCommission(parseFloat(e.target.value))}
-                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" 
-                             />
+                             <input type="number" value={commission} onChange={(e) => setCommission(parseFloat(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
                          </div>
                      </div>
                  )}
             </div>
 
             <div className="pt-2">
-               <button 
-                 onClick={handleRun}
-                 disabled={running}
-                 className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-lg font-bold py-4 rounded-xl shadow-lg shadow-emerald-900/40 transition-all transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-               >
+               <button onClick={handleRun} disabled={running} className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-lg font-bold py-4 rounded-xl shadow-lg shadow-emerald-900/40 transition-all transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center">
                  {running ? (
                    <>
                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-3"></div>
@@ -177,7 +194,7 @@ const Backtest: React.FC = () => {
                  ) : (
                    <>
                      <PlayCircle className="w-6 h-6 mr-2" />
-                     Start Simulation
+                     Start {mode === 'UNIVERSE' ? 'Multi-Asset' : ''} Simulation
                    </>
                  )}
                </button>
