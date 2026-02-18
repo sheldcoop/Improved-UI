@@ -10,6 +10,8 @@ import os
 import pandas as pd
 
 from services.data_fetcher import DataFetcher
+from services.scrip_master import search_instruments, get_instrument_by_symbol
+from services.dhan_historical import fetch_historical_data, validate_date_range
 
 market_bp = Blueprint("market", __name__)
 logger = logging.getLogger(__name__)
@@ -170,3 +172,126 @@ def _compute_data_health(
         "gaps": gaps,
         "status": status,
     }
+
+
+@market_bp.route("/instruments", methods=["GET"])
+def get_instruments():
+    """Search instruments by segment and query.
+    
+    Query Parameters:
+        segment (str): "NSE_EQ" or "NSE_SME"
+        q (str): Search query string
+    
+    Returns:
+        JSON list of instruments with symbol, display_name, security_id, instrument_type
+    """
+    try:
+        segment = request.args.get("segment", "").strip()
+        query = request.args.get("q", "").strip()
+        
+        if not segment:
+            return jsonify({"status": "error", "message": "segment parameter is required"}), 400
+        
+        if segment not in ["NSE_EQ", "NSE_SME"]:
+            return jsonify({"status": "error", "message": "segment must be NSE_EQ or NSE_SME"}), 400
+        
+        results = search_instruments(segment, query, limit=20)
+        return jsonify(results), 200
+        
+    except Exception as exc:
+        logger.error(f"Instrument search error: {exc}", exc_info=True)
+        return jsonify({"status": "error", "message": "Failed to search instruments"}), 500
+
+
+@market_bp.route("/backtest/run", methods=["POST"])
+def run_backtest():
+    """Run backtest simulation using Dhan historical data.
+    
+    Request JSON:
+        instrument_details: {
+            security_id (str): Dhan security ID
+            symbol (str): Symbol name
+            exchange_segment (str): Always "NSE_EQ" for both Mainboard and SME
+            instrument_type (str): "EQUITY", etc.
+        }
+        parameters: {
+            timeframe (str): "1d", "1m", "5m", "15m", "1h"
+            start_date (str): "YYYY-MM-DD"
+            end_date (str): "YYYY-MM-DD"
+            initial_capital (float): Starting capital
+            strategy_logic (dict): Strategy configuration
+        }
+    
+    Returns:
+        JSON backtest results with performance metrics
+    """
+    try:
+        data = request.json or {}
+        
+        # Validate required fields
+        inst_details = data.get("instrument_details", {})
+        if not inst_details.get("security_id"):
+            return jsonify({"status": "error", "message": "security_id is required"}), 400
+        if not inst_details.get("exchange_segment"):
+            return jsonify({"status": "error", "message": "exchange_segment is required"}), 400
+        if not inst_details.get("instrument_type"):
+            return jsonify({"status": "error", "message": "instrument_type is required"}), 400
+        
+        params = data.get("parameters", {})
+        if not params.get("timeframe"):
+            return jsonify({"status": "error", "message": "timeframe is required"}), 400
+        if not params.get("start_date") or not params.get("end_date"):
+            return jsonify({"status": "error", "message": "start_date and end_date are required"}), 400
+        
+        # Validate date range
+        try:
+            validate_date_range(params["start_date"], params["end_date"])
+        except ValueError as e:
+            return jsonify({"status": "error", "message": str(e)}), 400
+        
+        # Fetch historical data from Dhan
+        logger.info(f"Fetching data for {inst_details['symbol']} ({inst_details['security_id']})")
+        df = fetch_historical_data(
+            security_id=inst_details["security_id"],
+            exchange_segment=inst_details["exchange_segment"],
+            instrument_type=inst_details["instrument_type"],
+            timeframe=params["timeframe"],
+            from_date=params["start_date"],
+            to_date=params["end_date"]
+        )
+        
+        if df.empty:
+            return jsonify({"status": "error", "message": "No data returned from Dhan"}), 400
+        
+        logger.info(f"Fetched {len(df)} candles from Dhan")
+        
+        # For now, return basic data info
+        # TODO: Integrate with VectorBT for actual backtesting
+        result = {
+            "status": "success",
+            "data_summary": {
+                "total_candles": len(df),
+                "start_date": str(df.index[0]),
+                "end_date": str(df.index[-1]),
+                "open_price": float(df["open"].iloc[0]),
+                "close_price": float(df["close"].iloc[-1]),
+                "high": float(df["high"].max()),
+                "low": float(df["low"].min()),
+                "avg_volume": float(df["volume"].mean())
+            },
+            "instrument": {
+                "symbol": inst_details["symbol"],
+                "security_id": inst_details["security_id"],
+                "timeframe": params["timeframe"]
+            },
+            "note": "VectorBT integration pending - returning data summary only"
+        }
+        
+        return jsonify(result), 200
+        
+    except ValueError as e:
+        logger.error(f"Backtest validation error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as exc:
+        logger.error(f"Backtest error: {exc}", exc_info=True)
+        return jsonify({"status": "error", "message": "Failed to run backtest"}), 500

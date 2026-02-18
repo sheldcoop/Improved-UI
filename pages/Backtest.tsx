@@ -8,6 +8,65 @@ import { Timeframe, Strategy } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { fetchClient } from '../services/http';
+
+// Debounce helper
+const useDebounce = (value: string, delay: number) => {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+};
+
+// Search instruments API
+const searchInstruments = async (segment: string, query: string) => {
+  return fetchClient<Array<{symbol: string; display_name: string; security_id: string; instrument_type: string}>>(`/market/instruments?segment=${segment}&q=${encodeURIComponent(query)}`);
+};
+
+// Run backtest with Dhan API
+const runBacktestWithDhan = async (payload: {
+  instrument_details: {
+    security_id: string;
+    symbol: string;
+    exchange_segment: string;
+    instrument_type: string;
+  };
+  parameters: {
+    timeframe: string;
+    start_date: string;
+    end_date: string;
+    initial_capital: number;
+    strategy_logic: {
+      name: string;
+      [key: string]: any;
+    };
+  };
+}) => {
+  return fetchClient<{
+    status: string;
+    data_summary?: {
+      total_candles: number;
+      start_date: string;
+      end_date: string;
+      open_price: number;
+      close_price: number;
+      high: number;
+      low: number;
+      avg_volume: number;
+    };
+    instrument?: {
+      symbol: string;
+      security_id: string;
+      timeframe: string;
+    };
+    note?: string;
+  }>('/market/backtest/run', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+};
 
 const Backtest: React.FC = () => {
   const navigate = useNavigate();
@@ -15,7 +74,12 @@ const Backtest: React.FC = () => {
   
   // Core Config
   const [mode, setMode] = useState<'SINGLE' | 'UNIVERSE'>('SINGLE');
-  const [symbol, setSymbol] = useState(MOCK_SYMBOLS[0].symbol);
+  const [segment, setSegment] = useState<'NSE_EQ' | 'NSE_SME'>('NSE_EQ');
+  const [symbol, setSymbol] = useState('');
+  const [symbolSearchQuery, setSymbolSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Array<{symbol: string; display_name: string; security_id: string; instrument_type: string}>>([]);
+  const [selectedInstrument, setSelectedInstrument] = useState<{symbol: string; display_name: string; security_id: string; instrument_type: string} | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
   const [universe, setUniverse] = useState(UNIVERSES[0].id);
   const [timeframe, setTimeframe] = useState<Timeframe>(Timeframe.D1);
   
@@ -74,6 +138,31 @@ const Backtest: React.FC = () => {
       setHealthReport(null);
   }, [symbol, universe, timeframe, startDate, endDate]);
 
+  // Debounced search effect
+  const debouncedSearchQuery = useDebounce(symbolSearchQuery, 300);
+  
+  useEffect(() => {
+    if (mode !== 'SINGLE' || !debouncedSearchQuery || debouncedSearchQuery.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    
+    const doSearch = async () => {
+      setIsSearching(true);
+      try {
+        const results = await searchInstruments(segment, debouncedSearchQuery);
+        setSearchResults(results);
+      } catch (e) {
+        console.error('Search failed:', e);
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    };
+    
+    doSearch();
+  }, [debouncedSearchQuery, segment, mode]);
+
   // Calculate Split Date
   const splitDateString = useMemo(() => {
     const start = new Date(startDate);
@@ -108,25 +197,66 @@ const Backtest: React.FC = () => {
         return;
     }
 
+    // For SINGLE mode, require selected instrument
+    if (mode === 'SINGLE' && !selectedInstrument) {
+        alert("Please select a symbol from the search results.");
+        return;
+    }
+
     setRunning(true);
     try {
-        const config: any = { 
-            capital, 
-            slippage, 
-            commission,
-            ...params, // Spread dynamic params (fast, slow, period, etc.)
-            splitDate: splitDateString,
-            trainTestSplit: splitRatio
-        };
-        
-        if (mode === 'UNIVERSE') {
-            config.universe = universe;
-        }
+        if (mode === 'SINGLE' && selectedInstrument) {
+            // Use new Dhan-based backtest API
+            const timeframeMap: Record<string, string> = {
+                [Timeframe.M1]: '1m',
+                [Timeframe.M5]: '5m',
+                [Timeframe.M15]: '15m',
+                [Timeframe.H1]: '1h',
+                [Timeframe.D1]: '1d'
+            };
+            
+            const result = await runBacktestWithDhan({
+                instrument_details: {
+                    security_id: selectedInstrument.security_id,
+                    symbol: selectedInstrument.symbol,
+                    exchange_segment: 'NSE_EQ', // Always NSE_EQ for Dhan API
+                    instrument_type: selectedInstrument.instrument_type
+                },
+                parameters: {
+                    timeframe: timeframeMap[timeframe] || '1d',
+                    start_date: startDate,
+                    end_date: endDate,
+                    initial_capital: capital,
+                    strategy_logic: {
+                        name: strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy',
+                        ...params
+                    }
+                }
+            });
+            
+            if (result) {
+                navigate('/results', { state: { result } });
+            }
+        } else {
+            // Fallback to old API for universe mode
+            const config: any = { 
+                capital, 
+                slippage, 
+                commission,
+                ...params,
+                splitDate: splitDateString,
+                trainTestSplit: splitRatio
+            };
+            
+            if (mode === 'UNIVERSE') {
+                config.universe = universe;
+            }
 
-        const result = await runBacktest(strategyId, mode === 'SINGLE' ? symbol : universe, config);
-        
-        if (result) result.timeframe = timeframe; 
-        navigate('/results', { state: { result } });
+            const result = await runBacktest(strategyId, mode === 'SINGLE' ? symbol : universe, config);
+            
+            if (result) result.timeframe = timeframe; 
+            navigate('/results', { state: { result } });
+        }
     } catch (e) {
         alert("Backtest Failed: " + e);
     } finally {
@@ -251,17 +381,93 @@ const Backtest: React.FC = () => {
                  </div>
 
                  {mode === 'SINGLE' ? (
-                     <div>
-                      <div className="flex justify-between mb-2">
-                          <label className="block text-sm font-medium text-slate-400">Symbol</label>
+                     <div className="space-y-4">
+                      {/* Segment Dropdown */}
+                      <div>
+                        <label className="block text-sm font-medium text-slate-400 mb-2">Market Segment</label>
+                        <select 
+                          value={segment}
+                          onChange={(e) => {
+                            setSegment(e.target.value as 'NSE_EQ' | 'NSE_SME');
+                            setSelectedInstrument(null);
+                            setSymbol('');
+                            setSymbolSearchQuery('');
+                            setSearchResults([]);
+                          }}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-emerald-500 outline-none"
+                        >
+                          <option value="NSE_EQ">NSE Mainboard</option>
+                          <option value="NSE_SME">NSE SME</option>
+                        </select>
                       </div>
-                      <select 
-                        value={symbol}
-                        onChange={(e) => setSymbol(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-emerald-500 outline-none"
-                      >
-                        {MOCK_SYMBOLS.map(s => <option key={s.symbol} value={s.symbol}>{s.symbol} ({s.exchange})</option>)}
-                      </select>
+
+                      {/* Symbol Search */}
+                      <div className="relative z-50">
+                        <div className="flex justify-between mb-2">
+                          <label className="block text-sm font-medium text-slate-400">Symbol Search</label>
+                          {selectedInstrument ? (
+                            <span className="text-xs text-emerald-400">
+                              {selectedInstrument.display_name} (ID: {selectedInstrument.security_id})
+                            </span>
+                          ) : (
+                            <span className="text-xs text-yellow-500">
+                              Type 2+ chars and click a result
+                            </span>
+                          )}
+                        </div>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={symbolSearchQuery}
+                            onChange={(e) => {
+                              setSymbolSearchQuery(e.target.value);
+                              if (selectedInstrument) {
+                                // Clear selection when user starts typing again
+                                setSelectedInstrument(null);
+                                setSymbol('');
+                              }
+                            }}
+                            placeholder={`Search ${segment === 'NSE_EQ' ? 'Mainboard' : 'SME'} stocks...`}
+                            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-emerald-500 outline-none"
+                          />
+                          {isSearching && (
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                              <div className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin"></div>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Search Results Dropdown */}
+                        {searchResults.length > 0 && !selectedInstrument && (
+                          <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg max-h-60 overflow-y-auto shadow-xl">
+                            {searchResults.map((result) => (
+                              <button
+                                key={result.security_id}
+                                onClick={() => {
+                                  setSelectedInstrument(result);
+                                  setSymbol(result.symbol);
+                                  setSymbolSearchQuery(`${result.symbol} - ${result.display_name}`);
+                                  setSearchResults([]);
+                                }}
+                                className="w-full px-4 py-3 text-left hover:bg-slate-800 transition-colors border-b border-slate-800 last:border-0"
+                              >
+                                <div className="flex justify-between items-center">
+                                  <span className="font-medium text-slate-200">{result.symbol}</span>
+                                  <span className="text-xs text-slate-500">{result.instrument_type}</span>
+                                </div>
+                                <div className="text-xs text-slate-400 truncate">{result.display_name}</div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        
+                        {/* No results message */}
+                        {symbolSearchQuery.length >= 2 && !isSearching && searchResults.length === 0 && !selectedInstrument && (
+                          <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-400">
+                            No results found. Try a different search term.
+                          </div>
+                        )}
+                      </div>
                     </div>
                  ) : (
                      <div>
