@@ -12,13 +12,20 @@ def run_backtest():
         data = request.json
         symbol = data.get('symbol', 'NIFTY 50')
         strategy_id = data.get('strategyId')
+        
+        # Config extraction
+        config = {
+            "slippage": data.get('slippage', 0.05),
+            "commission": data.get('commission', 20),
+            "initial_capital": data.get('capital', 100000)
+        }
 
-        logger.info(f"Route: Starting Backtest for {symbol}")
+        logger.info(f"Route: Starting Backtest for {symbol} | Config: {config}")
         
         data_engine = DataEngine(request.headers)
         df = data_engine.fetch_historical_data(symbol)
         
-        results = BacktestEngine.run(df, strategy_id)
+        results = BacktestEngine.run(df, strategy_id, config)
         
         if not results:
              return jsonify({"error": "No data found for symbol"}), 404

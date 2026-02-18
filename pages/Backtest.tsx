@@ -13,13 +13,19 @@ const Backtest: React.FC = () => {
   const [symbol, setSymbol] = useState(MOCK_SYMBOLS[0].symbol);
   
   // Advanced Settings State
+  const [capital, setCapital] = useState(100000);
   const [slippage, setSlippage] = useState(0.05);
   const [commission, setCommission] = useState(20);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const handleRun = async () => {
     setRunning(true);
-    const result = await runBacktest('1', symbol);
+    // Pass config to the API
+    const result = await runBacktest('1', symbol, {
+        capital,
+        slippage,
+        commission
+    });
     setRunning(false);
     navigate('/results', { state: { result } });
   };
@@ -100,8 +106,9 @@ const Backtest: React.FC = () => {
                   </label>
                   <input 
                     type="number" 
+                    value={capital}
+                    onChange={(e) => setCapital(parseFloat(e.target.value))}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-emerald-500 outline-none"
-                    defaultValue={100000}
                   />
                 </div>
               </div>

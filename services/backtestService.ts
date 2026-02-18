@@ -34,14 +34,22 @@ export const saveStrategy = async (strategy: Strategy): Promise<void> => {
     });
 };
 
-export const runBacktest = async (strategyId: string, symbol: string): Promise<BacktestResult> => {
-  return executeWithFallback(API_ENDPOINTS.BACKTEST, { method: 'POST', body: JSON.stringify({ strategyId, symbol }) }, async () => {
+export interface BacktestConfig {
+    slippage: number;
+    commission: number;
+    capital: number;
+}
+
+export const runBacktest = async (strategyId: string, symbol: string, config?: BacktestConfig): Promise<BacktestResult> => {
+  const payload = { strategyId, symbol, ...config };
+  
+  return executeWithFallback(API_ENDPOINTS.BACKTEST, { method: 'POST', body: JSON.stringify(payload) }, async () => {
       await delay(1500); 
       // Mock Backtest Logic
       const trades: Trade[] = [];
       const equityCurve = [];
-      let value = 100000;
-      let peak = 100000;
+      let value = config?.capital || 100000;
+      let peak = value;
       const startDate = new Date('2023-01-01');
 
       for (let i = 0; i < 250; i++) {
@@ -81,7 +89,7 @@ export const runBacktest = async (strategyId: string, symbol: string): Promise<B
         startDate: '2023-01-01',
         endDate: '2023-12-31',
         metrics: {
-          totalReturnPct: Number(((value - 100000)/1000).toFixed(2)),
+          totalReturnPct: Number(((value - (config?.capital || 100000))/(config?.capital || 1000)).toFixed(2)),
           cagr: 12.5, sharpeRatio: 1.8, sortinoRatio: 2.1, calmarRatio: 1.5,
           maxDrawdownPct: 12.0, avgDrawdownDuration: '15 days', winRate: 60,
           profitFactor: 1.6, kellyCriterion: 0.1, totalTrades: trades.length,
