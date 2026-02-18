@@ -1,3 +1,4 @@
+
 from flask import Blueprint, request, jsonify
 from engine import MonteCarloEngine
 import logging
@@ -14,7 +15,8 @@ def run_monte_carlo():
         
         logger.info(f"Running Monte Carlo: {simulations} sims, {vol_mult}x vol")
         
-        results = MonteCarloEngine.run(simulations, vol_mult)
+        # Pass headers for API Key resolution
+        results = MonteCarloEngine.run(simulations, vol_mult, request.headers)
         return jsonify(results)
     except Exception as e:
         logger.error(f"MC Error: {e}")

@@ -4,8 +4,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Zap, Sliders, Play, GitBranch, Repeat, Plus, Trash2, Settings } from 'lucide-react';
-import { runOptimization } from '../services/api';
-import { runWFO } from '../services/backtestService';
+import { runOptimization, runWFO } from '../services/backtestService';
 import { OptimizationResult, WFOResult } from '../types';
 import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, ZAxis, Tooltip, CartesianGrid, BarChart, Bar } from 'recharts';
 
@@ -61,15 +60,7 @@ const Optimization: React.FC = () => {
             const res = await runOptimization('NIFTY 50', '1', ranges);
             setResults(res);
         } else {
-            // Use the service that hits /optimization/wfo
-            // Note: We need to import the real service call or update backtestService.ts to support this payload
-            // For now assuming runWFO in backtestService is updated or we call API directly
-            const response = await fetch('http://localhost:5000/api/v1/optimization/wfo', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbol: 'NIFTY 50', strategyId: '1', ranges, wfoConfig })
-            });
-            const wfoRes = await response.json();
+            const wfoRes = await runWFO('NIFTY 50', '1', ranges, wfoConfig);
             setResults({ grid: [], wfo: wfoRes });
         }
     } catch (e) {

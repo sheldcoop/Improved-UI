@@ -261,6 +261,11 @@ class BacktestEngine:
         # Check if result is a Series (Single) or DataFrame (Universe)
         is_universe = isinstance(pf.wrapper.columns, pd.Index) and len(pf.wrapper.columns) > 1
         
+        metrics = {}
+        trades = []
+        equity_curve = []
+        monthly_returns_data = []
+
         if is_universe:
             total_value = pf.value().sum(axis=1)
             total_return = (total_value.iloc[-1] - total_value.iloc[0]) / total_value.iloc[0]
@@ -279,7 +284,6 @@ class BacktestEngine:
                 "totalTrades": int(pf.trades.count().sum()),
                 "alpha": 0, "beta": 0, "volatility": 0, "cagr": 0, "sortinoRatio": 0, "calmarRatio": 0, "expectancy": 0, "consecutiveLosses": 0, "kellyCriterion": 0, "avgDrawdownDuration": "0d"
             }
-            trades = [] 
         else:
             stats = pf.stats()
             equity = pf.value()
@@ -290,7 +294,6 @@ class BacktestEngine:
                 for d, v in equity.items()
             ]
 
-            trades = []
             if hasattr(pf.trades, 'records_readable'):
                 for i, row in pf.trades.records_readable.iterrows():
                     trades.append({
@@ -321,18 +324,33 @@ class BacktestEngine:
                 "expectancy": 0.0, "consecutiveLosses": 0, "kellyCriterion": 0.0, "avgDrawdownDuration": "0d"
             }
 
+            # --- MONTHLY RETURNS ---
+            try:
+                # Resample daily returns to monthly geometric returns
+                monthly_resampled = pf.returns.resample('M').apply(lambda x: (1 + x).prod() - 1)
+                
+                for date, ret in monthly_resampled.items():
+                    monthly_returns_data.append({
+                        "year": date.year,
+                        # Javascript uses 0-11 for months, Python uses 1-12
+                        "month": date.month - 1, 
+                        "returnPct": round(ret * 100, 2)
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to calc monthly returns: {e}")
+
         return {
             "metrics": metrics,
             "equityCurve": equity_curve,
             "trades": trades[::-1],
-            "monthlyReturns": []
+            "monthlyReturns": monthly_returns_data
         }
 
 class OptimizationEngine:
     @staticmethod
-    def run_optuna(symbol, strategy_id, ranges, n_trials=30):
-        # Optimization engine logic remains the same, but uses new DataEngine (with caching)
-        data_engine = DataEngine({})
+    def run_optuna(symbol, strategy_id, ranges, headers, n_trials=30):
+        # Fix: Pass headers to DataEngine to ensure API Key usage
+        data_engine = DataEngine(headers)
         df = data_engine.fetch_historical_data(symbol)
         if df.empty: return {"error": "No data"}
 
@@ -375,8 +393,9 @@ class OptimizationEngine:
         return {"grid": grid_results, "wfo": []}
 
     @staticmethod
-    def run_wfo(symbol, strategy_id, ranges, wfo_config):
-        data_engine = DataEngine({})
+    def run_wfo(symbol, strategy_id, ranges, wfo_config, headers):
+        # Fix: Pass headers to DataEngine
+        data_engine = DataEngine(headers)
         df = data_engine.fetch_historical_data(symbol)
         
         train_window = int(wfo_config.get('trainWindow', 100))
@@ -434,8 +453,9 @@ class OptimizationEngine:
 
 class MonteCarloEngine:
     @staticmethod
-    def run(simulations, vol_mult):
-        data_engine = DataEngine({})
+    def run(simulations, vol_mult, headers):
+        # Fix: Pass headers to DataEngine
+        data_engine = DataEngine(headers)
         df = data_engine.fetch_historical_data('NIFTY 50')
         
         if df is None or df.empty:

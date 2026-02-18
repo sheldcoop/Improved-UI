@@ -16,8 +16,8 @@ def run_optimization():
         
         logger.info(f"Running Optuna Optimization for {symbol} | Params: {len(ranges)}")
         
-        # Use the new run_optuna method
-        results = OptimizationEngine.run_optuna(symbol, strategy_id, ranges)
+        # Pass headers for API Key resolution
+        results = OptimizationEngine.run_optuna(symbol, strategy_id, ranges, request.headers)
         return jsonify(results)
     except Exception as e:
         logger.error(f"Optimization Error: {e}")
@@ -34,8 +34,8 @@ def run_wfo():
         
         logger.info(f"Running Real WFO for {symbol}")
         
-        # Use the new run_wfo method
-        results = OptimizationEngine.run_wfo(symbol, strategy_id, ranges, wfo_config)
+        # Pass headers for API Key resolution
+        results = OptimizationEngine.run_wfo(symbol, strategy_id, ranges, wfo_config, request.headers)
         return jsonify(results)
     except Exception as e:
         logger.error(f"WFO Error: {e}")

@@ -120,8 +120,8 @@ export const runOptimization = async (symbol: string = 'NIFTY 50', strategyId: s
     });
 };
 
-export const runWFO = async (symbol: string, strategyId: string, wfoConfig: any): Promise<WFOResult[]> => {
-    return executeWithFallback(`${API_ENDPOINTS.OPTIMIZATION.replace('/run', '')}/wfo`, { method: 'POST', body: JSON.stringify({ symbol, strategyId, wfoConfig }) }, async () => {
+export const runWFO = async (symbol: string, strategyId: string, ranges: OptimizationRanges, wfoConfig: any): Promise<WFOResult[]> => {
+    return executeWithFallback(`${API_ENDPOINTS.OPTIMIZATION.replace('/run', '')}/wfo`, { method: 'POST', body: JSON.stringify({ symbol, strategyId, ranges, wfoConfig }) }, async () => {
         await delay(1000);
         return [
             { period: 'Window 1', type: 'TEST', params: 'P=14', returnPct: 5, sharpe: 1.2, drawdown: 2 },

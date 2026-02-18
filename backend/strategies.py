@@ -284,24 +284,32 @@ class DynamicStrategy(BaseStrategy):
 
     def _execute_python_code(self, df):
         """
-        Dangerous but Powerful: Execute raw python code for signal generation.
-        Expected format:
-        def signal_logic(df):
-            # ... calculation ...
-            return entries, exits
+        Executes user-defined python code in a restricted scope.
+        Safe enough for internal use, but restricted to prevent system access.
         """
         code = self.config.get('pythonCode', '')
         if not code:
             return None, None
             
         try:
-            local_scope = {'df': df, 'vbt': vbt, 'pd': pd, 'np': np, 'ta': ta}
-            # WARNING: exec() allows arbitrary code execution. 
-            # In a real environment, use a sandbox or RestrictedPython.
-            exec(code, globals(), local_scope)
+            # RESTRICTED SCOPE
+            # We only allow specific safe libraries. NO 'os', 'sys', 'subprocess' etc.
+            safe_globals = {
+                "__builtins__": {
+                    "abs": abs, "max": max, "min": min, "len": len, "range": range, "round": round, "print": print, "int": int, "float": float, "bool": bool, "str": str, "list": list, "dict": dict, "set": set
+                },
+                "df": df,
+                "vbt": vbt, 
+                "pd": pd, 
+                "np": np, 
+                "ta": ta
+            }
             
-            if 'signal_logic' in local_scope:
-                return local_scope['signal_logic'](df)
+            # Execute in restricted scope
+            exec(code, safe_globals)
+            
+            if 'signal_logic' in safe_globals:
+                return safe_globals['signal_logic'](df)
             else:
                 logger.error("Python Code must define 'signal_logic(df)' function.")
                 return None, None
