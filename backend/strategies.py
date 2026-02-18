@@ -409,7 +409,35 @@ class StrategyFactory:
         Returns:
             A BaseStrategy subclass instance ready to call generate_signals().
         """
+        if strategy_id == "1":
+            # RSI Mean Reversion Preset
+            return DynamicStrategy({
+                "entryLogic": {
+                    "type": "GROUP",
+                    "logic": "AND",
+                    "conditions": [{
+                        "indicator": "RSI",
+                        "period": config.get("period", 14),
+                        "operator": "<",
+                        "compareType": "STATIC",
+                        "value": config.get("lower", 30),
+                    }],
+                },
+                "exitLogic": {
+                    "type": "GROUP",
+                    "logic": "AND",
+                    "conditions": [{
+                        "indicator": "RSI",
+                        "period": config.get("period", 14),
+                        "operator": ">",
+                        "compareType": "STATIC",
+                        "value": config.get("upper", 70),
+                    }],
+                }
+            })
+
         if strategy_id == "3":
+            # SMA Crossover Preset
             return DynamicStrategy({
                 "entryLogic": {
                     "type": "GROUP",
@@ -418,6 +446,18 @@ class StrategyFactory:
                         "indicator": "SMA",
                         "period": config.get("fast", 10),
                         "operator": "Crosses Above",
+                        "compareType": "INDICATOR",
+                        "rightIndicator": "SMA",
+                        "rightPeriod": config.get("slow", 50),
+                    }],
+                },
+                "exitLogic": {
+                    "type": "GROUP",
+                    "logic": "AND",
+                    "conditions": [{
+                        "indicator": "SMA",
+                        "period": config.get("fast", 10),
+                        "operator": "Crosses Below",
                         "compareType": "INDICATOR",
                         "rightIndicator": "SMA",
                         "rightPeriod": config.get("slow", 50),

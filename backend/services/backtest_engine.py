@@ -98,18 +98,34 @@ class BacktestEngine:
 
         close_price = df["Close"] if isinstance(df, pd.DataFrame) else df["Close"]
 
-        # --- 3. UNIVERSE RANKING ---
+        # --- 3. FREQUENCY DETECTION ---
+        # Detect VBT-compatible freq from time-delta (Issue #18)
+        vbt_freq = "1D"
+        try:
+            sample_df = df if isinstance(df, pd.DataFrame) else df["Close"]
+            if len(sample_df) > 1:
+                diff = sample_df.index[1] - sample_df.index[0]
+                minutes = int(diff.total_seconds() / 60)
+                if minutes == 1: vbt_freq = "1m"
+                elif minutes == 5: vbt_freq = "5m"
+                elif minutes == 15: vbt_freq = "15m"
+                elif minutes == 60: vbt_freq = "1h"
+                elif minutes >= 1440: vbt_freq = "1D"
+        except Exception as e:
+            logger.warning(f"Freq detection failed: {e}. Defaulting to 1D")
+
+        # --- 4. UNIVERSE RANKING ---
         entries = BacktestEngine._apply_ranking(entries, df, config)
 
-        # --- 4. POSITION SIZING ---
+        # --- 5. POSITION SIZING ---
         size, size_type = BacktestEngine._calculate_sizing(config)
 
-        # --- 5. EXECUTION ---
+        # --- 6. EXECUTION ---
         pf_kwargs: dict = {
             "init_cash": initial_capital,
             "fees": fees,
             "slippage": slippage,
-            "freq": "1D",
+            "freq": vbt_freq,
             "size": size,
             "size_type": size_type,
             "accumulate": accumulate,
@@ -252,11 +268,14 @@ class BacktestEngine:
             }
         else:
             stats = pf.stats()
+            # VectorBT 0.20+ uses methods for returns and drawdown
             equity = pf.value()
-            dd = pf.drawdown() * 100
+            returns_series = pf.returns() if callable(pf.returns) else pf.returns
+            dd_series = pf.drawdown() if callable(pf.drawdown) else pf.drawdown
+            dd_pct = dd_series * 100
 
             equity_curve = [
-                {"date": str(d), "value": round(v, 2), "drawdown": round(abs(dd.loc[d]), 2)}
+                {"date": str(d), "value": round(v, 2), "drawdown": round(abs(dd_pct.loc[d]), 2)}
                 for d, v in equity.items()
             ]
 
@@ -267,8 +286,8 @@ class BacktestEngine:
                         "entryDate": str(row["Entry Timestamp"]),
                         "exitDate": str(row["Exit Timestamp"]),
                         "side": "LONG" if row["Direction"] == "Long" else "SHORT",
-                        "entryPrice": round(row["Entry Price"], 2),
-                        "exitPrice": round(row["Exit Price"], 2),
+                        "entryPrice": round(row["Avg Entry Price"], 2),
+                        "exitPrice": round(row["Avg Exit Price"], 2),
                         "pnl": round(row["PnL"], 2),
                         "pnlPct": round(row["Return"] * 100, 2),
                         "status": "WIN" if row["PnL"] > 0 else "LOSS",
@@ -292,7 +311,8 @@ class BacktestEngine:
             }
 
             try:
-                monthly_resampled = pf.returns.resample("M").apply(
+                # Use returns_series calculated above
+                monthly_resampled = returns_series.resample("M").apply(
                     lambda x: (1 + x).prod() - 1
                 )
                 for date, ret in monthly_resampled.items():
@@ -363,7 +383,7 @@ class BacktestEngine:
             expectancy = round((win_rate * avg_win) - ((1 - win_rate) * avg_loss), 2)
 
             # Kelly Criterion: W - (1-W)/R  where R = avg_win / avg_loss
-            if avg_loss > 0:
+            if avg_loss > 0 and avg_win > 0:
                 r_ratio = avg_win / avg_loss
                 kelly = win_rate - ((1 - win_rate) / r_ratio)
                 kelly = round(max(0.0, min(kelly, 1.0)) * 100, 1)  # as %
@@ -382,7 +402,8 @@ class BacktestEngine:
 
             # Average drawdown duration
             try:
-                dd_series = pf.drawdown() if not universe else pf.drawdown().mean(axis=1)
+                raw_dd = pf.drawdown() if callable(pf.drawdown) else pf.drawdown
+                dd_series = raw_dd if not universe else raw_dd.mean(axis=1)
                 in_dd = dd_series < 0
                 # Count consecutive bars in drawdown
                 durations = []

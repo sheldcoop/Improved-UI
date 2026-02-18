@@ -329,7 +329,7 @@ def run_backtest():
                     strategy_logic = merged_logic
 
         # Run actual backtest simulation
-        bt_results = BacktestEngine.run(df, strategy_id, strategy_logic)
+        bt_results = BacktestEngine.run(df, strategy_id, {**params, **strategy_logic})
         
         if not bt_results or bt_results.get("status") == "failed":
             return jsonify({
