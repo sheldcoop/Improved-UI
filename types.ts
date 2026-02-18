@@ -89,7 +89,7 @@ export interface BacktestResult {
     sortinoRatio: number;
     calmarRatio: number;
     maxDrawdownPct: number;
-    avgDrawdownDuration: string; // e.g., "14 days"
+    avgDrawdownDuration: string;
     winRate: number;
     profitFactor: number;
     kellyCriterion: number;
@@ -110,4 +110,53 @@ export interface MarketData {
   oiChange?: number;
   dataAvailable: boolean;
   lastUpdated: string;
+}
+
+// Optimization Types
+export interface ParamRange {
+  paramName: string;
+  min: number;
+  max: number;
+  step: number;
+}
+
+export interface OptimizationResult {
+  paramSet: Record<string, number>;
+  sharpe: number;
+  returnPct: number;
+  drawdown: number;
+}
+
+export interface WFOResult {
+  period: string; // e.g., "2023-Jan to 2023-Mar"
+  isOOS: boolean;
+  returnPct: number;
+  sharpe: number;
+}
+
+// Monte Carlo Types
+export interface MonteCarloPath {
+  id: number;
+  values: number[]; // Equity curve points
+}
+
+export interface MonteCarloStats {
+  var95: number; // Value at Risk 95%
+  cvar95: number; // Conditional VaR
+  ruinProb: number; // Probability of Ruin
+  medianReturn: number;
+}
+
+// Paper Trading Types
+export interface PaperPosition {
+  id: string;
+  symbol: string;
+  side: 'LONG' | 'SHORT';
+  qty: number;
+  avgPrice: number;
+  ltp: number;
+  pnl: number;
+  pnlPct: number;
+  entryTime: string;
+  status: 'OPEN' | 'CLOSED';
 }

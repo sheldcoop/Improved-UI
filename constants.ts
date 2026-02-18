@@ -1,4 +1,4 @@
-import { LucideIcon, LayoutDashboard, Database, Sliders, PlayCircle, BarChart2, BookOpen, Settings, Layers, PieChart } from 'lucide-react';
+import { LucideIcon, LayoutDashboard, Database, Sliders, PlayCircle, BarChart2, BookOpen, Settings, Layers, PieChart, Activity, Zap, ClipboardList } from 'lucide-react';
 
 export const APP_NAME = "VectorBT Pro Plus";
 
@@ -10,9 +10,12 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { name: 'Quant Dashboard', path: '/', icon: LayoutDashboard },
-  { name: 'Option Builder', path: '/options', icon: Layers }, // New
+  { name: 'Option Builder', path: '/options', icon: Layers },
   { name: 'Strategy Builder', path: '/strategy', icon: Sliders },
   { name: 'Backtest Engine', path: '/backtest', icon: PlayCircle },
+  { name: 'Optimization (WFO)', path: '/optimization', icon: Zap }, // New
+  { name: 'Risk Analysis (MC)', path: '/risk', icon: Activity }, // New
+  { name: 'Paper Trading', path: '/paper-trading', icon: ClipboardList }, // New
   { name: 'Analytics', path: '/results', icon: PieChart },
   { name: 'Data Manager', path: '/data', icon: Database },
   { name: 'Journal', path: '/journal', icon: BookOpen },
