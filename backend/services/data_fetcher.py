@@ -19,7 +19,8 @@ from services.scrip_master import get_instrument_by_symbol
 
 logger = logging.getLogger(__name__)
 
-CACHE_DIR = Path("./cache_dir")
+BASE_DIR = Path(__file__).resolve().parent.parent
+CACHE_DIR = BASE_DIR / "cache_dir"
 CACHE_TTL_HOURS = 24
 
 

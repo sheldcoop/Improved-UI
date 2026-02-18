@@ -40,32 +40,55 @@ const DataManager: React.FC = () => {
       try {
          // 1. Get real cache status
          const res = await fetch('/api/v1/market/cache-status');
-         const cached: any[] = await res.json();
+         const cachedFiles: any[] = await res.json();
 
-         // 2. Map cached items to ExtendedMarketData
-         const cachedSymbols = new Set(cached.map(c => c.symbol));
-
-         const enriched = MOCK_SYMBOLS.map(s => {
-            const cacheInfo = cached.find(c => c.symbol === s.symbol);
-            if (cacheInfo) {
-               return {
-                  ...s,
-                  startDate: cacheInfo.startDate,
-                  lastUpdated: cacheInfo.lastUpdated,
-                  timeframes: [cacheInfo.timeframe],
-                  health: cacheInfo.health,
-                  size: cacheInfo.size,
-                  dataAvailable: true
-               };
+         // 2. Group cached files by symbol
+         const symbolMap = new Map<string, any>();
+         cachedFiles.forEach(f => {
+            if (!symbolMap.has(f.symbol)) {
+               symbolMap.set(f.symbol, {
+                  ...f,
+                  timeframes: [f.timeframe],
+               });
+            } else {
+               const existing = symbolMap.get(f.symbol);
+               if (!existing.timeframes.includes(f.timeframe)) {
+                  existing.timeframes.push(f.timeframe);
+               }
             }
+         });
+
+         // 3. Convert to list and enrich with MOCK_SYMBOLS info
+         const enriched: ExtendedMarketData[] = Array.from(symbolMap.values()).map(c => {
+            const mockMatch = MOCK_SYMBOLS.find(s => s.symbol === c.symbol);
             return {
-               ...s,
-               startDate: '-',
-               timeframes: [],
-               health: 'MISSING',
-               size: '0 KB',
-               dataAvailable: false
-            } as ExtendedMarketData;
+               symbol: c.symbol,
+               exchange: mockMatch?.exchange || 'NSE',
+               lastPrice: mockMatch?.lastPrice || 0,
+               changePct: mockMatch?.changePct || 0,
+               ivPercentile: mockMatch?.ivPercentile || 0,
+               startDate: c.startDate,
+               lastUpdated: c.lastUpdated,
+               timeframes: c.timeframes,
+               health: c.health,
+               size: c.size, // Size from the backend
+               dataAvailable: true
+            };
+         });
+
+         // 4. Add mock symbols that are NOT in the cache yet
+         const cachedSymbols = new Set(enriched.map(e => e.symbol));
+         MOCK_SYMBOLS.forEach(s => {
+            if (!cachedSymbols.has(s.symbol)) {
+               enriched.push({
+                  ...s,
+                  startDate: '-',
+                  timeframes: [],
+                  health: 'MISSING',
+                  size: '0 KB',
+                  dataAvailable: false
+               } as ExtendedMarketData);
+            }
          });
 
          setMarketData(enriched);
@@ -99,7 +122,7 @@ const DataManager: React.FC = () => {
 
    const handleUpdateSelected = async () => {
       if (selectedItems.size === 0) return;
-      const targets = Array.from(selectedItems);
+      const targets: string[] = Array.from(selectedItems);
       for (const symbol of targets) {
          await handleDownload(symbol);
       }

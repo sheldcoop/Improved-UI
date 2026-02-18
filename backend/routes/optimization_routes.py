@@ -85,28 +85,17 @@ def run_wfo():
         logger.error(f"WFO Error: {exc}", exc_info=True)
         return jsonify({"status": "error", "message": "WFO failed"}), 500
 
-
 @optimization_bp.route("/auto-tune", methods=["POST"])
 def auto_tune():
-    """Run a quick Optuna search on the period before a given date.
-    
-    Request JSON keys:
-        symbol (str): Ticker symbol.
-        strategyId (str): Strategy identifier.
-        ranges (dict): Parameter search space.
-        startDate (str): The backtest start date.
-        lookbackMonths (int): Months of lookback before startDate. Default 12.
-        scoringMetric (str): Metric to optimize. Default 'sharpe'.
-
-    Returns:
-        JSON with 'bestParams' (dict) and 'score' (float).
-    """
+    """Run a quick Optuna search on the period before a given date."""
     try:
         from datetime import datetime
         from dateutil.relativedelta import relativedelta
         import pandas as pd
         import numpy as np
         from services.data_fetcher import DataFetcher
+        from services.strategies import StrategyFactory
+        import vectorbt as vbt
 
         data = request.json or {}
         symbol = data.get("symbol")
@@ -117,61 +106,71 @@ def auto_tune():
         metric = data.get("scoringMetric", "sharpe")
 
         if not symbol or not strategy_id or not start_date_str:
-            return jsonify({"status": "error", "message": "Missing required fields"}), 400
+            return jsonify({"status": "error", "message": "Missing required fields (symbol, strategyId, startDate)"}), 400
 
-        # 1. Fetch data for lookback period
+        # 1. Parse dates and calculate windows
         try:
             from datetime import timedelta
             start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
-        except ValueError:
-            return jsonify({"status": "error", "message": "Invalid date format"}), 400
-            
-        # Strict logic: Lookback ends exactly 1 day before Backtest starts
-        is_end = start_date - timedelta(days=1)
-        is_start = is_end - relativedelta(months=lookback)
-        
-        logger.info(f"--- Temporal Separation Verification ---")
-        logger.info(f"Auto-Tune Lookback: {is_start.date()} to {is_end.date()}")
-        logger.info(f"Backtest Start:    {start_date.date()}")
-        logger.info(f"----------------------------------------")
-        
-        # We need a DataFetcher to get data
-        fetcher = DataFetcher(request.headers)
-        # Fetch with buffer to ensure we cover the lookback
-        df = fetcher.fetch_historical_data(symbol, from_date=str(is_start.date()), to_date=start_date_str)
-        
+            is_end = start_date - timedelta(days=1)
+            is_start = is_end - relativedelta(months=lookback)
+        except Exception as e:
+            logger.error(f"Auto-Tune Date Parsing Error: {e}")
+            return jsonify({"status": "error", "message": f"Invalid date parameters: {str(e)}"}), 400
+
+        logger.info(f"Auto-Tune Request: {symbol} | Lookback: {lookback}m until {is_end.date()}")
+
+        # 2. Fetch data
+        try:
+            fetcher = DataFetcher(request.headers)
+            df = fetcher.fetch_historical_data(symbol, from_date=str(is_start.date()), to_date=start_date_str)
+        except Exception as e:
+            logger.error(f"Auto-Tune Fetch Error: {e}")
+            return jsonify({"status": "error", "message": f"Failed to fetch data: {str(e)}"}), 503
+
         if df is None or df.empty:
-            return jsonify({"status": "error", "message": "No data found for symbol"}), 404
+            return jsonify({"status": "error", "message": f"No data found for {symbol} in period {is_start.date()} to {start_date_str}"}), 404
             
-        # Slice to in-sample period (the 'is' in is_df stands for In-Sample for Auto-Tune)
-        mask = (df.index >= pd.Timestamp(is_start)) & (df.index <= pd.Timestamp(is_end))
-        is_df = df.loc[mask]
-        
-        if len(is_df) < 20:
-            return jsonify({"status": "error", "message": f"Insufficient data for {lookback}m lookback before {start_date_str}."}), 400
+        # 3. Slice and Clean Data
+        try:
+            mask = (df.index >= pd.Timestamp(is_start)) & (df.index <= pd.Timestamp(is_end))
+            is_df = df.loc[mask].dropna(subset=["Close"])
+            
+            if len(is_df) < 20:
+                return jsonify({"status": "error", "message": f"Insufficient data points ({len(is_df)}) for {lookback}m lookback before {start_date_str}."}), 400
+        except Exception as e:
+            logger.error(f"Auto-Tune Slicing Error: {e}")
+            return jsonify({"status": "error", "message": f"Data processing error: {str(e)}"}), 500
 
-        # 2. Run Optimization on slice
-        best_params = OptimizationEngine._find_best_params(is_df, strategy_id, ranges, metric)
+        # 4. Run Optimization
+        try:
+            from services.optimizer import OptimizationEngine
+            best_params = OptimizationEngine._find_best_params(is_df, strategy_id, ranges, metric)
+        except Exception as e:
+            logger.error(f"Auto-Tune Optimization Error: {e}")
+            return jsonify({"status": "error", "message": f"Optimization engine error: {str(e)}"}), 500
         
-        # 3. Get the score for best params
-        # (Re-running briefly to get actual score value)
-        from strategies import StrategyFactory
-        import vectorbt as vbt
-        strategy = StrategyFactory.get_strategy(strategy_id, best_params)
-        entries, exits = strategy.generate_signals(is_df)
-        pf = vbt.Portfolio.from_signals(is_df["Close"], entries, exits, freq="1D")
-        
-        if metric == "total_return":
-             score = pf.total_return()
-        elif metric == "calmar":
-             score = pf.calmar_ratio() if callable(pf.calmar_ratio) else pf.calmar_ratio
-        elif metric == "drawdown":
-             score = -abs(pf.max_drawdown())
-        else:
-             score = pf.sharpe_ratio() if callable(pf.sharpe_ratio) else pf.sharpe_ratio
+        # 5. Calculate Final Score
+        try:
+            from strategies import StrategyFactory
+            strategy = StrategyFactory.get_strategy(strategy_id, best_params)
+            entries, exits = strategy.generate_signals(is_df)
+            pf = vbt.Portfolio.from_signals(is_df["Close"], entries, exits, freq="1D")
+            
+            if metric == "total_return":
+                 score = pf.total_return()
+            elif metric == "calmar":
+                 score = pf.calmar_ratio() if callable(pf.calmar_ratio) else pf.calmar_ratio
+            elif metric == "drawdown":
+                 score = -abs(pf.max_drawdown())
+            else:
+                 score = pf.sharpe_ratio() if callable(pf.sharpe_ratio) else pf.sharpe_ratio
 
-        if np.isnan(score):
-            score = 0.0
+            if np.isnan(score):
+                score = 0.0
+        except Exception as e:
+            logger.error(f"Auto-Tune Scoring Error: {e}")
+            return jsonify({"status": "error", "message": f"Scoring calculation failed: {str(e)}"}), 500
 
         return jsonify({
             "bestParams": best_params,
@@ -180,8 +179,8 @@ def auto_tune():
         }), 200
 
     except Exception as exc:
-        logger.error(f"Auto-Tune Error: {exc}", exc_info=True)
-        return jsonify({"status": "error", "message": "Auto-tune failed"}), 500
+        logger.error(f"Auto-Tune Critical Failure: {exc}", exc_info=True)
+        return jsonify({"status": "error", "message": f"Auto-tune critical failure: {str(exc)}"}), 500
 
 
 @optimization_bp.route("/monte-carlo", methods=["POST"])

@@ -282,21 +282,40 @@ class OptimizationEngine:
                 p_step = int(constraints.get("step", 1))
                 config[param] = trial.suggest_int(param, p_min, p_max, step=p_step)
 
-            strategy = StrategyFactory.get_strategy(strategy_id, config)
-            entries, exits = strategy.generate_signals(df)
-            pf = vbt.Portfolio.from_signals(df["Close"], entries, exits, freq="1D")
-            
-            if scoring_metric == "total_return":
-                score = pf.total_return()
-            elif scoring_metric == "calmar":
-                score = pf.calmar_ratio() if callable(pf.calmar_ratio) else pf.calmar_ratio
-            elif scoring_metric == "drawdown":
-                score = -abs(pf.max_drawdown())
-            else: # Default: sharpe
-                score = pf.sharpe_ratio()
+            try:
+                strategy = StrategyFactory.get_strategy(strategy_id, config)
+                entries, exits = strategy.generate_signals(df)
                 
-            return float(-999) if np.isnan(score) else float(score)
+                if entries.sum() == 0:
+                    return float(-999)
 
+                pf = vbt.Portfolio.from_signals(df["Close"], entries, exits, freq="1D")
+                
+                if scoring_metric == "total_return":
+                    score = pf.total_return()
+                elif scoring_metric == "calmar":
+                    score = pf.calmar_ratio() if callable(pf.calmar_ratio) else pf.calmar_ratio
+                elif scoring_metric == "drawdown":
+                    score = -abs(pf.max_drawdown())
+                else: # Default: sharpe
+                    score = pf.sharpe_ratio()
+                    
+                if np.isnan(score):
+                    return float(-999)
+                    
+                logger.debug(f"Trial {trial.number}: {config} -> Score: {score:.4f}")
+                return float(score)
+            except Exception as e:
+                logger.debug(f"Trial {trial.number} failed: {e}")
+                return float(-999)
+
+        logger.info(f"Starting Optuna search for {strategy_id} on {len(df)} bars...")
         study = optuna.create_study(direction="maximize")
         study.optimize(objective, n_trials=10)
+        
+        if len([t for t in study.trials if t.value is not None and t.value != -999]) == 0:
+            logger.warning("Optuna found no valid parameter sets. Returning default or raising.")
+            raise ValueError("Optimization failed: No valid parameter sets found in search space.")
+
+        logger.info(f"Optuna complete. Best Params: {study.best_params} | Best Score: {study.best_value:.4f}")
         return study.best_params
