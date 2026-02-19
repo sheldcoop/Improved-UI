@@ -111,7 +111,7 @@ class DataFetcher:
              return cached_df
              
         # 3. Fetch fresh data
-        logger.info(f"🌍 Fetching fresh data for {symbol}...")
+        logger.info(f"🌍 Starting Fresh API Fetch for {symbol} ({from_date} to {to_date})")
         fresh_df = self._fetch_live(symbol, timeframe, from_date, to_date)
 
         # 4. Merge and Save

@@ -105,7 +105,7 @@ def auto_tune():
         ranges = data.get("ranges", {})
         start_date_str = data.get("startDate")
         lookback = int(data.get("lookbackMonths", 12))
-        metric = data.get("scoringMetric", "sharpe")
+        metric = data.get("scoringMetric") or data.get("metric") or "sharpe"
 
         if not symbol or not strategy_id or not start_date_str:
             return jsonify({"status": "error", "message": "Missing required fields (symbol, strategyId, startDate)"}), 400
@@ -116,27 +116,33 @@ def auto_tune():
             start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
             is_end = start_date - timedelta(days=1)
             is_start = is_end - relativedelta(months=lookback)
+            
+            logger.info(f"--- AUTO-TUNE PARAMS ---")
+            logger.info(f"Symbol: {symbol} | Strategy: {strategy_id}")
+            logger.info(f"Backtest Start: {start_date_str}")
+            logger.info(f"Lookback Range: {is_start.date()} to {is_end.date()} ({lookback} months)")
         except Exception as e:
             logger.error(f"Auto-Tune Date Parsing Error: {e}")
             return jsonify({"status": "error", "message": f"Invalid date parameters: {str(e)}"}), 400
 
-        logger.info(f"Auto-Tune Request: {symbol} | Lookback: {lookback}m until {is_end.date()}")
-
         # 2. Fetch data
         try:
             fetcher = DataFetcher(request.headers)
-            df = fetcher.fetch_historical_data(symbol, from_date=str(is_start.date()), to_date=start_date_str)
+            df = fetcher.fetch_historical_data(symbol, from_date=str(is_start.date()), to_date=str(is_end.date()))
         except Exception as e:
             logger.error(f"Auto-Tune Fetch Error: {e}")
             return jsonify({"status": "error", "message": f"Failed to fetch data: {str(e)}"}), 503
 
         if df is None or df.empty:
-            return jsonify({"status": "error", "message": f"No data found for {symbol} in period {is_start.date()} to {start_date_str}"}), 404
+            return jsonify({"status": "error", "message": f"No data found for {symbol} in period {is_start.date()} to {is_end.date()}"}), 404
             
         # 3. Slice and Clean Data
         try:
+            # Mask is still useful if fetcher returned a slightly wider range (e.g. from cache)
             mask = (df.index >= pd.Timestamp(is_start)) & (df.index <= pd.Timestamp(is_end))
             is_df = df.loc[mask].dropna(subset=["Close"])
+            
+            logger.info(f"Data Loaded: {len(is_df)} total bars for optimization.")
             
             if len(is_df) < 20:
                 return jsonify({"status": "error", "message": f"Insufficient data points ({len(is_df)}) for {lookback}m lookback before {start_date_str}."}), 400

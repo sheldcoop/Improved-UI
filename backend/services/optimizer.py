@@ -285,6 +285,8 @@ class OptimizationEngine:
         Returns:
             Dict of best parameter values found by Optuna.
         """
+        trial_logs = []
+
         def objective(trial: optuna.Trial) -> float:
             config: dict = {}
             for param, constraints in ranges.items():
@@ -297,7 +299,9 @@ class OptimizationEngine:
                 strategy = StrategyFactory.get_strategy(strategy_id, config)
                 entries, exits = strategy.generate_signals(df)
                 
-                if entries.sum() == 0:
+                trade_count = int(entries.sum())
+                if trade_count == 0:
+                    logger.debug(f"Trial {trial.number}: {config} -> Score: -999 (0 trades)")
                     return float(-999)
 
                 pf = vbt.Portfolio.from_signals(df["Close"], entries, exits, freq="1D")
@@ -312,21 +316,26 @@ class OptimizationEngine:
                     score = pf.sharpe_ratio()
                     
                 if np.isnan(score):
+                    logger.debug(f"Trial {trial.number}: {config} -> Score: -999 (NaN score)")
                     return float(-999)
                     
-                logger.debug(f"Trial {trial.number}: {config} -> Score: {score:.4f}")
+                logger.info(f"Trial {trial.number}: {config} | Metric: {scoring_metric} | Score: {score:.4f} | Trades: {trade_count}")
                 return float(score)
             except Exception as e:
                 logger.debug(f"Trial {trial.number} failed: {e}")
                 return float(-999)
 
-        logger.info(f"Starting Optuna search for {strategy_id} on {len(df)} bars...")
-        study = optuna.create_study(direction="maximize")
-        study.optimize(objective, n_trials=10)
+        logger.info(f"--- OPTIMIZATION START ---")
+        logger.info(f"Metric: {scoring_metric} | Strategy: {strategy_id} | Bars: {len(df)}")
         
-        if len([t for t in study.trials if t.value is not None and t.value != -999]) == 0:
+        study = optuna.create_study(direction="maximize")
+        study.optimize(objective, n_trials=12) # Slightly more than default for better verification
+        
+        valid_trials = [t for t in study.trials if t.value is not None and t.value != -999]
+        if len(valid_trials) == 0:
             logger.warning("Optuna found no valid parameter sets. Returning default or raising.")
             raise ValueError("Optimization failed: No valid parameter sets found in search space.")
 
-        logger.info(f"Optuna complete. Best Params: {study.best_params} | Best Score: {study.best_value:.4f}")
+        logger.info(f"--- OPTIMIZATION COMPLETE ---")
+        logger.info(f"Best Params: {study.best_params} | Best Score: {study.best_value:.4f}")
         return study.best_params
