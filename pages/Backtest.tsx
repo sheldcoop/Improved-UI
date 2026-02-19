@@ -11,431 +11,24 @@ import { Badge } from '../components/ui/Badge';
 import { fetchClient } from '../services/http';
 import { logActiveRun, logDataHealth, logOptunaResults, logWFOBreakdown, logAlert } from '../components/DebugConsole';
 
-// Debounce helper
-const useDebounce = (value: string, delay: number) => {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-  useEffect(() => {
-    const handler = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(handler);
-  }, [value, delay]);
-  return debouncedValue;
-};
-
-// Search instruments API
-const searchInstruments = async (segment: string, query: string) => {
-  return fetchClient<Array<{ symbol: string; display_name: string; security_id: string; instrument_type: string }>>(`/market/instruments?segment=${segment}&q=${encodeURIComponent(query)}`);
-};
-
-// Run backtest with Dhan API
-const runBacktestWithDhan = async (payload: {
-  instrument_details: {
-    security_id: string;
-    symbol: string;
-    exchange_segment: string;
-    instrument_type: string;
-  };
-  parameters: {
-    timeframe: string;
-    start_date: string;
-    end_date: string;
-    initial_capital: number;
-    strategy_logic: {
-      name: string;
-      [key: string]: any;
-    };
-  };
-}) => {
-  return fetchClient<{
-    status: string;
-    data_summary?: {
-      total_candles: number;
-      start_date: string;
-      end_date: string;
-      open_price: number;
-      close_price: number;
-      high: number;
-      low: number;
-      avg_volume: number;
-    };
-    instrument?: {
-      symbol: string;
-      security_id: string;
-      timeframe: string;
-    };
-    note?: string;
-  }>('/market/backtest/run', {
-    method: 'POST',
-    body: JSON.stringify(payload)
-  });
-};
+import { useBacktest } from '../hooks/useBacktest';
 
 const Backtest: React.FC = () => {
-  const navigate = useNavigate();
-  const [running, setRunning] = useState(false);
-
-  // Core Config
-  const [mode, setMode] = useState<'SINGLE' | 'UNIVERSE'>('SINGLE');
-  const [segment, setSegment] = useState<'NSE_EQ' | 'NSE_SME'>('NSE_EQ');
-  const [symbol, setSymbol] = useState('');
-  const [symbolSearchQuery, setSymbolSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<Array<{ symbol: string; display_name: string; security_id: string; instrument_type: string }>>([]);
-  const [selectedInstrument, setSelectedInstrument] = useState<{ symbol: string; display_name: string; security_id: string; instrument_type: string } | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
-  const [universe, setUniverse] = useState(UNIVERSES[0].id);
-  const [timeframe, setTimeframe] = useState<Timeframe>(Timeframe.D1);
-
-  // Strategy State
-  const [strategyId, setStrategyId] = useState('1');
-  const [customStrategies, setCustomStrategies] = useState<Strategy[]>([]);
-
-  // Date Range
-  const [startDate, setStartDate] = useState('2023-01-01');
-  const [endDate, setEndDate] = useState('2023-12-31');
-
-  // Dynamic Strategy Parameters (Feature A)
-  const [params, setParams] = useState<Record<string, number>>({});
-
-  // Splitter State (Feature C)
-  const [splitRatio, setSplitRatio] = useState(80); // 80% Train, 20% Test
-
-  // Advanced Settings State
-  const [capital, setCapital] = useState(100000);
-  const [slippage, setSlippage] = useState(0.05);
-  const [commission, setCommission] = useState(20);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-
-  // New Data Loading State (Improvement 1 & 2)
-  const [dataStatus, setDataStatus] = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
-  const [healthReport, setHealthReport] = useState<DataHealthReport | null>(null);
-
-  // --- Optimization State (Optuna / WFO) ---
-  const [isDynamic, setIsDynamic] = useState(false);
-  const [wfoConfig, setWfoConfig] = useState({ trainWindow: 12, testWindow: 3 });
-  const [autoTuneConfig, setAutoTuneConfig] = useState({ lookbackMonths: 12, trials: 30, metric: 'sharpe' });
-  const [paramRanges, setParamRanges] = useState<Record<string, { min: number, max: number, step: number }>>({});
-  const [isAutoTuning, setIsAutoTuning] = useState(false);
-  const [showRanges, setShowRanges] = useState(false);
-  const [reproducible, setReproducible] = useState(false);
-  // Auto-Calculate WFO Windows when dates change
-  useEffect(() => {
-    if (!isDynamic) return;
-
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    const totalMonths = Math.round(diffTime / (1000 * 60 * 60 * 24 * 30.44));
-
-    let newTrain = 12;
-    let newTest = 3;
-
-    if (totalMonths < 12) { newTrain = 3; newTest = 1; }
-    else if (totalMonths < 24) { newTrain = 6; newTest = 2; }
-    else if (totalMonths < 36) { newTrain = 9; newTest = 3; }
-
-    // Only update if significantly different to avoid overriding user custom tweaks too aggressively
-    // But requirement says "Auto-calculate... when user loads market data or changes date range"
-    // So we should update. To be safe, we can check if the *current* config is "invalid" or just strict overwrite.
-    // User asked: "When user changes date range... auto-update". So strict overwrite is expected behavior for a "date change" event.
-
-    setWfoConfig({ trainWindow: newTrain, testWindow: newTest });
-
-  }, [startDate, endDate, isDynamic]);
-
-  // Load Strategies on Mount
-  useEffect(() => {
-    const loadStrats = async () => {
-      try {
-        const strats = await fetchStrategies();
-        setCustomStrategies(strats);
-      } catch (e) {
-        console.error("Failed to load strategies", e);
-      }
-    };
-    loadStrats();
-  }, []);
-
-  // Initialize defaults based on strategy selection
-  useEffect(() => {
-    if (strategyId === '1') { // RSI
-      setParams({ period: 14, lower: 30, upper: 70 });
-      setParamRanges({
-        period: { min: 5, max: 30, step: 1 },
-        lower: { min: 10, max: 40, step: 1 },
-        upper: { min: 60, max: 90, step: 1 }
-      });
-    } else if (strategyId === '3') { // SMA
-      setParams({ fast: 10, slow: 50 });
-      setParamRanges({
-        fast: { min: 5, max: 50, step: 1 },
-        slow: { min: 20, max: 200, step: 1 }
-      });
-    } else {
-      // Clear params for custom strategies
-      setParams({});
-      setParamRanges({});
-    }
-    setShowRanges(false);
-  }, [strategyId]);
-
-  // Reset data status when key inputs change
-  useEffect(() => {
-    setDataStatus('IDLE');
-    setHealthReport(null);
-  }, [symbol, universe, timeframe, startDate, endDate]);
-
-  // Debounced search effect
-  const debouncedSearchQuery = useDebounce(symbolSearchQuery, 300);
-
-  useEffect(() => {
-    if (mode !== 'SINGLE' || !debouncedSearchQuery || debouncedSearchQuery.length < 2) {
-      setSearchResults([]);
-      return;
-    }
-
-    const doSearch = async () => {
-      setIsSearching(true);
-      try {
-        const results = await searchInstruments(segment, debouncedSearchQuery);
-        setSearchResults(results);
-      } catch (e) {
-        console.error('Search failed:', e);
-        setSearchResults([]);
-      } finally {
-        setIsSearching(false);
-      }
-    };
-
-    doSearch();
-  }, [debouncedSearchQuery, segment, mode]);
-
-  // Calculate Split Date
-  const splitDateString = useMemo(() => {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (isNaN(diffDays)) return '-';
-
-    const splitDayIndex = Math.floor(diffDays * (splitRatio / 100));
-    const splitDate = new Date(start);
-    splitDate.setDate(start.getDate() + splitDayIndex);
-    return splitDate.toISOString().split('T')[0];
-  }, [startDate, endDate, splitRatio]);
-
-  const handleLoadData = async () => {
-    setDataStatus('LOADING');
-    try {
-      const target = mode === 'SINGLE' ? symbol : universe;
-
-      // Calculate extended from_date (Lookback + Backtest)
-      const lookbackMonths = autoTuneConfig.lookbackMonths;
-      const startDt = new Date(startDate);
-      const extendedDt = new Date(startDt);
-      extendedDt.setMonth(startDt.getMonth() - lookbackMonths);
-      const extendedFromDate = extendedDt.toISOString().split('T')[0];
-
-      console.log(`[Unified Load] Fetching ${lookbackMonths}m lookback + backtest range: ${extendedFromDate} to ${endDate}`);
-
-      logActiveRun({
-        type: 'DATA_LOADING',
-        strategyName: 'Market Data Validator',
-        symbol: target,
-        timeframe,
-        startDate: extendedFromDate,
-        endDate: endDate,
-        status: 'running'
-      });
-
-      const report = await validateMarketData(target, timeframe, extendedFromDate, endDate);
-      setHealthReport(report);
-      logDataHealth(report);
-
-      if (report.status === 'POOR' || report.status === 'CRITICAL') {
-        logAlert([{
-          type: 'warning',
-          msg: `Data health is ${report.status} for ${target}. ${report.missingCandles} candles missing.`,
-          timestamp: new Date().toLocaleTimeString()
-        }]);
-      }
-
-      setDataStatus('READY');
-    } catch (e) {
-      console.error("Data load failed", e);
-      setDataStatus('ERROR');
-      logAlert([{
-        type: 'error',
-        msg: `Failed to load data for ${mode === 'SINGLE' ? symbol : universe}: ${e}`,
-        timestamp: new Date().toLocaleTimeString()
-      }]);
-    } finally {
-      logActiveRun(null);
-    }
-  };
-
-  const handleAutoTune = async () => {
-    if (!selectedInstrument) {
-      alert("Please select a symbol first.");
-      return;
-    }
-
-    // Enforcement: Block auto-tune if data is not pre-loaded/validated
-    if (dataStatus !== 'READY') {
-      alert("Optimization requires pre-loaded data. Please click 'Load Market Data' first to fetch the lookback range.");
-      return;
-    }
-
-    if (!showRanges) {
-      setShowRanges(true);
-      return;
-    }
-
-    setIsAutoTuning(true);
-    logActiveRun({
-      type: 'AUTO_TUNING',
-      strategyName: strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy',
-      symbol: selectedInstrument.symbol,
-      timeframe,
-      startDate,
-      endDate,
-      status: 'running'
-    });
-
-    try {
-      const result = await fetchClient<{ bestParams: Record<string, number>, score: number, period: string, grid?: any[] }>('/optimization/auto-tune', {
-        method: 'POST',
-        body: JSON.stringify({
-          symbol: selectedInstrument.symbol,
-          strategyId: strategyId,
-          ranges: paramRanges,
-          startDate: startDate,
-          lookbackMonths: autoTuneConfig.lookbackMonths,
-          scoringMetric: autoTuneConfig.metric,
-          reproducible: reproducible
-        })
-      });
-      if (result.bestParams) {
-        setParams(result.bestParams);
-        logOptunaResults(result.grid || []); // Assuming result.grid exists in the backend response
-        logActiveRun(null); // Clear active run after tune
-        setShowRanges(false); // Hide ranges after successful tune
-      }
-    } catch (e) {
-      console.error("Auto-tune failed", e);
-      alert("Auto-tune failed. Check logs.");
-    } finally {
-      setIsAutoTuning(false);
-      logActiveRun(null);
-    }
-  };
-
-  const handleRun = async () => {
-    if (dataStatus !== 'READY') {
-      alert("Please load and validate market data first.");
-      return;
-    }
-
-    if (mode === 'SINGLE' && !selectedInstrument) {
-      alert("Please select a symbol from the search results.");
-      return;
-    }
-
-    setRunning(true);
-    logActiveRun({
-      type: isDynamic ? 'WALK_FORWARD_OPTIMIZATION' : 'SINGLE_BACKTEST',
-      strategyName: strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy',
-      symbol: mode === 'SINGLE' ? selectedInstrument?.symbol || symbol : universe,
-      timeframe,
-      startDate,
-      endDate,
-      params,
-      status: 'running'
-    });
-
-    try {
-      if (isDynamic && mode === 'SINGLE' && selectedInstrument) {
-        // Path 1: Dynamic WFO Backtest
-        const result = await fetchClient<any>('/optimization/wfo', {
-          method: 'POST',
-          body: JSON.stringify({
-            symbol: selectedInstrument.symbol,
-            strategyId: strategyId,
-            ranges: paramRanges,
-            wfoConfig: {
-              ...wfoConfig,
-              startDate,
-              endDate,
-              scoringMetric: autoTuneConfig.metric,
-              initial_capital: capital
-            },
-            reproducible: reproducible,
-            fullResults: true
-          })
-        });
-
-        if (result && !result.error) {
-          // Log structured data to specialized inspectors
-          if (result.wfo) logWFOBreakdown(result.wfo);
-
-          logActiveRun(null);
-          navigate('/results', { state: { result } });
-        } else {
-          alert("Dynamic Backtest Failed: " + (result?.error || "Unknown error"));
-          logActiveRun(null);
-        }
-      } else if (mode === 'SINGLE' && selectedInstrument) {
-        // Path 2: Standard Dhan-based Single Backtest
-        const timeframeMap: Record<string, string> = {
-          [Timeframe.M1]: '1m', [Timeframe.M5]: '5m', [Timeframe.M15]: '15m',
-          [Timeframe.H1]: '1h', [Timeframe.D1]: '1d'
-        };
-
-        const result = await runBacktestWithDhan({
-          instrument_details: {
-            security_id: selectedInstrument.security_id,
-            symbol: selectedInstrument.symbol,
-            exchange_segment: 'NSE_EQ',
-            instrument_type: selectedInstrument.instrument_type
-          },
-          parameters: {
-            timeframe: timeframeMap[timeframe] || '1d',
-            start_date: startDate,
-            end_date: endDate,
-            initial_capital: capital,
-            strategy_logic: {
-              id: strategyId,
-              name: strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy',
-              ...params
-            }
-          }
-        });
-
-        if (result) {
-          navigate('/results', { state: { result } });
-        }
-      } else {
-        // Path 3: Fallback for Universe mode
-        const config: any = {
-          capital, slippage, commission, ...params,
-          splitDate: splitDateString,
-          trainTestSplit: splitRatio
-        };
-
-        if (mode === 'UNIVERSE') {
-          config.universe = universe;
-        }
-
-        const result = await runBacktest(strategyId, mode === 'SINGLE' ? symbol : universe, config);
-        if (result) result.timeframe = timeframe;
-        navigate('/results', { state: { result } });
-      }
-    } catch (e) {
-      alert("Backtest Failed: " + e);
-      logActiveRun(null);
-    } finally {
-      setRunning(false);
-    }
-  };
+  const { state, setters, handlers } = useBacktest();
+  const {
+    running, mode, segment, symbol, symbolSearchQuery, searchResults, selectedInstrument,
+    isSearching, universe, timeframe, strategyId, customStrategies, startDate, endDate,
+    params, splitRatio, capital, slippage, commission, showAdvanced, dataStatus, healthReport,
+    isDynamic, wfoConfig, autoTuneConfig, paramRanges, isAutoTuning, showRanges, reproducible,
+    splitDateString
+  } = state;
+  const {
+    setMode, setSegment, setSymbolSearchQuery, setSymbol, setSearchResults, setSelectedInstrument,
+    setUniverse, setTimeframe, setStrategyId, setStartDate, setEndDate, setParams, setSplitRatio,
+    setCapital, setSlippage, setCommission, setShowAdvanced, setIsDynamic, setWfoConfig,
+    setAutoTuneConfig, setParamRanges, setReproducible
+  } = setters;
+  const { handleLoadData, handleAutoTune, handleRun } = handlers;
 
   const renderHealthBadge = (status: string) => {
     switch (status) {
@@ -492,73 +85,43 @@ const Backtest: React.FC = () => {
               {/* In-Place Parameter Overrides & Auto-Tune */}
               <div className="md:col-span-2 space-y-4">
                 <div className="grid grid-cols-3 gap-4">
-                  {strategyId === '1' && (
-                    <>
-                      <div>
-                        <label className="text-xs text-slate-500 block mb-1">Period</label>
-                        {!showRanges ? (
-                          <input type="number" value={params.period || 14} onChange={(e) => setParams({ ...params, period: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
-                        ) : (
-                          <div className="flex gap-1">
-                            <input type="number" placeholder="Min" value={paramRanges.period?.min || 10} onChange={(e) => setParamRanges({ ...paramRanges, period: { ...(paramRanges.period || {}), min: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
-                            <input type="number" placeholder="Max" value={paramRanges.period?.max || 30} onChange={(e) => setParamRanges({ ...paramRanges, period: { ...(paramRanges.period || {}), max: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
-                          </div>
-                        )}
-                      </div>
-                      <div>
-                        <label className="text-xs text-slate-500 block mb-1">Oversold</label>
-                        {!showRanges ? (
-                          <input type="number" value={params.lower || 30} onChange={(e) => setParams({ ...params, lower: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
-                        ) : (
-                          <div className="flex gap-1">
-                            <input type="number" placeholder="Min" value={paramRanges.lower?.min || 10} onChange={(e) => setParamRanges({ ...paramRanges, lower: { ...(paramRanges.lower || {}), min: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
-                            <input type="number" placeholder="Max" value={paramRanges.lower?.max || 40} onChange={(e) => setParamRanges({ ...paramRanges, lower: { ...(paramRanges.lower || {}), max: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
-                          </div>
-                        )}
-                      </div>
-                      <div>
-                        <label className="text-xs text-slate-500 block mb-1">Overbought</label>
-                        {!showRanges ? (
-                          <input type="number" value={params.upper || 70} onChange={(e) => setParams({ ...params, upper: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
-                        ) : (
-                          <div className="flex gap-1">
-                            <input type="number" placeholder="Min" value={paramRanges.upper?.min || 60} onChange={(e) => setParamRanges({ ...paramRanges, upper: { ...(paramRanges.upper || {}), min: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
-                            <input type="number" placeholder="Max" value={paramRanges.upper?.max || 90} onChange={(e) => setParamRanges({ ...paramRanges, upper: { ...(paramRanges.upper || {}), max: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-                  {strategyId === '3' && (
-                    <>
-                      <div>
-                        <label className="text-xs text-slate-500 block mb-1">Fast Period</label>
-                        {!showRanges ? (
-                          <input type="number" value={params.fast || 10} onChange={(e) => setParams({ ...params, fast: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
-                        ) : (
-                          <div className="flex gap-1">
-                            <input type="number" placeholder="Min" value={paramRanges.fast?.min || 5} onChange={(e) => setParamRanges({ ...paramRanges, fast: { ...(paramRanges.fast || {}), min: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
-                            <input type="number" placeholder="Max" value={paramRanges.fast?.max || 50} onChange={(e) => setParamRanges({ ...paramRanges, fast: { ...(paramRanges.fast || {}), max: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
-                          </div>
-                        )}
-                      </div>
-                      <div>
-                        <label className="text-xs text-slate-500 block mb-1">Slow Period</label>
-                        {!showRanges ? (
-                          <input type="number" value={params.slow || 50} onChange={(e) => setParams({ ...params, slow: parseInt(e.target.value) })} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
-                        ) : (
-                          <div className="flex gap-1">
-                            <input type="number" placeholder="Min" value={paramRanges.slow?.min || 20} onChange={(e) => setParamRanges({ ...paramRanges, slow: { ...(paramRanges.slow || {}), min: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
-                            <input type="number" placeholder="Max" value={paramRanges.slow?.max || 200} onChange={(e) => setParamRanges({ ...paramRanges, slow: { ...(paramRanges.slow || {}), max: parseInt(e.target.value), step: 1 } })} className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono" />
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  )}
+                  {customStrategies.find(s => s.id === strategyId)?.params?.map(param => (
+                    <div key={param.name}>
+                      <label className="text-xs text-slate-500 block mb-1">
+                        {param.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                      </label>
+                      {!showRanges ? (
+                        <input
+                          type="number"
+                          step={param.type === 'float' ? '0.1' : '1'}
+                          value={params[param.name] ?? param.default}
+                          onChange={(e) => setParams({ ...params, [param.name]: param.type === 'float' ? parseFloat(e.target.value) : parseInt(e.target.value) })}
+                          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200"
+                        />
+                      ) : (
+                        <div className="flex gap-1">
+                          <input
+                            type="number"
+                            placeholder="Min"
+                            value={paramRanges[param.name]?.min ?? param.default}
+                            onChange={(e) => setParamRanges({ ...paramRanges, [param.name]: { ...(paramRanges[param.name] || {}), min: param.type === 'float' ? parseFloat(e.target.value) : parseInt(e.target.value), step: param.type === 'float' ? 0.1 : 1 } })}
+                            className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono"
+                          />
+                          <input
+                            type="number"
+                            placeholder="Max"
+                            value={paramRanges[param.name]?.max ?? (param.type === 'float' ? param.default + 2.0 : param.default * 2)}
+                            onChange={(e) => setParamRanges({ ...paramRanges, [param.name]: { ...(paramRanges[param.name] || {}), max: param.type === 'float' ? parseFloat(e.target.value) : parseInt(e.target.value), step: param.type === 'float' ? 0.1 : 1 } })}
+                            className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
 
                 {/* Auto-Tune Row */}
-                {(strategyId === '1' || strategyId === '3') && (
+                {(customStrategies.find(s => s.id === strategyId)?.params?.length ?? 0) > 0 && (
                   <div className="flex items-center gap-4 bg-slate-900/50 p-3 rounded border border-slate-800 border-dashed">
                     <div className="flex-1">
                       <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Optuna Metric</label>
@@ -803,23 +366,25 @@ const Backtest: React.FC = () => {
               )}
 
               {/* Visual Splitter */}
-              <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
-                <div className="flex justify-between text-xs mb-2">
-                  <span className="text-blue-400 font-bold">In-Sample (Train): {splitRatio}%</span>
-                  <span className="text-purple-400 font-bold">Out-of-Sample (Test): {100 - splitRatio}%</span>
+              {!isDynamic && (
+                <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                  <div className="flex justify-between text-xs mb-2">
+                    <span className="text-blue-400 font-bold">In-Sample (Train): {splitRatio}%</span>
+                    <span className="text-purple-400 font-bold">Out-of-Sample (Test): {100 - splitRatio}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="50" max="95" step="5"
+                    value={splitRatio}
+                    onChange={(e) => setSplitRatio(parseInt(e.target.value))}
+                    className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 mb-2"
+                  />
+                  <div className="flex items-center justify-center text-xs text-slate-500 bg-slate-900 py-1 rounded border border-slate-800 border-dashed">
+                    <Split className="w-3 h-3 mr-1" />
+                    Split Date: <span className="text-slate-200 ml-1 font-mono">{splitDateString}</span>
+                  </div>
                 </div>
-                <input
-                  type="range"
-                  min="50" max="95" step="5"
-                  value={splitRatio}
-                  onChange={(e) => setSplitRatio(parseInt(e.target.value))}
-                  className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 mb-2"
-                />
-                <div className="flex items-center justify-center text-xs text-slate-500 bg-slate-900 py-1 rounded border border-slate-800 border-dashed">
-                  <Split className="w-3 h-3 mr-1" />
-                  Split Date: <span className="text-slate-200 ml-1 font-mono">{splitDateString}</span>
-                </div>
-              </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center">
