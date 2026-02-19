@@ -69,8 +69,21 @@ def run_wfo():
         wfo_config = data.get("wfoConfig", {})
         full_results = data.get("fullResults", False)
 
-        train_m = wfo_config.get("trainWindow", 6)
-        test_m = wfo_config.get("testWindow", 2)
+        train_m = int(wfo_config.get("trainWindow", 6))
+        test_m = int(wfo_config.get("testWindow", 2))
+        
+        # Validation: Minimum Test Window Size
+        # We need enough data for the longest indicator period + signal generation buffer
+        max_period = int(ranges.get("period", {}).get("max", 14))
+        min_test_bars = max_period + 30
+        test_bars = test_m * 21  # Approx 21 trading days/mo
+        
+        if test_bars < min_test_bars:
+            return jsonify({
+                "status": "error",
+                "message": f"Test Window too small. Max Period {max_period} + 30 bars warmup requires ~{min_test_bars} bars (attempted {test_bars}). Increase Test Window."
+            }), 400
+
         logger.info(f"Running WFO for {symbol} | Train: {train_m}m, Test: {test_m}m | Full: {full_results}")
         
         if full_results:
@@ -125,9 +138,16 @@ def auto_tune():
             logger.error(f"Auto-Tune Date Parsing Error: {e}")
             return jsonify({"status": "error", "message": f"Invalid date parameters: {str(e)}"}), 400
 
-        # 2. Fetch data
+        # 2. Fetch data (Enforcement: Check cache first to avoid silent fetches)
         try:
             fetcher = DataFetcher(request.headers)
+            if not fetcher.is_cached(symbol, from_date=str(is_start.date()), to_date=str(is_end.date())):
+                 logger.warning(f"Auto-Tune blocked: Lookback data not in cache for {symbol} ({is_start.date()} to {is_end.date()})")
+                 return jsonify({
+                     "status": "error", 
+                     "message": "Auto-Tune requires pre-loaded data. Please click 'Load Market Data' first to fetch and validate the lookback range."
+                 }), 400
+
             df = fetcher.fetch_historical_data(symbol, from_date=str(is_start.date()), to_date=str(is_end.date()))
         except Exception as e:
             logger.error(f"Auto-Tune Fetch Error: {e}")

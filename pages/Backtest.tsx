@@ -200,12 +200,22 @@ const Backtest: React.FC = () => {
   const handleLoadData = async () => {
     setDataStatus('LOADING');
     try {
-      // Call API to validate data
       const target = mode === 'SINGLE' ? symbol : universe;
-      const report = await validateMarketData(target, timeframe, startDate, endDate);
+
+      // Calculate extended from_date (Lookback + Backtest)
+      const lookbackMonths = autoTuneConfig.lookbackMonths;
+      const startDt = new Date(startDate);
+      const extendedDt = new Date(startDt);
+      extendedDt.setMonth(startDt.getMonth() - lookbackMonths);
+      const extendedFromDate = extendedDt.toISOString().split('T')[0];
+
+      console.log(`[Unified Load] Fetching ${lookbackMonths}m lookback + backtest range: ${extendedFromDate} to ${endDate}`);
+
+      const report = await validateMarketData(target, timeframe, extendedFromDate, endDate);
       setHealthReport(report);
       setDataStatus('READY');
     } catch (e) {
+      console.error("Data load failed", e);
       setDataStatus('ERROR');
     }
   };
@@ -213,6 +223,12 @@ const Backtest: React.FC = () => {
   const handleAutoTune = async () => {
     if (!selectedInstrument) {
       alert("Please select a symbol first.");
+      return;
+    }
+
+    // Enforcement: Block auto-tune if data is not pre-loaded/validated
+    if (dataStatus !== 'READY') {
+      alert("Optimization requires pre-loaded data. Please click 'Load Market Data' first to fetch the lookback range.");
       return;
     }
 

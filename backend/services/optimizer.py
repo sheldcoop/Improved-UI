@@ -160,27 +160,61 @@ class OptimizationEngine:
         current_idx = train_window
         run_count = 1
 
-        while current_idx + test_window <= len(df):
-            train_df = df.iloc[current_idx - train_window: current_idx]
-            best_params = OptimizationEngine._find_best_params(train_df, strategy_id, ranges, metric)
+        logger.info(f"--- WFO EXECUTION START ---")
+        logger.info(f"Total Bars: {len(df)} | Train Window: {train_window} | Test Window: {test_window}")
 
+        while current_idx + test_window <= len(df):
+            # 1. Slice Training Data
+            train_df = df.iloc[current_idx - train_window: current_idx]
+            train_start = train_df.index.min().date()
+            train_end = train_df.index.max().date()
+            
+            # 2. Slice Testing Data
             test_df = df.iloc[current_idx: current_idx + test_window]
-            strategy = StrategyFactory.get_strategy(strategy_id, best_params)
-            entries, exits = strategy.generate_signals(test_df)
-            pf = vbt.Portfolio.from_signals(
-                test_df["Close"], entries, exits, freq="1D", fees=0.001
-            )
-            wfo_results.append({
-                "period": f"Window {run_count}",
-                "type": "TEST",
-                "params": str(best_params),
-                "returnPct": round(float(pf.total_return()) * 100, 2),
-                "sharpe": round(float(pf.sharpe_ratio()), 2),
-                "drawdown": round(float(abs(pf.max_drawdown())) * 100, 2),
-            })
+            test_start = test_df.index.min().date()
+            test_end = test_df.index.max().date()
+
+            logger.info(f"Window {run_count}: Train {train_start} -> {train_end} ({len(train_df)} bars) | Test {test_start} -> {test_end} ({len(test_df)} bars)")
+            
+            # Confirmation of non-overlap (strict)
+            assert test_start > train_end, f"Window {run_count} Overlap Error: Test Start {test_start} is not after Train End {train_end}"
+
+            # 3. Optimize on Train Data
+            try:
+                best_params = OptimizationEngine._find_best_params(train_df, strategy_id, ranges, metric)
+            except Exception as e:
+                logger.warning(f"Window {run_count} Optimization Failed: {e}. Skipping window.")
+                current_idx += test_window
+                run_count += 1
+                continue
+
+            # 4. Score on Test Data
+            try:
+                strategy = StrategyFactory.get_strategy(strategy_id, best_params)
+                entries, exits = strategy.generate_signals(test_df)
+                pf = vbt.Portfolio.from_signals(
+                    test_df["Close"], entries, exits, freq="1D", fees=0.001
+                )
+                
+                trades_count = pf.trades.count()
+                logger.info(f"Window {run_count} Trades: {trades_count}")
+
+                wfo_results.append({
+                    "period": f"Window {run_count}: {test_start} to {test_end}",
+                    "type": "TEST",
+                    "params": str(best_params),
+                    "returnPct": round(float(pf.total_return()) * 100, 2),
+                    "sharpe": round(float(pf.sharpe_ratio()), 2),
+                    "drawdown": round(float(abs(pf.max_drawdown())) * 100, 2),
+                    "trades": int(trades_count)
+                })
+            except Exception as e:
+                logger.error(f"Window {run_count} Test Execution Failed: {e}")
+
             current_idx += test_window
             run_count += 1
 
+        logger.info(f"--- WFO EXECUTION COMPLETE ---")
         return wfo_results
 
     @staticmethod
@@ -219,7 +253,12 @@ class OptimizationEngine:
         while current_idx + test_window <= len(df):
             # 1. Train on in-sample window
             train_df = df.iloc[current_idx - train_window : current_idx]
-            best_params = OptimizationEngine._find_best_params(train_df, strategy_id, ranges, metric)
+            try:
+                best_params = OptimizationEngine._find_best_params(train_df, strategy_id, ranges, metric)
+            except Exception as e:
+                logger.warning(f"WFO Portfolio Window Optimization Failed: {e}. Skipping window.")
+                current_idx += test_window
+                continue
             
             # 2. Test on out-of-sample window
             test_df = df.iloc[current_idx : current_idx + test_window]
@@ -229,6 +268,13 @@ class OptimizationEngine:
             # 3. Concatenate signals
             all_entries.iloc[current_idx : current_idx + test_window] = entries.values
             all_exits.iloc[current_idx : current_idx + test_window] = exits.values
+
+            # FORCE CLOSE at the end of this test window
+            # This prevents a position from 'leaking' into the next window which has different params
+            force_close_idx = current_idx + test_window - 1
+            all_exits.iloc[force_close_idx] = True
+
+            logger.info(f"WFO Portfolio Window {test_df.index[0].date()}->{test_df.index[-1].date()} | Params: {best_params} | Trades: {entries.sum()}")
             
             param_history.append({
                 "start": str(test_df.index[0].date()),

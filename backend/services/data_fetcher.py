@@ -61,6 +61,28 @@ class DataFetcher:
     # Public API
     # ------------------------------------------------------------------
 
+    def is_cached(self, symbol: str, timeframe: str = "1d", from_date: str | None = None, to_date: str | None = None) -> bool:
+        """Check if data for symbol/timeframe is fully covered in cache."""
+        cache_key = f"{symbol.replace(' ', '_').replace('/', '_')}_{timeframe}.parquet"
+        file_path = CACHE_DIR / cache_key
+        
+        if not file_path.exists():
+            return False
+            
+        if not from_date or not to_date:
+            return True
+            
+        try:
+            df = pd.read_parquet(file_path)
+            start_req = pd.Timestamp(from_date)
+            end_req = pd.Timestamp(to_date)
+            cache_start = df.index.min()
+            cache_end = df.index.max()
+            # 1 day buffer
+            return cache_start <= start_req + pd.Timedelta(days=1) and cache_end >= end_req - pd.Timedelta(days=1)
+        except Exception:
+            return False
+
     def fetch_historical_data(
         self, symbol: str, timeframe: str = "1d", from_date: str | None = None, to_date: str | None = None
     ) -> pd.DataFrame | dict | None:
