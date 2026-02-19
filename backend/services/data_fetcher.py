@@ -63,8 +63,9 @@ class DataFetcher:
 
     def is_cached(self, symbol: str, timeframe: str = "1d", from_date: str | None = None, to_date: str | None = None) -> bool:
         """Check if data for symbol/timeframe is fully covered in cache."""
-        cache_key = f"{symbol.replace(' ', '_').replace('/', '_')}_{timeframe}.parquet"
-        file_path = CACHE_DIR / cache_key
+        # Must use the same key format as _cache_path() / fetch_historical_data()
+        cache_key = f"{symbol}_{timeframe}"
+        file_path = self._cache_path(cache_key)
         
         if not file_path.exists():
             return False

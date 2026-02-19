@@ -78,7 +78,11 @@ class BacktestEngine:
         # --- 1. CONFIGURATION ---
         slippage = float(config.get("slippage", 0.05)) / 100.0
         initial_capital = float(config.get("initial_capital", 100000.0))
-        fees = float(config.get("commission", 20.0)) / initial_capital
+        # Commission is a fixed amount per trade (e.g. Rs.20).
+        # VBT fees = fraction of trade value, so divide by trade size not portfolio capital.
+        commission_fixed = float(config.get("commission", 20.0))
+        trade_size = float(config.get("positionSizeValue", initial_capital))
+        fees = commission_fixed / trade_size if trade_size > 0 else commission_fixed / initial_capital
         sl_pct = float(config.get("stopLossPct", 0)) / 100.0
         tp_pct = float(config.get("takeProfitPct", 0)) / 100.0
         use_trailing = bool(config.get("useTrailingStop", False))
@@ -131,7 +135,13 @@ class BacktestEngine:
             "size_type": size_type,
             "accumulate": accumulate,
         }
-        # Risk logic removed based on architectural review
+        # Apply stop-loss, take-profit, and trailing stop when configured
+        if sl_pct > 0:
+            pf_kwargs["sl_stop"] = sl_pct
+        if tp_pct > 0:
+            pf_kwargs["tp_stop"] = tp_pct
+        if use_trailing and sl_pct > 0:
+            pf_kwargs["sl_trail"] = True
         try:
             pf = vbt.Portfolio.from_signals(close_price, entries, exits, **pf_kwargs)
             results = BacktestEngine._extract_results(pf, df)
@@ -246,8 +256,11 @@ class BacktestEngine:
         if is_universe:
             total_value = pf.value().sum(axis=1)
             total_return = (total_value.iloc[-1] - total_value.iloc[0]) / total_value.iloc[0]
+            # Compute drawdown from the aggregated universe portfolio value
+            running_max = total_value.cummax()
+            dd_universe = ((total_value - running_max) / running_max) * 100
             equity_curve = [
-                {"date": str(d), "value": round(v, 2), "drawdown": 0}
+                {"date": str(d), "value": round(v, 2), "drawdown": round(abs(dd_universe.loc[d]), 2)}
                 for d, v in total_value.items()
             ]
             metrics = {
@@ -289,8 +302,16 @@ class BacktestEngine:
                         "status": "WIN" if row["PnL"] > 0 else "LOSS",
                     })
 
+            # Compute true CAGR: (final/initial)^(1/years) - 1
+            total_return = pf.total_return()
+            years = (idx[-1] - idx[0]).days / 365.25 if len(idx) > 1 else 1.0
+            if years > 0 and total_return > -1:
+                cagr_val = round(((1 + total_return) ** (1.0 / years) - 1) * 100, 2)
+            else:
+                cagr_val = round(total_return * 100, 2)
+
             metrics = {
-                "totalReturnPct": round(pf.total_return() * 100, 2),
+                "totalReturnPct": round(total_return * 100, 2),
                 "sharpeRatio": round(stats.get("Sharpe Ratio", 0), 2),
                 "maxDrawdownPct": round(abs(stats.get("Max Drawdown [%]", 0)), 2),
                 "winRate": round(stats.get("Win Rate [%]", 0), 1),
@@ -299,7 +320,7 @@ class BacktestEngine:
                 "alpha": round(float(stats.get("Alpha", 0)), 2),
                 "beta": round(float(stats.get("Beta", 0)), 2),
                 "volatility": round(float(stats.get("Volatility (Ann.) [%]", 0)), 1),
-                "cagr": round(float(stats.get("Total Return [%]", 0)), 2),
+                "cagr": cagr_val,
                 "sortinoRatio": round(float(stats.get("Sortino Ratio", 0)), 2),
                 "calmarRatio": round(float(stats.get("Calmar Ratio", 0)), 2),
                 **BacktestEngine._compute_advanced_metrics(pf, universe=False),
@@ -307,7 +328,8 @@ class BacktestEngine:
             }
             
             # --- Diagnostic Alerts ---
-            metrics["alerts"] = AlertManager.analyze_backtest(metrics, df)
+            # AlertManager expects {"metrics": {...}} wrapper, not raw metrics dict
+            metrics["alerts"] = AlertManager.analyze_backtest({"metrics": metrics}, df)
 
             try:
                 # Use returns_series calculated above
