@@ -115,6 +115,31 @@ const Backtest: React.FC = () => {
   const [paramRanges, setParamRanges] = useState<Record<string, { min: number, max: number, step: number }>>({});
   const [isAutoTuning, setIsAutoTuning] = useState(false);
   const [showRanges, setShowRanges] = useState(false);
+  const [reproducible, setReproducible] = useState(false);
+  // Auto-Calculate WFO Windows when dates change
+  useEffect(() => {
+    if (!isDynamic) return;
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const totalMonths = Math.round(diffTime / (1000 * 60 * 60 * 24 * 30.44));
+
+    let newTrain = 12;
+    let newTest = 3;
+
+    if (totalMonths < 12) { newTrain = 3; newTest = 1; }
+    else if (totalMonths < 24) { newTrain = 6; newTest = 2; }
+    else if (totalMonths < 36) { newTrain = 9; newTest = 3; }
+
+    // Only update if significantly different to avoid overriding user custom tweaks too aggressively
+    // But requirement says "Auto-calculate... when user loads market data or changes date range"
+    // So we should update. To be safe, we can check if the *current* config is "invalid" or just strict overwrite.
+    // User asked: "When user changes date range... auto-update". So strict overwrite is expected behavior for a "date change" event.
+
+    setWfoConfig({ trainWindow: newTrain, testWindow: newTest });
+
+  }, [startDate, endDate, isDynamic]);
 
   // Load Strategies on Mount
   useEffect(() => {
@@ -285,7 +310,8 @@ const Backtest: React.FC = () => {
           ranges: paramRanges,
           startDate: startDate,
           lookbackMonths: autoTuneConfig.lookbackMonths,
-          scoringMetric: autoTuneConfig.metric
+          scoringMetric: autoTuneConfig.metric,
+          reproducible: reproducible
         })
       });
       if (result.bestParams) {
@@ -342,6 +368,7 @@ const Backtest: React.FC = () => {
               scoringMetric: autoTuneConfig.metric,
               initial_capital: capital
             },
+            reproducible: reproducible,
             fullResults: true
           })
         });
@@ -834,25 +861,116 @@ const Backtest: React.FC = () => {
                   </button>
                 </div>
 
+                {/* Reproducible Mode Toggle */}
+                <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+                  <div>
+                    <h4 className="text-slate-200 font-bold flex items-center">
+                      <Settings className="w-4 h-4 mr-2 text-indigo-400" />
+                      Reproducible Mode
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      OFF = Random exploration (production)<br />
+                      ON = Fixed seed (debugging/verification)
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setReproducible(!reproducible)}
+                    className={`w-12 h-6 rounded-full p-1 transition-colors ${reproducible ? 'bg-indigo-600' : 'bg-slate-700'}`}
+                  >
+                    <div className={`w-4 h-4 rounded-full bg-white transition-transform ${reproducible ? 'translate-x-6' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+
                 {isDynamic && (
-                  <div className="grid grid-cols-2 gap-6 animate-in fade-in zoom-in-95">
-                    <div>
-                      <label className="text-xs text-slate-500 block mb-1">Train Window (Months)</label>
-                      <input
-                        type="number"
-                        value={wfoConfig.trainWindow}
-                        onChange={(e) => setWfoConfig({ ...wfoConfig, trainWindow: parseInt(e.target.value) })}
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200"
-                      />
+                  <div className="space-y-4 animate-in fade-in zoom-in-95">
+                    <div className="grid grid-cols-2 gap-6">
+                      <div>
+                        <label className="text-xs text-slate-500 block mb-1">Train Window (Months)</label>
+                        <input
+                          type="number"
+                          value={wfoConfig.trainWindow}
+                          onChange={(e) => setWfoConfig({ ...wfoConfig, trainWindow: parseInt(e.target.value) })}
+                          className={`w-full bg-slate-900 border rounded px-2 py-2 text-sm text-slate-200 ${
+                            // Validation: Train + Test > Total
+                            (() => {
+                              const start = new Date(startDate);
+                              const end = new Date(endDate);
+                              const diffTime = Math.abs(end.getTime() - start.getTime());
+                              const totalMonths = Math.round(diffTime / (1000 * 60 * 60 * 24 * 30.44));
+                              return (wfoConfig.trainWindow + wfoConfig.testWindow) > totalMonths ? 'border-red-500 focus:ring-red-500' : 'border-slate-700'
+                            })()
+                            }`}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-500 block mb-1">Test Window (Months)</label>
+                        <input
+                          type="number"
+                          value={wfoConfig.testWindow}
+                          onChange={(e) => setWfoConfig({ ...wfoConfig, testWindow: parseInt(e.target.value) })}
+                          className={`w-full bg-slate-900 border rounded px-2 py-2 text-sm text-slate-200 ${wfoConfig.testWindow < 1 ? 'border-yellow-500 focus:ring-yellow-500' : 'border-slate-700'
+                            }`}
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-xs text-slate-500 block mb-1">Test Window (Months)</label>
-                      <input
-                        type="number"
-                        value={wfoConfig.testWindow}
-                        onChange={(e) => setWfoConfig({ ...wfoConfig, testWindow: parseInt(e.target.value) })}
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200"
-                      />
+
+                    {/* Info & Validation Messages */}
+                    <div className="bg-slate-900/50 p-3 rounded border border-slate-800">
+                      {(() => {
+                        const start = new Date(startDate);
+                        const end = new Date(endDate);
+                        const diffTime = Math.abs(end.getTime() - start.getTime());
+                        const totalMonths = Math.round(diffTime / (1000 * 60 * 60 * 24 * 30.44));
+                        const totalWindow = wfoConfig.trainWindow + wfoConfig.testWindow;
+
+                        // Error 1: Total window > Data
+                        if (totalWindow > totalMonths) {
+                          return (
+                            <div className="text-xs text-red-400 flex items-start">
+                              <AlertCircle className="w-3 h-3 mr-1.5 mt-0.5 flex-shrink-0" />
+                              <span>
+                                <strong>Configuration Error:</strong> Train ({wfoConfig.trainWindow}m) + Test ({wfoConfig.testWindow}m) exceeds available data ({totalMonths}m).
+                              </span>
+                            </div>
+                          );
+                        }
+
+                        // Warning 1: Too few windows
+                        const expectedWindows = Math.floor((totalMonths - wfoConfig.trainWindow) / wfoConfig.testWindow);
+                        if (expectedWindows < 2) {
+                          return (
+                            <div className="text-xs text-yellow-400 flex items-start">
+                              <AlertTriangle className="w-3 h-3 mr-1.5 mt-0.5 flex-shrink-0" />
+                              <span>
+                                <strong>Warning:</strong> Only {expectedWindows} window(s) expected. Short backtest reliability.
+                              </span>
+                            </div>
+                          );
+                        }
+
+                        // Warning 2: Test window too small
+                        if (wfoConfig.testWindow < 1) {
+                          return (
+                            <div className="text-xs text-yellow-400 flex items-start">
+                              <AlertTriangle className="w-3 h-3 mr-1.5 mt-0.5 flex-shrink-0" />
+                              <span>
+                                <strong>Warning:</strong> Test window must be at least 1 month.
+                              </span>
+                            </div>
+                          );
+                        }
+
+                        // Info Success
+                        return (
+                          <div className="text-xs text-slate-400 flex items-start">
+                            <Info className="w-3 h-3 mr-1.5 mt-0.5 flex-shrink-0 text-emerald-500" />
+                            <span>
+                              Auto-calculated base on {totalMonths} months data.<br />
+                              <span className="text-emerald-400">Expected ~{Math.max(0, expectedWindows)} Walk-Forward Windows.</span>
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}

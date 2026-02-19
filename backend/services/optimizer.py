@@ -39,6 +39,7 @@ class OptimizationEngine:
         headers: dict,
         n_trials: int = 30,
         scoring_metric: str = "sharpe",
+        reproducible: bool = False
     ) -> dict:
         """Run Optuna hyperparameter optimisation for a strategy.
 
@@ -49,6 +50,8 @@ class OptimizationEngine:
                 { 'paramName': { 'min': int, 'max': int, 'step': int } }
             headers: Flask request headers for API key resolution.
             n_trials: Number of Optuna trials to run. Default 30.
+            scoring_metric: Metric to optimize. Default 'sharpe'.
+            reproducible: Whether to use a fixed seed for Optuna. Default False.
 
         Returns:
             Dict with key 'grid' (list of trial results) and 'wfo' (empty list).
@@ -64,9 +67,19 @@ class OptimizationEngine:
             1.42
         """
         fetcher = DataFetcher(headers)
-        df = fetcher.fetch_historical_data(symbol)
+        # Fix 3: Fetch ONLY the optimization window, not all history
+        df = fetcher.fetch_historical_data(
+            symbol,
+            from_date=ranges.get("startDate"),
+            to_date=ranges.get("endDate")
+        )
         if df is None or (isinstance(df, pd.DataFrame) and df.empty):
             return {"error": "No data available for symbol"}
+
+        logger.info(f"Auto-Tune Date Range: {ranges.get('startDate')} to {ranges.get('endDate')}")
+        logger.info(f"Data fetched: {len(df)} bars")
+        logger.info(f"First bar date: {df.index[0].date()}")
+        logger.info(f"Last bar date: {df.index[-1].date()}")
 
         def objective(trial: optuna.Trial) -> float:
             config: dict = {}
@@ -98,7 +111,14 @@ class OptimizationEngine:
             except Exception:
                 return float(-999)
 
-        study = optuna.create_study(direction="maximize")
+        if len(df) > 500:
+            n_trials = max(n_trials, 50)
+            
+        seed = 42 if reproducible else None
+        sampler = optuna.samplers.TPESampler(seed=seed)
+        pruner = optuna.pruners.MedianPruner(n_startup_trials=5)
+
+        study = optuna.create_study(direction="maximize", sampler=sampler, pruner=pruner)
         study.optimize(objective, n_trials=n_trials)
 
         grid_results: list[dict] = []
@@ -186,61 +206,89 @@ class OptimizationEngine:
             return {"error": f"Not enough data for WFO. Need {needed} bars (~{needed//21}m), found {found} bars."}
 
         wfo_results: list[dict] = []
-        current_idx = train_window
+        
+        # Robust Date-Based Initialization
+        # current_date is the start of the first TEST window
+        current_date = fetch_start_dt + relativedelta(months=train_m)
+        if current_date < df.index.min():
+             # Should not happen given fetch logic, but safety first
+             current_date = df.index.min() + relativedelta(months=train_m)
+
         run_count = 1
+        last_best_params = None # Fallback mechanism
 
-        logger.info(f"--- WFO EXECUTION START ---")
-        logger.info(f"Total Bars: {len(df)} | Train Window: {train_window} | Test Window: {test_window}")
+        logger.info(f"--- WFO EXECUTION START (Robust) ---")
+        logger.info(f"Data Range: {df.index.min().date()} to {df.index.max().date()}")
 
-        while current_idx + test_window <= len(df):
-            # 1. Slice Training Data
-            train_df = df.iloc[current_idx - train_window: current_idx]
-            train_start = train_df.index.min().date()
-            train_end = train_df.index.max().date()
+        while current_date < df.index.max():
+            # Define Test Window Dates
+            test_start_dt = current_date
+            # Test window ends X months later
+            test_end_dt = test_start_dt + relativedelta(months=test_m) - pd.Timedelta(days=1)
             
-            # 2. Slice Testing Data with Warmup
-            # We need warmup data for indicators to be valid at the start of the test window
-            warmup_bars = train_window # Use train window size as safe warmup
-            if current_idx - warmup_bars < 0:
-                warmup_bars = current_idx # Use whatever history we have if less than train_window
+            # Define Train Window Dates (Rolling Lookback)
+            # Train ends exactly yesterday relative to Test start
+            train_end_dt = test_start_dt - pd.Timedelta(days=1)
+            # Train starts X months before Train end
+            train_start_dt = train_end_dt - relativedelta(months=train_m) + pd.Timedelta(days=1)
             
-            test_df_with_warmup = df.iloc[current_idx - warmup_bars : current_idx + test_window]
-            test_df = df.iloc[current_idx: current_idx + test_window]
-            
-            test_start = test_df.index.min().date()
-            test_end = test_df.index.max().date()
+            # Stop if test window goes beyond available data
+            if test_end_dt > df.index.max():
+                logger.info(f"Stopping WFO: Next window ends {test_end_dt.date()} (beyond data {df.index.max().date()})")
+                break
 
-            logger.info(f"Window {run_count}: Train {train_start} -> {train_end} | Test {test_start} -> {test_end}")
+            # 1. Slice Training Data (Date-Based)
+            train_df = df.loc[train_start_dt : train_end_dt]
             
-            # Confirmation of non-overlap (strict)
-            assert test_start > train_end, f"Window {run_count} Overlap Error: Test Start {test_start} is not after Train End {train_end}"
+            if len(train_df) < 50: 
+                logger.warning(f"Window {run_count}: Insufficient training data ({len(train_df)} bars). Skipping.")
+                current_date += relativedelta(months=test_m)
+                continue
+            
+            # 2. Slice Testing Data with Warmup (Date-Based)
+            test_df = df.loc[test_start_dt : test_end_dt]
+            if test_df.empty:
+                logger.warning(f"Window {run_count}: Empty test data. Stopping.")
+                break
+                
+            # Warmup Slice: Extended history for indicators
+            warmup_start_dt = test_start_dt - relativedelta(months=train_m)
+            test_df_with_warmup = df.loc[warmup_start_dt : test_end_dt]
 
-            # 3. Optimize on Train Data
+            logger.info(f"Window {run_count}: Train {train_start_dt.date()}->{train_end_dt.date()} | Test {test_start_dt.date()}->{test_end_dt.date()}")
+
+            # 3. Optimize on Train Data with Fallback
+            best_params = None
             try:
                 best_params = OptimizationEngine._find_best_params(train_df, strategy_id, ranges, metric)
+                last_best_params = best_params # Update fallback
             except Exception as e:
-                logger.warning(f"Window {run_count} Optimization Failed: {e}. Skipping window.")
-                current_idx += test_window
-                run_count += 1
-                continue
+                logger.warning(f"Window {run_count} Optimization Failed: {e}")
+                if last_best_params:
+                    logger.info(f"⚠️ Using FALLBACK params from previous window: {last_best_params}")
+                    best_params = last_best_params
+                else:
+                    logger.error(f"❌ No fallback parameters available. Skipping window.")
+                    current_date += relativedelta(months=test_m)
+                    run_count += 1
+                    continue
 
-            # 4. Score on Test Data (using Warmup)
+            # 4. Score on Test Data
             try:
                 strategy = StrategyFactory.get_strategy(strategy_id, best_params)
                 
                 # Generate signals on EXTENDED data
                 entries_full, exits_full = strategy.generate_signals(test_df_with_warmup)
                 
-                # Slice signals to keep only the TEST period
-                # The test period starts after 'warmup_bars' in the extended dataframe
-                entries = entries_full.iloc[warmup_bars:]
-                exits = exits_full.iloc[warmup_bars:]
+                # Slice signals to keep only the strict TEST period
+                # Use strict date slicing on the Series for robustness
+                entries = entries_full.loc[test_start_dt : test_end_dt]
+                exits = exits_full.loc[test_start_dt : test_end_dt]
                 
-                # Verify alignment
-                if len(entries) != len(test_df):
-                    logger.error(f"Signal slicing mismatch! Entries: {len(entries)}, TestDF: {len(test_df)}")
-                    # Fallback to direct generation if slicing fails (should not happen)
-                    entries, exits = strategy.generate_signals(test_df)
+                # Robust Index Alignment
+                # Reindex to match test_df to ensure 1:1 shape even if signals are sparse
+                entries = entries.reindex(test_df.index).fillna(False)
+                exits = exits.reindex(test_df.index).fillna(False)
 
                 pf = vbt.Portfolio.from_signals(
                     test_df["Close"], entries, exits, freq="1D", fees=0.001
@@ -250,7 +298,7 @@ class OptimizationEngine:
                 logger.info(f"Window {run_count} Signals: {test_signals} | Params: {best_params}")
 
                 wfo_results.append({
-                    "period": f"Window {run_count}: {test_start} to {test_end}",
+                    "period": f"Window {run_count}: {test_start_dt.date()} to {test_end_dt.date()}",
                     "type": "TEST",
                     "params": str(best_params),
                     "returnPct": round(float(pf.total_return()) * 100, 2),
@@ -325,58 +373,110 @@ class OptimizationEngine:
         all_exits = pd.Series(False, index=df.index)
         param_history = []
 
-        current_idx = train_window
-        while current_idx + test_window <= len(df):
-            # 1. Train on in-sample window
-            train_df = df.iloc[current_idx - train_window : current_idx]
+        wfo_results: list[dict] = []
+        
+        # Robust Date-Based Initialization
+        current_date = fetch_start_dt + relativedelta(months=train_m)
+        if current_date < df.index.min():
+             current_date = df.index.min() + relativedelta(months=train_m)
+
+        run_count = 1
+        last_best_params = None
+
+        logger.info(f"--- WFO PORTFOLIO EXECUTION START (Robust) ---")
+
+        while current_date < df.index.max():
+            # Define Test Window Dates
+            test_start_dt = current_date
+            test_end_dt = test_start_dt + relativedelta(months=test_m) - pd.Timedelta(days=1)
+            
+            # Define Train Window Dates
+            train_end_dt = test_start_dt - pd.Timedelta(days=1)
+            train_start_dt = train_end_dt - relativedelta(months=train_m) + pd.Timedelta(days=1)
+            
+            if test_end_dt > df.index.max():
+                 break
+
+            # 1. Slice Training Data
+            train_df = df.loc[train_start_dt : train_end_dt]
+            
+            if len(train_df) < 50: 
+                logger.warning(f"Window {run_count}: Insufficient training data. Skipping.")
+                current_date += relativedelta(months=test_m)
+                continue
+
+            # 2. Slice Testing Data
+            test_df = df.loc[test_start_dt : test_end_dt]
+            if test_df.empty: 
+                break
+            
+            # Warmup Slice
+            warmup_start_dt = test_start_dt - relativedelta(months=train_m)
+            test_df_with_warmup = df.loc[warmup_start_dt : test_end_dt]
+
+            # 3. Optimize with Fallback
+            best_params = None
             try:
                 best_params = OptimizationEngine._find_best_params(train_df, strategy_id, ranges, metric)
+                last_best_params = best_params
             except Exception as e:
-                logger.warning(f"WFO Portfolio Window Optimization Failed: {e}. Skipping window.")
-                current_idx += test_window
-                continue
+                logger.warning(f"Window {run_count} Optimization Failed: {e}")
+                if last_best_params:
+                    logger.info(f"⚠️ Using FALLBACK params: {last_best_params}")
+                    best_params = last_best_params
+                else:
+                    logger.error(f"❌ No fallback parameters. Skipping window.")
+                    current_date += relativedelta(months=test_m)
+                    run_count += 1
+                    continue
             
-            # 2. Test on out-of-sample window with warmup
-            warmup_bars = train_window # Use train window as warmup
-            if current_idx - warmup_bars < 0: warmup_bars = current_idx
+            # 4. Generate Signals & Concatenate
+            try:
+                strategy = StrategyFactory.get_strategy(strategy_id, best_params)
+                entries_full, exits_full = strategy.generate_signals(test_df_with_warmup)
+                
+                # Strict Slicing
+                entries = entries_full.loc[test_start_dt : test_end_dt]
+                exits = exits_full.loc[test_start_dt : test_end_dt]
+                
+                # Align with Master Index (df)
+                # We need to fill ONLY the specific window in the global arrays
+                # Using update() is safer than simple assignment for sparse series
+                # But simple assignment with loc is fine if indices match
+                entries = entries.reindex(test_df.index).fillna(False)
+                exits = exits.reindex(test_df.index).fillna(False)
+                
+                all_entries.loc[test_start_dt : test_end_dt] = entries.values
+                all_exits.loc[test_start_dt : test_end_dt] = exits.values
+                
+                test_signals = int(entries.sum())
+                logger.info(f"WFO Window {test_start_dt.date()}->{test_end_dt.date()} | Params: {best_params} | Signals: {test_signals}")
+                
+                period_str = f"Window {len(param_history)+1}: {test_start_dt.date()} to {test_end_dt.date()}"
+                param_history.append({
+                    "period": period_str,
+                    "start": str(test_start_dt.date()),
+                    "end": str(test_end_dt.date()),
+                    "params": str(best_params),
+                    "trades": test_signals,
+                    "returnPct": round(float(vbt.Portfolio.from_signals(test_df["Close"], entries, exits, freq="1D", fees=0.001).total_return()) * 100, 2),
+                    "sharpe": round(float(vbt.Portfolio.from_signals(test_df["Close"], entries, exits, freq="1D", fees=0.001).sharpe_ratio()), 2)
+                })
+            except Exception as e:
+                logger.error(f"Window {run_count} Generation Failed: {e}", exc_info=True)
             
-            test_df_with_warmup = df.iloc[current_idx - warmup_bars : current_idx + test_window]
-            test_df = df.iloc[current_idx : current_idx + test_window] # Restore test_df for logging/calc
-            
-            strategy = StrategyFactory.get_strategy(strategy_id, best_params)
-            entries_full, exits_full = strategy.generate_signals(test_df_with_warmup)
-            
-            # Slice to keep only test window
-            entries = entries_full.iloc[warmup_bars:]
-            exits = exits_full.iloc[warmup_bars:]
-            
-            # 3. Concatenate signals
-            all_entries.iloc[current_idx : current_idx + test_window] = entries.values
-            all_exits.iloc[current_idx : current_idx + test_window] = exits.values
-            
-            test_signals = int(entries.sum())
-            logger.info(f"WFO Portfolio Window {test_df.index[0].date()}->{test_df.index[-1].date()} | Params: {best_params} | Signals: {test_signals}")
-            
-            period_str = f"Window {len(param_history)+1}: {test_df.index[0].date()} to {test_df.index[-1].date()}"
-            param_history.append({
-                "period": period_str, # Added period for WFO tab compatibility
-                "start": str(test_df.index[0].date()),
-                "end": str(test_df.index[-1].date()),
-                "params": str(best_params), # Stringified for table display
-                "trades": test_signals,
-                "returnPct": round(float(vbt.Portfolio.from_signals(test_df["Close"], entries, exits, freq="1D", fees=0.001).total_return()) * 100, 2),
-                "sharpe": round(float(vbt.Portfolio.from_signals(test_df["Close"], entries, exits, freq="1D", fees=0.001).sharpe_ratio()), 2)
-            })
-            
-            current_idx += test_window
+            current_date += relativedelta(months=test_m)
+            run_count += 1
 
         # 4. Filter data to only includes OOS range for the final portfolio
-        # Using slice-based indexing is safe even if current_idx == len(df)
-        oos_range = df.index[train_window : current_idx]
-        oos_mask = df.index.isin(oos_range)
-        oos_df = df.loc[oos_mask]
-        oos_entries = all_entries.loc[oos_mask]
-        oos_exits = all_exits.loc[oos_mask]
+        # We start OOS exactly after the first training block
+        oos_start_date = fetch_start_dt + relativedelta(months=train_m)
+        oos_df = df.loc[oos_start_date:]
+        
+        # Align entries/exits to this OOS dataframe
+        # They are already globally aligned to 'df', so just slice
+        oos_entries = all_entries.loc[oos_start_date:]
+        oos_exits = all_exits.loc[oos_start_date:]
 
         if oos_df.empty:
             return {"error": "Calibration failed - no OOS data generated."}
@@ -458,17 +558,7 @@ class OptimizationEngine:
                 # Note: tsl_stop requires sl_trail=True in vectorbt
                 pf_kwargs = {"freq": "1D"}
                 
-                # Extract risk params from config if they were optimized
-                sl_stop = config.get("sl_stop")
-                tp_stop = config.get("tp_stop")
-                tsl_stop = config.get("tsl_stop")
-
-                if sl_stop: pf_kwargs["sl_stop"] = float(sl_stop) / 100.0  # Convert to decimal
-                if tp_stop: pf_kwargs["tp_stop"] = float(tp_stop) / 100.0
-                if tsl_stop: 
-                    pf_kwargs["sl_stop"] = float(tsl_stop) / 100.0
-                    pf_kwargs["sl_trail"] = True
-
+                # Risk params logic removed for now
                 pf = vbt.Portfolio.from_signals(df["Close"], entries, exits, **pf_kwargs)
                 
                 # Calculate all metrics for reporting
@@ -505,8 +595,17 @@ class OptimizationEngine:
         logger.info(f"--- OPTIMIZATION START ---")
         logger.info(f"Metric: {scoring_metric} | Strategy: {strategy_id} | Bars: {len(df)}")
         
-        study = optuna.create_study(direction="maximize")
-        study.optimize(objective, n_trials=30)
+        seed = 42 if ranges.get("reproducible", False) else None
+        sampler = optuna.samplers.TPESampler(seed=seed)
+        pruner = optuna.pruners.MedianPruner(n_startup_trials=5)
+        
+        study = optuna.create_study(direction="maximize", sampler=sampler, pruner=pruner)
+        
+        n_trials = 30
+        if len(df) > 500:
+            n_trials = 50
+            
+        study.optimize(objective, n_trials=n_trials)
         
         valid_trials = [t for t in study.trials if t.value is not None and t.value != -999]
         if len(valid_trials) == 0:

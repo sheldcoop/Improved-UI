@@ -80,7 +80,12 @@ def run_backtest():
         logger.info(f"Backtest Target: {target} [{timeframe}] | Strategy: {strategy_id}")
 
         fetcher = DataFetcher(request.headers)
-        df = fetcher.fetch_historical_data(target, timeframe)
+        df = fetcher.fetch_historical_data(
+            target, 
+            timeframe,
+            from_date=data.get("startDate"),
+            to_date=data.get("endDate")
+        )
 
         results = BacktestEngine.run(df, strategy_id, config)
 

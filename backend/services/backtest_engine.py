@@ -131,12 +131,7 @@ class BacktestEngine:
             "size_type": size_type,
             "accumulate": accumulate,
         }
-        if sl_pct > 0:
-            pf_kwargs["sl_stop"] = sl_pct
-            pf_kwargs["sl_trail"] = use_trailing
-        if tp_pct > 0:
-            pf_kwargs["tp_stop"] = tp_pct
-
+        # Risk logic removed based on architectural review
         try:
             pf = vbt.Portfolio.from_signals(close_price, entries, exits, **pf_kwargs)
             results = BacktestEngine._extract_results(pf, df)

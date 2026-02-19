@@ -31,15 +31,19 @@ def run_optimization():
         symbol = data.get("symbol", "NIFTY 50")
         strategy_id = data.get("strategyId", "1")
         ranges = data.get("ranges", {})
+        # Critical Fix: Pass root-level dates to Optuna ranges for fetcher
+        ranges["startDate"] = data.get("startDate")
+        ranges["endDate"] = data.get("endDate")
         n_trials = int(data.get("n_trials", 30))
         scoring_metric = data.get("scoringMetric", "sharpe")
+        reproducible = data.get("reproducible", False)
 
         if not isinstance(ranges, dict):
             return jsonify({"status": "error", "message": "ranges must be a dict"}), 400
 
-        logger.info(f"Running Optuna Optimisation for {symbol} | Metric: {scoring_metric}")
+        logger.info(f"Running Optuna Optimisation for {symbol} | Metric: {scoring_metric} | Reproducible: {reproducible}")
         results = OptimizationEngine.run_optuna(
-            symbol, strategy_id, ranges, request.headers, n_trials, scoring_metric
+            symbol, strategy_id, ranges, request.headers, n_trials, scoring_metric, reproducible
         )
         return jsonify(results), 200
 
@@ -57,6 +61,7 @@ def run_wfo():
         strategyId (str): Strategy identifier. Default '1'.
         ranges (dict): Parameter search space.
         wfoConfig (dict): WFO config with 'trainWindow' and 'testWindow'.
+        reproducible (bool): Whether to use a fixed seed. Default False.
 
     Returns:
         JSON list of WFO window result dicts.
@@ -67,21 +72,21 @@ def run_wfo():
         strategy_id = data.get("strategyId", "1")
         ranges = data.get("ranges", {})
         wfo_config = data.get("wfoConfig", {})
+        # Critical Fix: Ensure dates are in WFO config without overwriting existing values with None
+        wfo_config["startDate"] = wfo_config.get("startDate") or data.get("startDate")
+        wfo_config["endDate"] = wfo_config.get("endDate") or data.get("endDate")
+        ranges["reproducible"] = data.get("reproducible", False)
+        
         full_results = data.get("fullResults", False)
 
         train_m = int(wfo_config.get("trainWindow", 6))
         test_m = int(wfo_config.get("testWindow", 2))
         
         # Validation: Minimum Test Window Size
-        # We need enough data for the longest indicator period + signal generation buffer
-        max_period = int(ranges.get("period", {}).get("max", 14))
-        min_test_bars = max_period + 30
-        test_bars = test_m * 21  # Approx 21 trading days/mo
-        
-        if test_bars < min_test_bars:
+        if test_m < 1:
             return jsonify({
                 "status": "error",
-                "message": f"Test Window too small. Max Period {max_period} + 30 bars warmup requires ~{min_test_bars} bars (attempted {test_bars}). Increase Test Window."
+                "message": "Test Window must be at least 1 month."
             }), 400
 
         logger.info(f"Running WFO for {symbol} | Train: {train_m}m, Test: {test_m}m | Full: {full_results}")

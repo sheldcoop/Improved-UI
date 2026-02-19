@@ -6,22 +6,53 @@ import { delay, executeWithFallback } from './http';
 // --- MOCKS ---
 let mockStrategies: StrategyPreset[] = [
     {
-        id: '1',
-        name: 'RSI Mean Reversion',
-        description: 'Buy when RSI < 30, Sell when RSI > 70',
-        params: [
-            { name: 'rsi_period', type: 'int', default: 14 },
-            { name: 'rsi_lower', type: 'int', default: 30 },
-            { name: 'rsi_upper', type: 'int', default: 70 }
+        id: '1', name: 'RSI Mean Reversion', description: 'Buy when RSI < 30, Sell when RSI > 70', params: [
+            { name: 'period', type: 'int', default: 14 },
+            { name: 'lower', type: 'int', default: 30 },
+            { name: 'upper', type: 'int', default: 70 }
         ]
     },
     {
-        id: '2',
-        name: 'Bollinger Bands',
-        description: 'Buy on lower band, Sell on upper band',
-        params: [
+        id: '2', name: 'Bollinger Bands', description: 'Buy on lower band, Sell on upper band', params: [
             { name: 'period', type: 'int', default: 20 },
             { name: 'std_dev', type: 'float', default: 2.0 }
+        ]
+    },
+    {
+        id: '3', name: 'EMA Crossover', description: 'Fast EMA crosses Slow EMA', params: [
+            { name: 'fast', type: 'int', default: 10 },
+            { name: 'slow', type: 'int', default: 50 }
+        ]
+    },
+    {
+        id: '4', name: 'MACD Momentum', description: 'MACD line crosses signal line', params: [
+            { name: 'fast', type: 'int', default: 12 },
+            { name: 'slow', type: 'int', default: 26 },
+            { name: 'signal', type: 'int', default: 9 }
+        ]
+    },
+    {
+        id: '5', name: 'SuperTrend Trend Following', description: 'SuperTrend direction changes', params: [
+            { name: 'period', type: 'int', default: 10 },
+            { name: 'multiplier', type: 'float', default: 3.0 }
+        ]
+    },
+    {
+        id: '6', name: 'Stochastic RSI', description: 'Stoch RSI crossover', params: [
+            { name: 'rsi_period', type: 'int', default: 14 },
+            { name: 'k_period', type: 'int', default: 3 },
+            { name: 'd_period', type: 'int', default: 3 }
+        ]
+    },
+    {
+        id: '7', name: 'ATR Breakout', description: 'Price breaks ATR channels', params: [
+            { name: 'period', type: 'int', default: 14 },
+            { name: 'multiplier', type: 'float', default: 2.0 }
+        ]
+    },
+    {
+        id: '8', name: 'Volume Weighted Average Price (VWAP)', description: 'Price crosses VWAP', params: [
+            { name: 'anchor', type: 'string', default: 'D' }
         ]
     }
 ];
@@ -123,8 +154,8 @@ export const runWFO = async (symbol: string, strategyId: string, ranges: Optimiz
     return executeWithFallback(`${API_ENDPOINTS.OPTIMIZATION.replace('/run', '')}/wfo`, { method: 'POST', body: JSON.stringify({ symbol, strategyId, ranges, wfoConfig }) }, async () => {
         await delay(1000);
         return [
-            { period: 'Window 1', type: 'TEST', params: 'P=14', returnPct: 5, sharpe: 1.2, drawdown: 2 },
-            { period: 'Window 2', type: 'TEST', params: 'P=16', returnPct: -2, sharpe: 0.5, drawdown: 8 },
+            { period: 'Window 1', type: 'TEST', params: 'P=14', returnPct: 5, sharpe: 1.2, drawdown: 2, trades: 10 },
+            { period: 'Window 2', type: 'TEST', params: 'P=16', returnPct: -2, sharpe: 0.5, drawdown: 8, trades: 5 },
         ];
     });
 };

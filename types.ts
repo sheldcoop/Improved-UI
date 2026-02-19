@@ -204,6 +204,7 @@ export interface BacktestResult {
     beta: number;
     volatility: number;
     expectancy: number;
+    alerts?: string[];
   };
   monthlyReturns: { year: number; month: number; returnPct: number }[];
   equityCurve: { date: string; value: number; drawdown: number }[];
@@ -246,7 +247,10 @@ export interface WFOResult {
   returnPct: number;
   sharpe: number;
   drawdown: number;
+  trades: number;
 }
+
+export type StrategyId = '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8';
 
 // Monte Carlo Types
 export interface MonteCarloPath {
