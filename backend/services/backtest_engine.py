@@ -18,6 +18,7 @@ import pandas as pd
 import vectorbt as vbt
 
 from strategies import StrategyFactory
+from utils.alert_manager import AlertManager
 
 logger = logging.getLogger(__name__)
 
@@ -309,6 +310,9 @@ class BacktestEngine:
                 **BacktestEngine._compute_advanced_metrics(pf, universe=False),
                 "status": "completed"
             }
+            
+            # --- Diagnostic Alerts ---
+            metrics["alerts"] = AlertManager.analyze_backtest(metrics, df)
 
             try:
                 # Use returns_series calculated above

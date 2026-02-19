@@ -32,13 +32,23 @@ LOG_BUFFER = deque(maxlen=500)
 class InMemoryHandler(logging.Handler):
     def emit(self, record):
         try:
-            msg = self.format(record)
+            # We don't use self.format(record) because that includes redundant prefixes
+            # We want the clean message only
+            msg = record.getMessage()
+            if "/debug/logs" in msg or "GET /api/v1/debug/logs" in msg:
+                return # Skip polling noise entirely
+            
             timestamp = datetime.now().strftime("%H:%M:%S")
+            
+            # Extract metadata if passed via logging.info(..., extra={"meta": {...}})
+            meta = getattr(record, "meta", {})
+            
             LOG_BUFFER.append({
                 "ts": timestamp,
                 "level": record.levelname,
+                "module": record.module,
                 "msg": msg,
-                "module": record.module
+                "meta": meta
             })
         except Exception:
             self.handleError(record)
@@ -52,7 +62,6 @@ console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(level
 logger.addHandler(console_handler)
 
 memory_handler = InMemoryHandler()
-memory_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 logger.addHandler(memory_handler)
 
 app = Flask(__name__)

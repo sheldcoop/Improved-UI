@@ -9,6 +9,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { fetchClient } from '../services/http';
+import { logActiveRun, logDataHealth, logOptunaResults, logWFOBreakdown, logAlert } from '../components/DebugConsole';
 
 // Debounce helper
 const useDebounce = (value: string, delay: number) => {
@@ -211,12 +212,39 @@ const Backtest: React.FC = () => {
 
       console.log(`[Unified Load] Fetching ${lookbackMonths}m lookback + backtest range: ${extendedFromDate} to ${endDate}`);
 
+      logActiveRun({
+        type: 'DATA_LOADING',
+        strategyName: 'Market Data Validator',
+        symbol: target,
+        timeframe,
+        startDate: extendedFromDate,
+        endDate: endDate,
+        status: 'running'
+      });
+
       const report = await validateMarketData(target, timeframe, extendedFromDate, endDate);
       setHealthReport(report);
+      logDataHealth(report);
+
+      if (report.status === 'POOR' || report.status === 'CRITICAL') {
+        logAlert([{
+          type: 'warning',
+          msg: `Data health is ${report.status} for ${target}. ${report.missingCandles} candles missing.`,
+          timestamp: new Date().toLocaleTimeString()
+        }]);
+      }
+
       setDataStatus('READY');
     } catch (e) {
       console.error("Data load failed", e);
       setDataStatus('ERROR');
+      logAlert([{
+        type: 'error',
+        msg: `Failed to load data for ${mode === 'SINGLE' ? symbol : universe}: ${e}`,
+        timestamp: new Date().toLocaleTimeString()
+      }]);
+    } finally {
+      logActiveRun(null);
     }
   };
 
@@ -238,8 +266,18 @@ const Backtest: React.FC = () => {
     }
 
     setIsAutoTuning(true);
+    logActiveRun({
+      type: 'AUTO_TUNING',
+      strategyName: strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy',
+      symbol: selectedInstrument.symbol,
+      timeframe,
+      startDate,
+      endDate,
+      status: 'running'
+    });
+
     try {
-      const result = await fetchClient<{ bestParams: Record<string, number>, score: number, period: string }>('/optimization/auto-tune', {
+      const result = await fetchClient<{ bestParams: Record<string, number>, score: number, period: string, grid?: any[] }>('/optimization/auto-tune', {
         method: 'POST',
         body: JSON.stringify({
           symbol: selectedInstrument.symbol,
@@ -252,6 +290,8 @@ const Backtest: React.FC = () => {
       });
       if (result.bestParams) {
         setParams(result.bestParams);
+        logOptunaResults(result.grid || []); // Assuming result.grid exists in the backend response
+        logActiveRun(null); // Clear active run after tune
         setShowRanges(false); // Hide ranges after successful tune
       }
     } catch (e) {
@@ -259,6 +299,7 @@ const Backtest: React.FC = () => {
       alert("Auto-tune failed. Check logs.");
     } finally {
       setIsAutoTuning(false);
+      logActiveRun(null);
     }
   };
 
@@ -274,6 +315,17 @@ const Backtest: React.FC = () => {
     }
 
     setRunning(true);
+    logActiveRun({
+      type: isDynamic ? 'WALK_FORWARD_OPTIMIZATION' : 'SINGLE_BACKTEST',
+      strategyName: strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy',
+      symbol: mode === 'SINGLE' ? selectedInstrument?.symbol || symbol : universe,
+      timeframe,
+      startDate,
+      endDate,
+      params,
+      status: 'running'
+    });
+
     try {
       if (isDynamic && mode === 'SINGLE' && selectedInstrument) {
         // Path 1: Dynamic WFO Backtest
@@ -285,6 +337,8 @@ const Backtest: React.FC = () => {
             ranges: paramRanges,
             wfoConfig: {
               ...wfoConfig,
+              startDate,
+              endDate,
               scoringMetric: autoTuneConfig.metric,
               initial_capital: capital
             },
@@ -293,9 +347,14 @@ const Backtest: React.FC = () => {
         });
 
         if (result && !result.error) {
+          // Log structured data to specialized inspectors
+          if (result.wfo) logWFOBreakdown(result.wfo);
+
+          logActiveRun(null);
           navigate('/results', { state: { result } });
         } else {
           alert("Dynamic Backtest Failed: " + (result?.error || "Unknown error"));
+          logActiveRun(null);
         }
       } else if (mode === 'SINGLE' && selectedInstrument) {
         // Path 2: Standard Dhan-based Single Backtest
@@ -345,6 +404,7 @@ const Backtest: React.FC = () => {
       }
     } catch (e) {
       alert("Backtest Failed: " + e);
+      logActiveRun(null);
     } finally {
       setRunning(false);
     }

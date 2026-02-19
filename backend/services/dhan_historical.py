@@ -116,7 +116,7 @@ def _fetch_daily_candles(
         resp.raise_for_status()
     
     data = resp.json()
-    return _convert_to_dataframe(data)
+    return _convert_to_dataframe(data, symbol=security_id)
 
 
 def _fetch_intraday_candles_chunked(
@@ -202,10 +202,9 @@ def _fetch_intraday_batch(
         resp.raise_for_status()
     
     data = resp.json()
-    return _convert_to_dataframe(data)
+    return _convert_to_dataframe(data, symbol=security_id)
 
-
-def _convert_to_dataframe(data: dict) -> pd.DataFrame:
+def _convert_to_dataframe(data: dict, symbol: str = 'unknown') -> pd.DataFrame:
     """Convert Dhan API response to DataFrame.
     
     Dhan returns data as parallel arrays:
@@ -244,6 +243,10 @@ def _convert_to_dataframe(data: dict) -> pd.DataFrame:
     # Add OI if present
     if "open_interest" in data and data["open_interest"]:
         df["oi"] = data["open_interest"]
+    
+    # Senior Developer Tip: Run comprehensive sanitation before caching
+    from services.data_cleaner import DataCleaner
+    df = DataCleaner.clean(df, symbol=symbol)
     
     return df
 

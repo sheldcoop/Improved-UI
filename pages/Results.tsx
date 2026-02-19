@@ -9,6 +9,8 @@ import { CONFIG } from '../config';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
+import { logAlert, logWFOBreakdown, logActiveRun } from '../components/DebugConsole';
+import AlertBanner from '../components/ui/AlertBanner';
 
 // Reusable Metric Box
 const MetricBox: React.FC<{ label: string; value: string; subValue?: string; good?: boolean; icon?: React.ReactNode }> = ({ label, value, subValue, good, icon }) => (
@@ -123,6 +125,34 @@ const Results: React.FC = () => {
     setZoomRight(null);
   };
 
+  // Helper for safe numeric formatting
+  const formatMetric = (val: any, decimals: number = 2) => {
+    if (val === undefined || val === null || val === 'Infinity' || val === '-Infinity' || isNaN(Number(val))) {
+      return '0.00';
+    }
+    return Number(val).toFixed(decimals);
+  };
+
+  // Log alerts to debug console on load
+  useEffect(() => {
+    if (result?.metrics?.alerts) {
+      logAlert(result.metrics.alerts);
+    }
+    if (result?.wfo) {
+      logWFOBreakdown(result.wfo);
+    } else if (result?.paramHistory) {
+      logWFOBreakdown(result.paramHistory.map((h: any, i: number) => ({
+        period: `Window ${i + 1}: ${h.start} to ${h.end}`,
+        params: JSON.stringify(h.params),
+        trades: '-',
+        returnPct: '-',
+        sharpe: '-'
+      })));
+    }
+    // Mark run as complete
+    logActiveRun(null);
+  }, [result?.id]);
+
   if (!result) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -147,6 +177,7 @@ const Results: React.FC = () => {
       </div>
     );
   }
+
 
   return (
     <div className="space-y-8">
@@ -181,15 +212,16 @@ const Results: React.FC = () => {
 
       {activeTab === 'OVERVIEW' && (
         <>
+          <AlertBanner alerts={result.metrics?.alerts || []} />
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            <MetricBox label="Total Return" value={`${result.metrics?.totalReturnPct?.toFixed(1) || 0}%`} good={(result.metrics?.totalReturnPct ?? 0) > 0} />
-            <MetricBox label="Sharpe" value={result.metrics?.sharpeRatio?.toFixed(2) || '0.00'} good={(result.metrics?.sharpeRatio ?? 0) > 1.5} />
-            <MetricBox label="Max Drawdown" value={`-${result.metrics?.maxDrawdownPct?.toFixed(1) || 0}%`} good={(result.metrics?.maxDrawdownPct ?? 0) < 20} icon={<AlertTriangle className="w-4 h-4" />} />
-            <MetricBox label="Calmar" value={result.metrics?.calmarRatio?.toFixed(2) || '0.00'} good={(result.metrics?.calmarRatio ?? 0) > 2.0} />
-            <MetricBox label="Win Rate" value={`${result.metrics?.winRate?.toFixed(1) || 0}%`} good={(result.metrics?.winRate ?? 0) > 50} />
-            <MetricBox label="Expectancy" value={result.metrics?.expectancy?.toFixed(2) || '0.00'} good={(result.metrics?.expectancy ?? 0) > 0} />
-            <MetricBox label="Profit Factor" value={result.metrics?.profitFactor?.toFixed(2) || '0.00'} />
-            <MetricBox label="Kelly %" value={`${result.metrics?.kellyCriterion?.toFixed(1) || 0}%`} />
+            <MetricBox label="Total Return" value={`${formatMetric(result.metrics?.totalReturnPct, 1)}%`} good={(result.metrics?.totalReturnPct ?? 0) > 0} />
+            <MetricBox label="Sharpe" value={formatMetric(result.metrics?.sharpeRatio)} good={(result.metrics?.sharpeRatio ?? 0) > 1.5} />
+            <MetricBox label="Max Drawdown" value={`-${formatMetric(result.metrics?.maxDrawdownPct, 1)}%`} good={(result.metrics?.maxDrawdownPct ?? 0) < 20} icon={<AlertTriangle className="w-4 h-4" />} />
+            <MetricBox label="Calmar" value={formatMetric(result.metrics?.calmarRatio)} good={(result.metrics?.calmarRatio ?? 0) > 2.0} />
+            <MetricBox label="Win Rate" value={`${formatMetric(result.metrics?.winRate, 1)}%`} good={(result.metrics?.winRate ?? 0) > 50} />
+            <MetricBox label="Expectancy" value={formatMetric(result.metrics?.expectancy)} good={(result.metrics?.expectancy ?? 0) > 0} />
+            <MetricBox label="Profit Factor" value={formatMetric(result.metrics?.profitFactor)} />
+            <MetricBox label="Kelly %" value={`${formatMetric(result.metrics?.kellyCriterion, 1)}%`} />
             <MetricBox label="Total Trades" value={result.metrics?.totalTrades?.toString() || '0'} />
           </div>
 

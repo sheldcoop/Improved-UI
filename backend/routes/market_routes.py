@@ -211,6 +211,11 @@ def _compute_data_health(
         actual_days = df.index.normalize().unique()
         missing_days = expected_days.difference(actual_days)
         missing = len(missing_days)
+        
+        if missing > 0:
+            logger.info(f"🔎 Data Health Audit for {symbol}: Found {missing} missing days.")
+            logger.info(f"📅 Missing Dates: {[str(d.date()) for d in missing_days]}")
+            
         gaps = [str(d.date()) for d in missing_days[:10]]  # cap at 10 for response size
     else:
         # Intraday gap detection: calculate expected candles per day (9:15 to 15:30)

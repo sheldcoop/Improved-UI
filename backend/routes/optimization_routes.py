@@ -138,16 +138,12 @@ def auto_tune():
             logger.error(f"Auto-Tune Date Parsing Error: {e}")
             return jsonify({"status": "error", "message": f"Invalid date parameters: {str(e)}"}), 400
 
-        # 2. Fetch data (Enforcement: Check cache first to avoid silent fetches)
+        # 2. Fetch data (Lazy Fetching Allowed)
         try:
             fetcher = DataFetcher(request.headers)
             if not fetcher.is_cached(symbol, from_date=str(is_start.date()), to_date=str(is_end.date())):
-                 logger.warning(f"Auto-Tune blocked: Lookback data not in cache for {symbol} ({is_start.date()} to {is_end.date()})")
-                 return jsonify({
-                     "status": "error", 
-                     "message": "Auto-Tune requires pre-loaded data. Please click 'Load Market Data' first to fetch and validate the lookback range."
-                 }), 400
-
+                 logger.info(f"Auto-Tune: Lookback data not in cache, fetching fresh for {symbol} ({is_start.date()} to {is_end.date()})")
+            
             df = fetcher.fetch_historical_data(symbol, from_date=str(is_start.date()), to_date=str(is_end.date()))
         except Exception as e:
             logger.error(f"Auto-Tune Fetch Error: {e}")
@@ -173,7 +169,7 @@ def auto_tune():
         # 4. Run Optimization
         try:
             from services.optimizer import OptimizationEngine
-            best_params = OptimizationEngine._find_best_params(is_df, strategy_id, ranges, metric)
+            best_params, grid = OptimizationEngine._find_best_params(is_df, strategy_id, ranges, metric, return_trials=True)
         except Exception as e:
             logger.error(f"Auto-Tune Optimization Error: {e}")
             return jsonify({"status": "error", "message": f"Optimization engine error: {str(e)}"}), 500
@@ -203,7 +199,8 @@ def auto_tune():
         return jsonify({
             "bestParams": best_params,
             "score": round(float(score), 3),
-            "period": f"{is_start.date()} to {is_end.date()}"
+            "period": f"{is_start.date()} to {is_end.date()}",
+            "grid": grid
         }), 200
 
     except Exception as exc:
