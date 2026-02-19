@@ -15,6 +15,8 @@ def clean_float_values(data: Any) -> Any:
     elif isinstance(data, list):
         return [clean_float_values(v) for v in data]
     elif isinstance(data, float):
-        if math.isnan(data) or math.isinf(data):
+        if math.isinf(data):
+            return "Infinity" if data > 0 else "-Infinity"
+        if math.isnan(data):
             return 0.0
     return data

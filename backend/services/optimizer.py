@@ -336,10 +336,23 @@ class OptimizationEngine:
         def objective(trial: optuna.Trial) -> float:
             config: dict = {}
             for param, constraints in ranges.items():
-                p_min = int(constraints.get("min", 10))
-                p_max = int(constraints.get("max", 50))
-                p_step = int(constraints.get("step", 1))
-                config[param] = trial.suggest_int(param, p_min, p_max, step=p_step)
+                val_min = constraints.get("min")
+                val_max = constraints.get("max")
+                val_step = constraints.get("step")
+
+                # Determine if float or int based on types
+                msg_is_float = isinstance(val_min, float) or isinstance(val_max, float) or isinstance(val_step, float)
+                
+                if msg_is_float:
+                    p_min = float(val_min) if val_min is not None else 0.0
+                    p_max = float(val_max) if val_max is not None else 10.0
+                    p_step = float(val_step) if val_step is not None else 0.1
+                    config[param] = trial.suggest_float(param, p_min, p_max, step=p_step)
+                else:
+                    p_min = int(val_min) if val_min is not None else 10
+                    p_max = int(val_max) if val_max is not None else 50
+                    p_step = int(val_step) if val_step is not None else 1
+                    config[param] = trial.suggest_int(param, p_min, p_max, step=p_step)
 
             try:
                 strategy = StrategyFactory.get_strategy(strategy_id, config)
@@ -350,7 +363,22 @@ class OptimizationEngine:
                     logger.debug(f"Trial {trial.number}: {config} -> Score: -999 (0 trades)")
                     return float(-999)
 
-                pf = vbt.Portfolio.from_signals(df["Close"], entries, exits, freq="1D")
+                # Pass risk params to portfolio
+                # Note: tsl_stop requires sl_trail=True in vectorbt
+                pf_kwargs = {"freq": "1D"}
+                
+                # Extract risk params from config if they were optimized
+                sl_stop = config.get("sl_stop")
+                tp_stop = config.get("tp_stop")
+                tsl_stop = config.get("tsl_stop")
+
+                if sl_stop: pf_kwargs["sl_stop"] = float(sl_stop) / 100.0  # Convert to decimal
+                if tp_stop: pf_kwargs["tp_stop"] = float(tp_stop) / 100.0
+                if tsl_stop: 
+                    pf_kwargs["sl_stop"] = float(tsl_stop) / 100.0
+                    pf_kwargs["sl_trail"] = True
+
+                pf = vbt.Portfolio.from_signals(df["Close"], entries, exits, **pf_kwargs)
                 
                 if scoring_metric == "total_return":
                     score = pf.total_return()

@@ -436,32 +436,116 @@ class StrategyFactory:
                 }
             })
 
-        if strategy_id == "3":
-            # SMA Crossover Preset
+        # 2. Bollinger Bands Mean Reversion
+        if strategy_id == "2":
+            period = int(config.get("period", 20))
+            std_dev = float(config.get("std_dev", 2.0))
             return DynamicStrategy({
-                "entryLogic": {
-                    "type": "GROUP",
-                    "logic": "AND",
-                    "conditions": [{
-                        "indicator": "SMA",
-                        "period": config.get("fast", 10),
-                        "operator": "Crosses Above",
-                        "compareType": "INDICATOR",
-                        "rightIndicator": "SMA",
-                        "rightPeriod": config.get("slow", 50),
-                    }],
-                },
-                "exitLogic": {
-                    "type": "GROUP",
-                    "logic": "AND",
-                    "conditions": [{
-                        "indicator": "SMA",
-                        "period": config.get("fast", 10),
-                        "operator": "Crosses Below",
-                        "compareType": "INDICATOR",
-                        "rightIndicator": "SMA",
-                        "rightPeriod": config.get("slow", 50),
-                    }],
-                }
+                "mode": "CODE",
+                "pythonCode": f"""
+def signal_logic(df):
+    bb = vbt.BBANDS.run(df['Close'], window={period}, alpha={std_dev})
+    entries = df['Close'] < bb.lower
+    exits = df['Close'] > bb.middle
+    return entries, exits
+"""
             })
+
+        # 3. MACD Crossover (replaces old SMA placeholder if any)
+        if strategy_id == "3":
+            fast = int(config.get("fast", 12))
+            slow = int(config.get("slow", 26))
+            signal = int(config.get("signal", 9))
+            return DynamicStrategy({
+                "mode": "CODE",
+                "pythonCode": f"""
+def signal_logic(df):
+    macd = vbt.MACD.run(df['Close'], fast_window={fast}, slow_window={slow}, signal_window={signal})
+    entries = macd.macd.vbt.crossed_above(macd.signal)
+    exits = macd.macd.vbt.crossed_below(macd.signal)
+    return entries, exits
+"""
+            })
+
+        # 4. EMA Crossover
+        if strategy_id == "4":
+            fast = int(config.get("fast", 20))
+            slow = int(config.get("slow", 50))
+            return DynamicStrategy({
+                "mode": "CODE",
+                "pythonCode": f"""
+def signal_logic(df):
+    fast_ma = vbt.MA.run(df['Close'], {fast}, ewm=True)
+    slow_ma = vbt.MA.run(df['Close'], {slow}, ewm=True)
+    entries = fast_ma.ma.vbt.crossed_above(slow_ma.ma)
+    exits = fast_ma.ma.vbt.crossed_below(slow_ma.ma)
+    return entries, exits
+"""
+            })
+
+        # 5. Supertrend
+        if strategy_id == "5":
+            period = int(config.get("period", 10))
+            multiplier = float(config.get("multiplier", 3.0))
+            return DynamicStrategy({
+                "mode": "CODE",
+                "pythonCode": f"""
+def signal_logic(df):
+    # Simplified Supertrend logic using ATR bands
+    high = df['High']
+    low = df['Low']
+    close = df['Close']
+    atr = vbt.ATR.run(high, low, close, window={period}).atr
+    
+    # We use a robust Trend-Follow approach: 
+    # Long when Close > EMA + Mult*ATR
+    ema = vbt.MA.run(close, {period}, ewm=True).ma
+    upper_band = ema + ({multiplier} * atr)
+    lower_band = ema - ({multiplier} * atr)
+    
+    entries = close.vbt.crossed_above(upper_band)
+    exits = close.vbt.crossed_below(lower_band) 
+    return entries, exits
+"""
+            })
+
+        # 6. Stochastic RSI
+        if strategy_id == "6":
+            rsi_period = int(config.get("rsi_period", 14))
+            k_period = int(config.get("k_period", 3))
+            d_period = int(config.get("d_period", 3))
+            return DynamicStrategy({
+                "mode": "CODE",
+                "pythonCode": f"""
+def signal_logic(df):
+    rsi = vbt.RSI.run(df['Close'], window={rsi_period}).rsi
+    min_rsi = rsi.rolling({k_period}).min()
+    max_rsi = rsi.rolling({k_period}).max()
+    stoch_rsi = (rsi - min_rsi) / (max_rsi - min_rsi)
+    k_line = stoch_rsi.rolling(3).mean() * 100
+    
+    entries = k_line.vbt.crossed_above(20)
+    exits = k_line.vbt.crossed_below(80)
+    return entries, exits
+"""
+            })
+
+        # 7. ATR Channel Breakout
+        if strategy_id == "7":
+            period = int(config.get("period", 14))
+            multiplier = float(config.get("multiplier", 2.0))
+            return DynamicStrategy({
+                "mode": "CODE",
+                "pythonCode": f"""
+def signal_logic(df):
+    atr = vbt.ATR.run(df['High'], df['Low'], df['Close'], window={period}).atr
+    upper_breakout = df['High'].shift(1) + (atr * {multiplier})
+    lower_breakout = df['Low'].shift(1) - (atr * {multiplier})
+    
+    entries = df['Close'] > upper_breakout
+    exits = df['Close'] < lower_breakout
+    return entries, exits
+"""
+            })
+
         return DynamicStrategy(config)

@@ -127,7 +127,24 @@ export interface Strategy {
   rankingMethod?: RankingMethod;
   rankingTopN?: number; // Select top N stocks
 
+  // Dynamic Strategy Params (Feature #7)
+  params?: Record<string, any>;
+
   created: string;
+}
+
+export interface StrategyParam {
+  name: string;
+  type: 'int' | 'float' | 'string' | 'bool';
+  default: any;
+  description?: string;
+}
+
+export interface StrategyPreset {
+  id: string;
+  name: string;
+  description: string;
+  params: StrategyParam[];
 }
 
 export interface OptionLeg {

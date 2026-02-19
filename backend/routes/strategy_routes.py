@@ -1,52 +1,78 @@
-"""Strategy blueprint — HTTP handler only, no business logic.
-
-All persistence logic lives in services/strategy_store.py.
-"""
-
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, jsonify
 import logging
 
-from services.strategy_store import StrategyStore
-
-strategy_bp = Blueprint("strategies", __name__)
+strategy_bp = Blueprint("strategy", __name__)
 logger = logging.getLogger(__name__)
 
-
-@strategy_bp.route("", methods=["GET"])
+@strategy_bp.route("/", methods=["GET"])
 def get_strategies():
-    """Return all saved strategies.
-
-    Returns:
-        JSON array of strategy dicts.
-    """
-    try:
-        strategies = StrategyStore.load_all()
-        return jsonify(strategies), 200
-    except Exception as exc:
-        logger.error(f"Failed to load strategies: {exc}", exc_info=True)
-        return jsonify({"status": "error", "message": "Failed to load strategies"}), 500
-
-
-@strategy_bp.route("", methods=["POST"])
-def create_strategy():
-    """Create or update a strategy.
-
-    Request JSON: Strategy dict. Include 'id' to update existing.
-
-    Returns:
-        JSON of the saved strategy dict. 201 on create, 200 on update.
-    """
-    try:
-        data = request.json or {}
-
-        if not data.get("name") or not isinstance(data["name"], str):
-            return jsonify({"status": "error", "message": "Strategy name is required"}), 400
-
-        is_update = "id" in data and data["id"] != "new"
-        saved = StrategyStore.save(data)
-        status_code = 200 if is_update else 201
-        return jsonify(saved), status_code
-
-    except Exception as exc:
-        logger.error(f"Failed to save strategy: {exc}", exc_info=True)
-        return jsonify({"status": "error", "message": "Failed to save strategy"}), 500
+    """Return list of all available strategies and their parameters."""
+    strategies = [
+        {
+            "id": "1",
+            "name": "RSI Mean Reversion",
+            "description": "Buy when RSI is oversold, sell when overbought.",
+            "params": [
+                {"key": "period", "label": "RSI Period", "min": 5, "max": 30, "default": 14},
+                {"key": "lower", "label": "Oversold Level", "min": 10, "max": 40, "default": 30},
+                {"key": "upper", "label": "Overbought Level", "min": 60, "max": 90, "default": 70}
+            ]
+        },
+        {
+            "id": "2",
+            "name": "Bollinger Bands Mean Reversion",
+            "description": "Buy below lower band, sell above middle band.",
+            "params": [
+                {"key": "period", "label": "Length", "min": 10, "max": 50, "default": 20},
+                {"key": "std_dev", "label": "StdDev Multiplier", "min": 1.0, "max": 3.0, "default": 2.0, "step": 0.1}
+            ]
+        },
+        {
+            "id": "3",
+            "name": "MACD Crossover",
+            "description": "Buy when MACD line crosses above Signal line.",
+            "params": [
+                {"key": "fast", "label": "Fast Period", "min": 8, "max": 20, "default": 12},
+                {"key": "slow", "label": "Slow Period", "min": 21, "max": 40, "default": 26},
+                {"key": "signal", "label": "Signal Period", "min": 5, "max": 15, "default": 9}
+            ]
+        },
+        {
+            "id": "4",
+            "name": "EMA Crossover",
+            "description": "Trend following: Buy when Fast EMA crosses above Slow EMA.",
+            "params": [
+                {"key": "fast", "label": "Fast EMA", "min": 5, "max": 50, "default": 20},
+                {"key": "slow", "label": "Slow EMA", "min": 51, "max": 200, "default": 50}
+            ]
+        },
+        {
+            "id": "5",
+            "name": "Supertrend",
+            "description": "Trend following using ATR-based trailing stop.",
+            "params": [
+                {"key": "period", "label": "ATR Period", "min": 7, "max": 20, "default": 10},
+                {"key": "multiplier", "label": "Multiplier", "min": 1.0, "max": 5.0, "default": 3.0, "step": 0.1}
+            ]
+        },
+        {
+            "id": "6",
+            "name": "Stochastic RSI",
+            "description": "Mean reversion using Stochastic of RSI.",
+            "params": [
+                {"key": "rsi_period", "label": "RSI Period", "min": 10, "max": 30, "default": 14},
+                {"key": "k_period", "label": "K Period", "min": 3, "max": 10, "default": 3},
+                {"key": "d_period", "label": "D Period", "min": 3, "max": 10, "default": 3}
+            ]
+        },
+        {
+            "id": "7",
+            "name": "ATR Channel Breakout",
+            "description": "Volatility breakout: Buy above High + ATR*Mult.",
+            "params": [
+                {"key": "period", "label": "ATR Period", "min": 10, "max": 30, "default": 14},
+                {"key": "multiplier", "label": "Distance Multiplier", "min": 1.0, "max": 4.0, "default": 2.0, "step": 0.1}
+            ]
+        }
+    ]
+    return jsonify(strategies), 200
