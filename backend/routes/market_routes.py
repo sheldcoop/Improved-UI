@@ -154,19 +154,19 @@ def _compute_data_health(
         DataHealthReport dict with score, missingCandles, zeroVolumeCandles,
         totalCandles, gaps (list of date strings), and status string.
     """
-    cache_dir = "cache_dir"
-    if not os.path.exists(cache_dir):
-        os.makedirs(cache_dir, exist_ok=True)
+    from services.data_fetcher import CACHE_DIR
+    if not os.path.exists(CACHE_DIR):
+        os.makedirs(CACHE_DIR, exist_ok=True)
     safe_symbol = symbol.replace(" ", "_").replace("/", "_")
     
     # Provider-agnostic check: find any parquet file for this symbol/timeframe
     # Convention: {symbol}_{timeframe}_{provider}.parquet or just {symbol}_{timeframe}.parquet
     parquet_path = None
-    if os.path.exists(cache_dir):
-        files = os.listdir(cache_dir)
+    if os.path.exists(CACHE_DIR):
+        files = os.listdir(CACHE_DIR)
         for f in files:
             if f.startswith(f"{safe_symbol}_{timeframe}") and f.endswith(".parquet"):
-                parquet_path = os.path.join(cache_dir, f)
+                parquet_path = os.path.join(CACHE_DIR, f)
                 break
 
     start_dt = pd.Timestamp(from_date)
