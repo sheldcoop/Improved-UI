@@ -69,7 +69,9 @@ def run_wfo():
         wfo_config = data.get("wfoConfig", {})
         full_results = data.get("fullResults", False)
 
-        logger.info(f"Running WFO for {symbol} | Full: {full_results}")
+        train_m = wfo_config.get("trainWindow", 6)
+        test_m = wfo_config.get("testWindow", 2)
+        logger.info(f"Running WFO for {symbol} | Train: {train_m}m, Test: {test_m}m | Full: {full_results}")
         
         if full_results:
             results = OptimizationEngine.generate_wfo_portfolio(
@@ -94,7 +96,7 @@ def auto_tune():
         import pandas as pd
         import numpy as np
         from services.data_fetcher import DataFetcher
-        from services.strategies import StrategyFactory
+        from strategies import StrategyFactory
         import vectorbt as vbt
 
         data = request.json or {}
@@ -152,7 +154,7 @@ def auto_tune():
         
         # 5. Calculate Final Score
         try:
-            from strategies import StrategyFactory
+            # StrategyFactory already imported locally at start of function
             strategy = StrategyFactory.get_strategy(strategy_id, best_params)
             entries, exits = strategy.generate_signals(is_df)
             pf = vbt.Portfolio.from_signals(is_df["Close"], entries, exits, freq="1D")

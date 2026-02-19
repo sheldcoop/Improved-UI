@@ -26,6 +26,11 @@ class OptimizationEngine:
     """
 
     @staticmethod
+    def month_to_bars(months: int) -> int:
+        """Convert months to approximate trading days (approx 21 days/mo)."""
+        return max(20, int(months * 21)) # Minimum 20 bars for technical indicators
+
+    @staticmethod
     def run_optuna(
         symbol: str,
         strategy_id: str,
@@ -142,8 +147,10 @@ class OptimizationEngine:
         fetcher = DataFetcher(headers)
         df = fetcher.fetch_historical_data(symbol)
 
-        train_window = int(wfo_config.get("trainWindow", 100))
-        test_window = int(wfo_config.get("testWindow", 30))
+
+        # Convert month-based windows to bars (assuming frontend sends months)
+        train_window = OptimizationEngine.month_to_bars(int(wfo_config.get("trainWindow", 6)))
+        test_window = OptimizationEngine.month_to_bars(int(wfo_config.get("testWindow", 2)))
         metric = wfo_config.get("scoringMetric", "sharpe")
 
         if df is None or (isinstance(df, pd.DataFrame) and len(df) < train_window + test_window):
@@ -192,12 +199,16 @@ class OptimizationEngine:
         fetcher = DataFetcher(headers)
         df = fetcher.fetch_historical_data(symbol)
 
-        train_window = int(wfo_config.get("trainWindow", 126)) # Default ~6 months
-        test_window = int(wfo_config.get("testWindow", 42))   # Default ~2 months
+
+        # Convert month-based windows to bars (assuming frontend sends months)
+        train_window = OptimizationEngine.month_to_bars(int(wfo_config.get("trainWindow", 6)))
+        test_window = OptimizationEngine.month_to_bars(int(wfo_config.get("testWindow", 2)))
         metric = wfo_config.get("scoringMetric", "sharpe")
 
         if df is None or (isinstance(df, pd.DataFrame) and len(df) < train_window + test_window):
-            return {"error": "Not enough data for concatenated WFO results."}
+            needed = train_window + test_window
+            found = len(df) if df is not None else 0
+            return {"error": f"Not enough data for concatenated WFO. Need {needed} bars (~{needed//21}m), found {found} bars."}
 
         # Initialize global result containers indexed like df
         all_entries = pd.Series(False, index=df.index)

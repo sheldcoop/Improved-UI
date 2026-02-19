@@ -109,7 +109,7 @@ const Backtest: React.FC = () => {
 
   // --- Optimization State (Optuna / WFO) ---
   const [isDynamic, setIsDynamic] = useState(false);
-  const [wfoConfig, setWfoConfig] = useState({ trainWindow: 6, testWindow: 2 });
+  const [wfoConfig, setWfoConfig] = useState({ trainWindow: 12, testWindow: 3 });
   const [autoTuneConfig, setAutoTuneConfig] = useState({ lookbackMonths: 12, trials: 30, metric: 'sharpe' });
   const [paramRanges, setParamRanges] = useState<Record<string, { min: number, max: number, step: number }>>({});
   const [isAutoTuning, setIsAutoTuning] = useState(false);
