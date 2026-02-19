@@ -22,6 +22,16 @@ export const NAV_ITEMS: NavItem[] = [
   { name: 'Settings', path: '/settings', icon: Settings },
 ];
 
+/**
+ * MOCK_SYMBOLS — placeholder until Dhan instrument master is integrated.
+ *
+ * TODO (Dhan Integration): Replace with a live call to /api/v1/market/instruments
+ * which will fetch the full NSE/BSE instrument list from dhanhq and cache it.
+ * The `dataAvailable` and `lastUpdated` fields should come from the Parquet cache
+ * in backend/cache_dir/.
+ *
+ * See: DhanHQ-py-main/ for dhanhq instrument master API reference.
+ */
 export const MOCK_SYMBOLS = [
   { symbol: 'NIFTY 50', exchange: 'NSE', lastPrice: 22150.50, changePct: 0.45, ivPercentile: 24, dataAvailable: true, lastUpdated: '2024-02-23' },
   { symbol: 'BANKNIFTY', exchange: 'NSE', lastPrice: 46500.20, changePct: -0.12, ivPercentile: 45, dataAvailable: true, lastUpdated: '2024-02-23' },
@@ -34,8 +44,8 @@ export const MOCK_SYMBOLS = [
 export const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export const UNIVERSES = [
-    { id: 'NIFTY_50', name: 'NIFTY 50 Constituents' },
-    { id: 'BANK_NIFTY', name: 'NIFTY BANK Sector' },
-    { id: 'IT_SECTOR', name: 'NIFTY IT Sector' },
-    { id: 'MOMENTUM', name: 'High Momentum Stocks' }
+  { id: 'NIFTY_50', name: 'NIFTY 50 Constituents' },
+  { id: 'BANK_NIFTY', name: 'NIFTY BANK Sector' },
+  { id: 'IT_SECTOR', name: 'NIFTY IT Sector' },
+  { id: 'MOMENTUM', name: 'High Momentum Stocks' }
 ];

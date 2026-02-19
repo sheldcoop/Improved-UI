@@ -3,15 +3,16 @@ export const CONFIG = {
   USE_MOCK_DATA: false,
 
   // Your Backend URL (e.g., Python Flask running on port 5000)
-  API_BASE_URL: 'http://localhost:5000/api/v1',
+  API_BASE_URL: 'http://localhost:5001/api/v1',
 
   // App Settings
   DEFAULT_TIMEFRAME: '1d',
   DEFAULT_ASSET_CLASS: 'EQUITY',
-  
-  // Supported Data Providers
-  BROKER: 'PAPER', 
-  DATA_PROVIDER: 'ALPHA_VANTAGE',
+
+  // NOTE: BROKER and DATA_PROVIDER are intentionally removed.
+  // The backend reads the active data provider from the x-use-alpha-vantage
+  // request header (set in services/http.ts). Broker mode is controlled
+  // server-side via backend/.env (DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN).
 
   // Charting Colors
   COLORS: {
@@ -30,7 +31,12 @@ export const API_ENDPOINTS = {
   STRATEGIES: '/strategies',
   BACKTEST: '/backtest/run',
   OPTION_CHAIN: '/market/option-chain',
+  MARKET_VALIDATE: '/market/validate',
   OPTIMIZATION: '/optimization/run',
-  MONTE_CARLO: '/risk/monte-carlo',
+  MONTE_CARLO: '/optimization/monte-carlo',
   PAPER_TRADING: '/paper-trading/positions',
+  VALIDATE_KEY: '/validate-key',
+  DHAN_STATUS: '/broker/dhan/status',
+  DHAN_SAVE: '/broker/dhan/save',
+  DHAN_TEST: '/broker/dhan/test',
 };
