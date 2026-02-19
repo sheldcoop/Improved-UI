@@ -54,7 +54,7 @@ class DataFetcher:
     def __init__(self, headers: dict) -> None:
         self.av_key: str | None = headers.get("x-alpha-vantage-key")
         self.use_av: bool = headers.get("x-use-alpha-vantage") == "true"
-        self.use_dhan: bool = headers.get("x-use-dhan") == "true" or True # Default to True for now as requested
+        self.use_dhan: bool = headers.get("x-use-dhan", "true") != "false"  # Default True, disable with header x-use-dhan: false
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
