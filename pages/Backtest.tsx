@@ -203,10 +203,12 @@ const Backtest: React.FC = () => {
                   variant="secondary"
                   className={`w-full justify-center ${dataStatus === 'READY' ? 'bg-emerald-900/20 border-emerald-500/50 text-emerald-400' : ''}`}
                   onClick={handleLoadData}
-                  disabled={dataStatus === 'LOADING'}
+                  disabled={dataStatus === 'LOADING' || (mode === 'SINGLE' && !symbol)}
                   icon={dataStatus === 'LOADING' ? <div className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin"></div> : <Database className="w-4 h-4" />}
                 >
-                  {dataStatus === 'LOADING' ? 'Validating Data...' : dataStatus === 'READY' ? 'Data Loaded & Validated' : 'Load Market Data'}
+                  {dataStatus === 'LOADING' ? 'Validating Data...' :
+                    dataStatus === 'READY' ? 'Data Loaded & Validated' :
+                      (mode === 'SINGLE' && !symbol) ? 'Select a Symbol First' : 'Load Market Data'}
                 </Button>
               </div>
 
