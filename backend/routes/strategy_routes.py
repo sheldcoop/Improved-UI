@@ -13,9 +13,9 @@ def get_strategies():
             "name": "RSI Mean Reversion",
             "description": "Buy when RSI is oversold, sell when overbought.",
             "params": [
-                {"key": "period", "label": "RSI Period", "min": 5, "max": 30, "default": 14},
-                {"key": "lower", "label": "Oversold Level", "min": 10, "max": 40, "default": 30},
-                {"key": "upper", "label": "Overbought Level", "min": 60, "max": 90, "default": 70}
+                {"name": "period", "label": "RSI Period", "min": 5, "max": 30, "default": 14},
+                {"name": "lower", "label": "Oversold Level", "min": 10, "max": 40, "default": 30},
+                {"name": "upper", "label": "Overbought Level", "min": 60, "max": 90, "default": 70}
             ]
         },
         {
@@ -23,8 +23,8 @@ def get_strategies():
             "name": "Bollinger Bands Mean Reversion",
             "description": "Buy below lower band, sell above middle band.",
             "params": [
-                {"key": "period", "label": "Length", "min": 10, "max": 50, "default": 20},
-                {"key": "std_dev", "label": "StdDev Multiplier", "min": 1.0, "max": 3.0, "default": 2.0, "step": 0.1}
+                {"name": "period", "label": "Length", "min": 10, "max": 50, "default": 20},
+                {"name": "std_dev", "label": "StdDev Multiplier", "min": 1.0, "max": 3.0, "default": 2.0, "step": 0.1}
             ]
         },
         {
@@ -32,9 +32,9 @@ def get_strategies():
             "name": "MACD Crossover",
             "description": "Buy when MACD line crosses above Signal line.",
             "params": [
-                {"key": "fast", "label": "Fast Period", "min": 8, "max": 20, "default": 12},
-                {"key": "slow", "label": "Slow Period", "min": 21, "max": 40, "default": 26},
-                {"key": "signal", "label": "Signal Period", "min": 5, "max": 15, "default": 9}
+                {"name": "fast", "label": "Fast Period", "min": 8, "max": 20, "default": 12},
+                {"name": "slow", "label": "Slow Period", "min": 21, "max": 40, "default": 26},
+                {"name": "signal", "label": "Signal Period", "min": 5, "max": 15, "default": 9}
             ]
         },
         {
@@ -42,8 +42,8 @@ def get_strategies():
             "name": "EMA Crossover",
             "description": "Trend following: Buy when Fast EMA crosses above Slow EMA.",
             "params": [
-                {"key": "fast", "label": "Fast EMA", "min": 5, "max": 50, "default": 20},
-                {"key": "slow", "label": "Slow EMA", "min": 51, "max": 200, "default": 50}
+                {"name": "fast", "label": "Fast EMA", "min": 5, "max": 50, "default": 20},
+                {"name": "slow", "label": "Slow EMA", "min": 51, "max": 200, "default": 50}
             ]
         },
         {
@@ -51,8 +51,8 @@ def get_strategies():
             "name": "Supertrend",
             "description": "Trend following using ATR-based trailing stop.",
             "params": [
-                {"key": "period", "label": "ATR Period", "min": 7, "max": 20, "default": 10},
-                {"key": "multiplier", "label": "Multiplier", "min": 1.0, "max": 5.0, "default": 3.0, "step": 0.1}
+                {"name": "period", "label": "ATR Period", "min": 7, "max": 20, "default": 10},
+                {"name": "multiplier", "label": "Multiplier", "min": 1.0, "max": 5.0, "default": 3.0, "step": 0.1}
             ]
         },
         {
@@ -60,9 +60,9 @@ def get_strategies():
             "name": "Stochastic RSI",
             "description": "Mean reversion using Stochastic of RSI.",
             "params": [
-                {"key": "rsi_period", "label": "RSI Period", "min": 10, "max": 30, "default": 14},
-                {"key": "k_period", "label": "K Period", "min": 3, "max": 10, "default": 3},
-                {"key": "d_period", "label": "D Period", "min": 3, "max": 10, "default": 3}
+                {"name": "rsi_period", "label": "RSI Period", "min": 10, "max": 30, "default": 14},
+                {"name": "k_period", "label": "K Period", "min": 3, "max": 10, "default": 3},
+                {"name": "d_period", "label": "D Period", "min": 3, "max": 10, "default": 3}
             ]
         },
         {
@@ -70,8 +70,8 @@ def get_strategies():
             "name": "ATR Channel Breakout",
             "description": "Volatility breakout: Buy above High + ATR*Mult.",
             "params": [
-                {"key": "period", "label": "ATR Period", "min": 10, "max": 30, "default": 14},
-                {"key": "multiplier", "label": "Distance Multiplier", "min": 1.0, "max": 4.0, "default": 2.0, "step": 0.1}
+                {"name": "period", "label": "ATR Period", "min": 10, "max": 30, "default": 14},
+                {"name": "multiplier", "label": "Distance Multiplier", "min": 1.0, "max": 4.0, "default": 2.0, "step": 0.1}
             ]
         }
     ]
