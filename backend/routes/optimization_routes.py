@@ -37,13 +37,14 @@ def run_optimization():
         n_trials = int(data.get("n_trials", 30))
         scoring_metric = data.get("scoringMetric", "sharpe")
         reproducible = data.get("reproducible", False)
+        config = data.get("config", {})
 
         if not isinstance(ranges, dict):
             return jsonify({"status": "error", "message": "ranges must be a dict"}), 400
 
         logger.info(f"Running Optuna Optimisation for {symbol} | Metric: {scoring_metric} | Reproducible: {reproducible}")
         results = OptimizationEngine.run_optuna(
-            symbol, strategy_id, ranges, request.headers, n_trials, scoring_metric, reproducible
+            symbol, strategy_id, ranges, request.headers, n_trials, scoring_metric, reproducible, config=config
         )
         return jsonify(results), 200
 
@@ -130,15 +131,18 @@ def auto_tune():
         symbol = data.get("symbol")
         strategy_id = data.get("strategyId")
         ranges = data.get("ranges", {})
+        timeframe = data.get("timeframe", "1d")
         start_date_str = data.get("startDate")
         lookback = int(data.get("lookbackMonths", 12))
         metric = data.get("scoringMetric") or data.get("metric") or "sharpe"
+        ranges["reproducible"] = data.get("reproducible", False)
+        config = data.get("config", {})
 
         if not symbol or not strategy_id or not start_date_str:
             return jsonify({"status": "error", "message": "Missing required fields (symbol, strategyId, startDate)"}), 400
 
         result = OptimizationEngine.run_auto_tune(
-            symbol, strategy_id, ranges, start_date_str, lookback, metric, request.headers
+            symbol, strategy_id, ranges, timeframe, start_date_str, lookback, metric, request.headers, config=config
         )
 
         if result.get("status") == "error":
@@ -149,6 +153,49 @@ def auto_tune():
     except Exception as exc:
         logger.error(f"Auto-Tune Error: {exc}", exc_info=True)
         return jsonify({"status": "error", "message": f"Auto-tune failed: {str(exc)}"}), 500
+
+
+@optimization_bp.route("/oos-validate", methods=["POST"])
+def run_oos_validate():
+    """Run Out-Of-Sample validation on selected Optuna parameter sets.
+    
+    Request JSON keys:
+        symbol (str): Ticker symbol.
+        strategyId (str): Strategy ID.
+        paramSets (list[dict]): The array of parameter dicts to test.
+        startDate (str): Start date for the test window.
+        endDate (str): End date for the test window.
+        
+    Returns:
+        JSON list of result objects matching the paramSets.
+    """
+    try:
+        data = request.json or {}
+        symbol = data.get("symbol")
+        strategy_id = data.get("strategyId")
+        param_sets = data.get("paramSets", [])
+        start_date = data.get("startDate")
+        end_date = data.get("endDate")
+        timeframe = data.get("timeframe", "1d")
+        config = data.get("config", {})
+        
+        if not symbol or not strategy_id or not start_date or not end_date:
+            return jsonify({"status": "error", "message": "Missing required fields"}), 400
+            
+        if not param_sets or not isinstance(param_sets, list):
+            return jsonify({"status": "error", "message": "Valid paramSets list is required"}), 400
+            
+        logger.info(f"OOS Validation: {symbol} ({timeframe}) | Strategy: {strategy_id} | Sets: {len(param_sets)}")
+        
+        results = OptimizationEngine.run_oos_validation(
+            symbol, strategy_id, param_sets, start_date, end_date, timeframe, request.headers, config=config
+        )
+        
+        return jsonify(results), 200
+        
+    except Exception as exc:
+        logger.error(f"OOS Validation Error: {exc}", exc_info=True)
+        return jsonify({"status": "error", "message": f"OOS Validation failed: {str(exc)}"}), 500
 
 
 @optimization_bp.route("/monte-carlo", methods=["POST"])

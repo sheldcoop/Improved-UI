@@ -222,6 +222,8 @@ def _compute_data_health(
         # 375 minutes / interval
         try:
             interval_mins = int(timeframe[:-1]) if timeframe[-1] == 'm' else 60
+            # NSE Market: 09:15 to 15:30 = 6 hours 15 mins = 375 mins
+            # 15m -> 25 candles, 5m -> 75 candles, 1m -> 375 candles
             candles_per_day = 375 // interval_mins
             expected_trading_days = get_nse_trading_days(start_dt.date(), end_dt.date())
             expected_total = len(expected_trading_days) * candles_per_day
@@ -239,7 +241,10 @@ def _compute_data_health(
             missing = 0
             gaps = []
 
-    raw_score = 100 - (missing * 2) - (zero_vol * 1)
+    # Less punitive scoring: 
+    # - Missing candles: -5 points each (critical)
+    # - Zero Volume: -0.1 points each (often just closing markers)
+    raw_score = 100 - (missing * 5) - (zero_vol * 0.1)
     score = round(max(0.0, min(100.0, raw_score)), 1)
 
     if score >= 98:

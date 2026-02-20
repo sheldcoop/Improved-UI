@@ -68,35 +68,12 @@ class OptimizationEngine:
         headers: dict,
         n_trials: int = 30,
         scoring_metric: str = "sharpe",
-        reproducible: bool = False
+        reproducible: bool = False,
+        config: dict | None = None
     ) -> dict:
-        """Run Optuna hyperparameter optimisation for a strategy.
-
-        Args:
-            symbol: Ticker symbol to fetch data for.
-            strategy_id: Strategy identifier string.
-            ranges: Parameter search space. Format:
-                { 'paramName': { 'min': int, 'max': int, 'step': int } }
-            headers: Flask request headers for API key resolution.
-            n_trials: Number of Optuna trials to run. Default 30.
-            scoring_metric: Metric to optimize. Default 'sharpe'.
-            reproducible: Whether to use a fixed seed for Optuna. Default False.
-
-        Returns:
-            Dict with key 'grid' (list of trial results) and 'wfo' (empty list).
-            Each grid item has: paramSet, sharpe, returnPct, drawdown.
-            Returns {'error': str} if data fetch fails.
-
-        Example:
-            >>> result = OptimizationEngine.run_optuna(
-            ...     'NIFTY 50', '3', {'fast': {'min': 5, 'max': 20, 'step': 1}},
-            ...     headers, n_trials=20
-            ... )
-            >>> print(result['grid'][0]['sharpe'])
-            1.42
-        """
+        """Run Optuna hyperparameter optimisation for a strategy."""
+        if config is None: config = {}
         fetcher = DataFetcher(headers)
-        # Fix 3: Fetch ONLY the optimization window, not all history
         df = fetcher.fetch_historical_data(
             symbol,
             from_date=ranges.get("startDate"),
@@ -105,77 +82,15 @@ class OptimizationEngine:
         if df is None or (isinstance(df, pd.DataFrame) and df.empty):
             return {"error": "No data available for symbol"}
 
-        logger.info(f"Auto-Tune Date Range: {ranges.get('startDate')} to {ranges.get('endDate')}")
-        logger.info(f"Data fetched: {len(df)} bars")
-        logger.info(f"First bar date: {df.index[0].date()}")
-        logger.info(f"Last bar date: {df.index[-1].date()}")
+        logger.info(f"Optimization Range: {ranges.get('startDate')} to {ranges.get('endDate')} ({len(df)} bars)")
+        
+        # Use our consolidated search engine
+        ranges["reproducible"] = reproducible
+        best_params, grid = OptimizationEngine._find_best_params(
+            df, strategy_id, ranges, scoring_metric, return_trials=True, n_trials=n_trials, config=config
+        )
 
-        _META_KEYS_OPT = frozenset({"startDate", "endDate", "reproducible"})
-
-        vbt_freq = OptimizationEngine._detect_freq(df)
-
-        def objective(trial: optuna.Trial) -> float:
-            config: dict = {}
-            for param, constraints in ranges.items():
-                if param in _META_KEYS_OPT:
-                    continue
-                if not isinstance(constraints, dict):
-                    continue
-                p_min = int(constraints.get("min", 10))
-                p_max = int(constraints.get("max", 50))
-                p_step = int(constraints.get("step", 1))
-                config[param] = trial.suggest_int(param, p_min, p_max, step=p_step)
-
-            strategy = StrategyFactory.get_strategy(strategy_id, config)
-            try:
-                entries, exits = strategy.generate_signals(df)
-                pf = vbt.Portfolio.from_signals(
-                    df["Close"], entries, exits, freq=vbt_freq, fees=0.001
-                )
-                
-                if scoring_metric == "total_return":
-                    score = pf.total_return()
-                elif scoring_metric == "calmar":
-                    # Calmar = CAGR / MaxDrawdown. VectorBT provides calmar_ratio directly as a method/property.
-                    score = pf.calmar_ratio() if callable(pf.calmar_ratio) else pf.calmar_ratio
-                elif scoring_metric == "drawdown":
-                    # We maximize, so returning -MaxDrawdown helps Optuna find the minimum.
-                    score = -abs(pf.max_drawdown())
-                else: # Default: sharpe
-                    score = pf.sharpe_ratio()
-                
-                return float(-999) if np.isnan(score) else float(score)
-            except Exception:
-                return float(-999)
-
-        if len(df) > 500:
-            n_trials = max(n_trials, 50)
-            
-        seed = 42 if reproducible else None
-        sampler = optuna.samplers.TPESampler(seed=seed)
-        pruner = optuna.pruners.MedianPruner(n_startup_trials=5)
-
-        study = optuna.create_study(direction="maximize", sampler=sampler, pruner=pruner)
-        study.optimize(objective, n_trials=n_trials)
-
-        grid_results: list[dict] = []
-        for trial in study.trials:
-            if trial.value is None or trial.value == -999:
-                continue
-            config = trial.params
-            strategy = StrategyFactory.get_strategy(strategy_id, config)
-            entries, exits = strategy.generate_signals(df)
-            pf = vbt.Portfolio.from_signals(
-                df["Close"], entries, exits, freq=vbt_freq, fees=0.001
-            )
-            grid_results.append({
-                "paramSet": trial.params,
-                "sharpe": round(pf.sharpe_ratio(), 2),
-                "returnPct": round(pf.total_return() * 100, 2),
-                "drawdown": round(abs(pf.max_drawdown()) * 100, 2),
-            })
-
-        return {"grid": grid_results, "wfo": []}
+        return {"grid": grid, "wfo": [], "bestParams": best_params}
 
     @staticmethod
     def _fetch_and_prepare_df(
@@ -503,11 +418,12 @@ class OptimizationEngine:
         if oos_df.empty:
             return {"error": "Calibration failed - no OOS data generated."}
 
-        from services.backtest_engine import BacktestEngine
         pf = vbt.Portfolio.from_signals(
             oos_df["Close"], oos_entries, oos_exits,
             init_cash=wfo_config.get("initial_capital", 100000),
-            fees=0.001, freq=vbt_freq,
+            fees=float(wfo_config.get("commission", 20.0)) / float(wfo_config.get("positionSizeValue", 100000)) if float(wfo_config.get("positionSizeValue", 100000)) > 0 else 0.001,
+            slippage=float(wfo_config.get("slippage", 0.05)) / 100.0,
+            freq=vbt_freq,
         )
 
         results = BacktestEngine._extract_results(pf, oos_df)
@@ -526,25 +442,23 @@ class OptimizationEngine:
         strategy_id: str,
         ranges: dict[str, dict],
         scoring_metric: str = "sharpe",
-        return_trials: bool = False
+        return_trials: bool = False,
+        n_trials: int = 30,
+        config: dict | None = None
     ) -> dict | tuple[dict, list[dict]]:
-        """Find best parameters for a training window using Optuna.
-
-        Args:
-            df: Training window DataFrame.
-            strategy_id: Strategy identifier string.
-            ranges: Parameter search space.
-
-        Returns:
-            Dict of best parameter values found by Optuna.
-        """
+        """Find best parameters for a training window using Optuna."""
+        if config is None: config = {}
         trial_logs = []
+
+        # Normalize columns consistency (Issue #Alignment)
+        if isinstance(df, pd.DataFrame):
+            df.columns = [c.capitalize() for c in df.columns]
 
         # Non-parameter keys injected by routes (startDate, endDate, reproducible) — skip them
         _META_KEYS = frozenset({"startDate", "endDate", "reproducible"})
 
         def objective(trial: optuna.Trial) -> float:
-            config: dict = {}
+            trial_params: dict = {}
             for param, constraints in ranges.items():
                 if param in _META_KEYS:
                     continue
@@ -561,25 +475,60 @@ class OptimizationEngine:
                     p_min = float(val_min) if val_min is not None else 0.0
                     p_max = float(val_max) if val_max is not None else 10.0
                     p_step = float(val_step) if val_step is not None else 0.1
-                    config[param] = trial.suggest_float(param, p_min, p_max, step=p_step)
+                    trial_params[param] = trial.suggest_float(param, p_min, p_max, step=p_step)
                 else:
                     p_min = int(val_min) if val_min is not None else 10
                     p_max = int(val_max) if val_max is not None else 50
                     p_step = int(val_step) if val_step is not None else 1
-                    config[param] = trial.suggest_int(param, p_min, p_max, step=p_step)
+                    trial_params[param] = trial.suggest_int(param, p_min, p_max, step=p_step)
 
             try:
-                strategy = StrategyFactory.get_strategy(strategy_id, config)
+                strategy = StrategyFactory.get_strategy(strategy_id, trial_params)
                 entries, exits = strategy.generate_signals(df)
                 
-                trade_count = int(entries.sum())
-                if trade_count == 0:
-                    logger.debug(f"Trial {trial.number}: {config} -> Score: -999 (0 trades)")
-                    return float(-999)
+                # Apply Backtest Settings (Issue #ResultAlignment)
+                bt_slippage = float(config.get("slippage", 0.05)) / 100.0
+                bt_initial_capital = float(config.get("initial_capital", 100000.0))
+                bt_commission_fixed = float(config.get("commission", 20.0))
+                
+                # Sizing logic (Keep internal to avoid circular imports with BacktestEngine)
+                sizing_mode = config.get("positionSizing", "Fixed Capital")
+                bt_size_val = float(config.get("positionSizeValue", bt_initial_capital))
+                if sizing_mode == "Fixed Capital":
+                    bt_size, bt_size_type = bt_size_val, "value"
+                elif sizing_mode == "% of Equity":
+                    bt_size, bt_size_type = bt_size_val / 100.0, "percent"
+                else:
+                    bt_size, bt_size_type = np.inf, "amount"
 
-                # Use a consistent fee rate for all optimization trials
-                pf_kwargs = {"freq": vbt_freq, "fees": 0.001}
+                bt_fees = bt_commission_fixed / bt_size_val if bt_size_val > 0 else 0.001
+                
+                # Stop Loss / Take Profit
+                sl_pct = float(config.get("stopLossPct", 0)) / 100.0
+                tp_pct = float(config.get("takeProfitPct", 0)) / 100.0
+
+                pf_kwargs = {
+                    "freq": vbt_freq, 
+                    "fees": bt_fees, 
+                    "slippage": bt_slippage, 
+                    "init_cash": bt_initial_capital,
+                    "size": bt_size,
+                    "size_type": bt_size_type,
+                    "accumulate": int(config.get("pyramiding", 1)) > 1
+                }
+                if sl_pct > 0:
+                    pf_kwargs["sl_stop"] = sl_pct
+                    if bool(config.get("useTrailingStop", False)):
+                        pf_kwargs["sl_trail"] = True
+                if tp_pct > 0:
+                    pf_kwargs["tp_stop"] = tp_pct
+
                 pf = vbt.Portfolio.from_signals(df["Close"], entries, exits, **pf_kwargs)
+                
+                trade_count = int(pf.trades.count())
+                if trade_count == 0:
+                    logger.debug(f"Trial {trial.number}: {trial_params} -> Score: -999 (0 trades)")
+                    return float(-999)
                 
                 # Calculate all metrics for reporting
                 total_return = float(pf.total_return())
@@ -592,6 +541,14 @@ class OptimizationEngine:
                 trial.set_user_attr("sharpe", sharpe)
                 trial.set_user_attr("drawdown", abs(max_dd) * 100)
                 trial.set_user_attr("trades", trade_count)
+                
+                # FIX: pf.win_rate -> pf.trades.win_rate
+                win_rate = 0.0
+                try:
+                    win_rate = float(pf.trades.win_rate()) * 100
+                except (AttributeError, ValueError):
+                    pass
+                trial.set_user_attr("winRate", win_rate)
 
                 if scoring_metric == "total_return":
                     score = total_return
@@ -623,8 +580,7 @@ class OptimizationEngine:
         
         study = optuna.create_study(direction="maximize", sampler=sampler, pruner=pruner)
         
-        n_trials = 30
-        if len(df) > 500:
+        if n_trials == 30 and len(df) > 500:
             n_trials = 50
             
         study.optimize(objective, n_trials=n_trials)
@@ -653,8 +609,13 @@ class OptimizationEngine:
                     "sharpe": round(sharpe, 2),
                     "returnPct": round(return_pct, 2),
                     "drawdown": round(drawdown, 2),
+                    "trades": int(trial.user_attrs.get("trades", 0)),
+                    "winRate": round(float(trial.user_attrs.get("winRate", 0.0)), 1),
                     "score": round(float(trial.value), 4)
                 })
+            
+            # Sort by score descending so the frontend displays the actual best trials
+            grid_results.sort(key=lambda x: x["score"], reverse=True)
             return study.best_params, grid_results
 
         return study.best_params
@@ -664,10 +625,12 @@ class OptimizationEngine:
         symbol: str,
         strategy_id: str,
         ranges: dict,
+        timeframe: str,
         start_date_str: str,
         lookback: int,
         metric: str,
         headers: dict,
+        config: dict | None = None
     ) -> dict:
         """Run a quick Optuna search on the lookback period before a given date.
 
@@ -675,6 +638,7 @@ class OptimizationEngine:
             symbol: Ticker symbol to optimise on.
             strategy_id: Strategy identifier string.
             ranges: Parameter search space.
+            timeframe: Data interval (e.g., '1d', '15m').
             start_date_str: Backtest start date 'YYYY-MM-DD'. Optimisation
                 runs on the period immediately before this date.
             lookback: Lookback window in months before start_date_str.
@@ -685,6 +649,7 @@ class OptimizationEngine:
             Dict with keys: bestParams, score, period, grid.
             Returns {'status': 'error', 'message': str} on failure.
         """
+        if config is None: config = {}
         from datetime import datetime, timedelta
         from dateutil.relativedelta import relativedelta
 
@@ -696,15 +661,24 @@ class OptimizationEngine:
             return {"status": "error", "message": f"Invalid date parameters: {e}"}
 
         logger.info(
-            f"Auto-Tune: {symbol} | Strategy: {strategy_id} | "
-            f"Lookback: {is_start.date()} to {is_end.date()} ({lookback}m)"
+            f"--- AUTO-TUNE START ---"
+        )
+        logger.info(
+            f"Symbol: {symbol} ({timeframe}) | Strategy: {strategy_id} | Metric: {metric}"
+        )
+        logger.info(
+            f"Optimization Window: {is_start.date()} to {is_end.date()} ({lookback} months)"
         )
 
         fetcher = DataFetcher(headers)
-        df = fetcher.fetch_historical_data(symbol, from_date=str(is_start.date()), to_date=str(is_end.date()))
+        df = fetcher.fetch_historical_data(symbol, timeframe=timeframe, from_date=str(is_start.date()), to_date=str(is_end.date()))
 
         if df is None or (isinstance(df, pd.DataFrame) and df.empty):
             return {"status": "error", "message": f"No data found for {symbol} ({is_start.date()} to {is_end.date()})"}
+
+        # Normalize columns consistency (Issue #Alignment)
+        if isinstance(df, pd.DataFrame):
+            df.columns = [c.capitalize() for c in df.columns]
 
         try:
             mask = (df.index >= pd.Timestamp(is_start)) & (df.index <= pd.Timestamp(is_end))
@@ -722,7 +696,7 @@ class OptimizationEngine:
 
         try:
             best_params, grid = OptimizationEngine._find_best_params(
-                is_df, strategy_id, ranges, metric, return_trials=True
+                is_df, strategy_id, ranges, metric, return_trials=True, config=config
             )
         except Exception as e:
             return {"status": "error", "message": f"Optimization engine error: {e}"}
@@ -731,7 +705,47 @@ class OptimizationEngine:
             vbt_freq = OptimizationEngine._detect_freq(is_df)
             strategy = StrategyFactory.get_strategy(strategy_id, best_params)
             entries, exits = strategy.generate_signals(is_df)
-            pf = vbt.Portfolio.from_signals(is_df["Close"], entries, exits, freq=vbt_freq)
+            
+            # Use same settings for final scoring (matching BacktestEngine.run)
+            bt_slippage = float(config.get("slippage", 0.05)) / 100.0
+            bt_initial_capital = float(config.get("initial_capital", 100000.0))
+            bt_commission_fixed = float(config.get("commission", 20.0))
+            
+            sizing_mode = config.get("positionSizing", "Fixed Capital")
+            bt_size_val = float(config.get("positionSizeValue", bt_initial_capital))
+            if sizing_mode == "Fixed Capital":
+                bt_size, bt_size_type = bt_size_val, "value"
+            elif sizing_mode == "% of Equity":
+                bt_size, bt_size_type = bt_size_val / 100.0, "percent"
+            else:
+                bt_size, bt_size_type = np.inf, "amount"
+
+            bt_fees = bt_commission_fixed / bt_size_val if bt_size_val > 0 else 0.001
+            
+            # Stop Loss / Take Profit
+            sl_pct = float(config.get("stopLossPct", 0)) / 100.0
+            tp_pct = float(config.get("takeProfitPct", 0)) / 100.0
+
+            pf_kwargs = {
+                "freq": vbt_freq,
+                "fees": bt_fees,
+                "slippage": bt_slippage,
+                "init_cash": bt_initial_capital,
+                "size": bt_size,
+                "size_type": bt_size_type,
+                "accumulate": int(config.get("pyramiding", 1)) > 1
+            }
+            if sl_pct > 0:
+                pf_kwargs["sl_stop"] = sl_pct
+                if bool(config.get("useTrailingStop", False)):
+                    pf_kwargs["sl_trail"] = True
+            if tp_pct > 0:
+                pf_kwargs["tp_stop"] = tp_pct
+
+            pf = vbt.Portfolio.from_signals(
+                is_df["Close"], entries, exits, 
+                **pf_kwargs
+            )
 
             if metric == "total_return":
                 score = float(pf.total_return())
@@ -753,3 +767,59 @@ class OptimizationEngine:
             "period": f"{is_start.date()} to {is_end.date()}",
             "grid": grid,
         }
+
+    @staticmethod
+    def run_oos_validation(
+        symbol: str,
+        strategy_id: str,
+        param_sets: list[dict],
+        start_date_str: str,
+        end_date_str: str,
+        timeframe: str,
+        headers: dict,
+        config: dict | None = None
+    ) -> list[dict]:
+        """Run standard backtests on a set of parameters over an Out-Of-Sample window.
+        
+        Args:
+            symbol: Ticker symbol.
+            strategy_id: Strategy identifier.
+            param_sets: List of parameter dictionaries (e.g., top 5 from Optuna).
+            start_date_str: OOS Start Date.
+            end_date_str: OOS End Date.
+            timeframe: Data interval (e.g., '1d', '15m').
+            headers: Request headers.
+            config: Backtest settings (fees, slippage, etc).
+            
+        Returns:
+            List of dictionaries containing the parameter set and performance metrics.
+        """
+        if config is None: config = {}
+        from services.backtest_engine import BacktestEngine
+        
+        fetcher = DataFetcher(headers)
+        df = fetcher.fetch_historical_data(symbol, timeframe=timeframe, from_date=start_date_str, to_date=end_date_str)
+        
+        if df is None or df.empty:
+            raise ValueError(f"No data available for Out-Of-Sample test ({start_date_str} to {end_date_str})")
+            
+        results = []
+        for i, params in enumerate(param_sets):
+            # Run simulation with standard config (Issue #ResultAlignment)
+            bt_res = BacktestEngine.run(df, strategy_id, {**config, **params})
+            
+            if not bt_res or bt_res.get("status") == "failed":
+                logger.warning(f"OOS Validation failed for param set {i+1}: {params}")
+                continue
+                
+            # Embed rank and parameters directly into the full BacktestResult
+            bt_res["rank"] = i + 1
+            bt_res["paramSet"] = params
+            bt_res["isOOS"] = True 
+            # Force the dates to match the OOS request for clarity
+            bt_res["startDate"] = start_date_str
+            bt_res["endDate"] = end_date_str
+            
+            results.append(bt_res)
+            
+        return results

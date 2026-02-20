@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Database, Sliders, AlertCircle, CheckCircle, Split, Info, AlertTriangle, CheckSquare, Clock } from 'lucide-react';
+import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Database, Sliders, AlertCircle, CheckCircle, Split, Info, AlertTriangle, CheckSquare, Clock, Shield, Activity } from 'lucide-react';
 import { MOCK_SYMBOLS, UNIVERSES } from '../constants';
 import { runBacktest, validateMarketData, DataHealthReport, fetchStrategies } from '../services/api';
 import { Timeframe, Strategy } from '../types';
@@ -18,17 +18,19 @@ const Backtest: React.FC = () => {
   const {
     running, mode, segment, symbol, symbolSearchQuery, searchResults, selectedInstrument,
     isSearching, universe, timeframe, strategyId, customStrategies, startDate, endDate,
-    params, splitRatio, capital, slippage, commission, showAdvanced, dataStatus, healthReport,
+    params, capital, slippage, commission, showAdvanced, dataStatus, healthReport,
     isDynamic, wfoConfig, autoTuneConfig, paramRanges, isAutoTuning, showRanges, reproducible,
-    splitDateString
+    top5Trials, oosResults, isOosValidating,
+    stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue
   } = state;
   const {
     setMode, setSegment, setSymbolSearchQuery, setSymbol, setSearchResults, setSelectedInstrument,
-    setUniverse, setTimeframe, setStrategyId, setStartDate, setEndDate, setParams, setSplitRatio,
+    setUniverse, setTimeframe, setStrategyId, setStartDate, setEndDate, setParams,
     setCapital, setSlippage, setCommission, setShowAdvanced, setIsDynamic, setWfoConfig,
-    setAutoTuneConfig, setParamRanges, setReproducible
+    setAutoTuneConfig, setParamRanges, setReproducible,
+    setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue
   } = setters;
-  const { handleLoadData, handleAutoTune, handleRun } = handlers;
+  const { handleLoadData, handleAutoTune, handleRun, handleOOSValidation } = handlers;
 
   const renderHealthBadge = (status: string) => {
     switch (status) {
@@ -365,28 +367,7 @@ const Backtest: React.FC = () => {
                 </div>
               )}
 
-              {/* Visual Splitter */}
-              {!isDynamic && (
-                <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
-                  <div className="flex justify-between text-xs mb-2">
-                    <span className="text-blue-400 font-bold">In-Sample (Train): {splitRatio}%</span>
-                    <span className="text-purple-400 font-bold">Out-of-Sample (Test): {100 - splitRatio}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="50" max="95" step="5"
-                    value={splitRatio}
-                    onChange={(e) => setSplitRatio(parseInt(e.target.value))}
-                    className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 mb-2"
-                  />
-                  <div className="flex items-center justify-center text-xs text-slate-500 bg-slate-900 py-1 rounded border border-slate-800 border-dashed">
-                    <Split className="w-3 h-3 mr-1" />
-                    Split Date: <span className="text-slate-200 ml-1 font-mono">{splitDateString}</span>
-                  </div>
-                </div>
-              )}
-
-              <div>
+              <div className="pt-2">
                 <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center">
                   <DollarSign className="w-4 h-4 mr-2" /> Initial Capital
                 </label>
@@ -444,6 +425,51 @@ const Backtest: React.FC = () => {
                   >
                     <div className={`w-4 h-4 rounded-full bg-white transition-transform ${reproducible ? 'translate-x-6' : 'translate-x-0'}`} />
                   </button>
+                </div>
+
+                {/* Risk Management & Execution */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-4 border-b border-slate-800">
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-bold text-slate-500 uppercase flex items-center">
+                      <Shield className="w-3 h-3 mr-1" /> Risk Management
+                    </h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-[10px] text-slate-500 block mb-1">Stop Loss %</label>
+                        <input type="number" step="0.1" value={stopLossPct} onChange={e => setStopLossPct(parseFloat(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-500 block mb-1">Take Profit %</label>
+                        <input type="number" step="0.1" value={takeProfitPct} onChange={e => setTakeProfitPct(parseFloat(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500" />
+                      </div>
+                    </div>
+                    <label className="flex items-center space-x-2 text-[10px] text-slate-400 cursor-pointer">
+                      <input type="checkbox" checked={useTrailingStop} onChange={e => setUseTrailingStop(e.target.checked)} className="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500" />
+                      <span>Use Trailing Stop</span>
+                    </label>
+                  </div>
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-bold text-slate-500 uppercase flex items-center">
+                      <Activity className="w-3 h-3 mr-1" /> Execution & Sizing
+                    </h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-[10px] text-slate-500 block mb-1">Sizing Mode</label>
+                        <select value={positionSizing} onChange={e => setPositionSizing(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500">
+                          <option value="Fixed Capital">Fixed Capital</option>
+                          <option value="Fixed Percent">Fixed Percent</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-500 block mb-1">Sizing Value</label>
+                        <input type="number" value={positionSizeValue} onChange={e => setPositionSizeValue(parseFloat(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-500 block mb-1">Pyramiding (Max Entries)</label>
+                      <input type="number" min="1" max="10" value={pyramiding} onChange={e => setPyramiding(parseInt(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500" />
+                    </div>
+                  </div>
                 </div>
 
                 {isDynamic && (
@@ -554,7 +580,34 @@ const Backtest: React.FC = () => {
             )}
           </div>
 
-          <div className="pt-2">
+          <div className="pt-2 space-y-4">
+            {top5Trials.length > 0 && mode === 'SINGLE' && !isDynamic && (
+              <div className="bg-slate-900/80 p-5 rounded-xl border border-indigo-500/30">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-200 flex items-center">
+                      <Split className="w-4 h-4 mr-2 text-indigo-400" />
+                      Out-Of-Sample (OOS) Validation
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Test the Top {top5Trials.length} Auto-Tune parameters on unseen forward data.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleOOSValidation}
+                    disabled={isOosValidating || dataStatus !== 'READY'}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded shadow flex items-center text-sm disabled:opacity-50"
+                  >
+                    {isOosValidating ? (
+                      <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></div>Validating...</>
+                    ) : (
+                      <><CheckSquare className="w-4 h-4 mr-2" /> Run OOS Validation</>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
             <button
               onClick={handleRun}
               disabled={running || dataStatus !== 'READY'}
@@ -572,10 +625,6 @@ const Backtest: React.FC = () => {
                 </>
               )}
             </button>
-            <p className="text-center text-xs text-slate-500 mt-3 flex items-center justify-center">
-              <Info className="w-3 h-3 mr-1" />
-              Engine uses {100 - splitRatio}% of recent data for out-of-sample validation.
-            </p>
           </div>
         </div>
       </Card>

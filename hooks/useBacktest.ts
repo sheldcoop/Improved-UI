@@ -64,53 +64,25 @@ const runBacktestWithDhan = async (payload: {
     });
 };
 
+import { useBacktestContext } from '../context/BacktestContext';
+
 export const useBacktest = () => {
     const navigate = useNavigate();
-    const [running, setRunning] = useState(false);
-
-    // Core Config
-    const [mode, setMode] = useState<'SINGLE' | 'UNIVERSE'>('SINGLE');
-    const [segment, setSegment] = useState<'NSE_EQ' | 'NSE_SME'>('NSE_EQ');
-    const [symbol, setSymbol] = useState('');
-    const [symbolSearchQuery, setSymbolSearchQuery] = useState('');
-    const [searchResults, setSearchResults] = useState<Array<{ symbol: string; display_name: string; security_id: string; instrument_type: string }>>([]);
-    const [selectedInstrument, setSelectedInstrument] = useState<{ symbol: string; display_name: string; security_id: string; instrument_type: string } | null>(null);
-    const [isSearching, setIsSearching] = useState(false);
-    const [universe, setUniverse] = useState(UNIVERSES[0].id);
-    const [timeframe, setTimeframe] = useState<Timeframe>(Timeframe.D1);
-
-    // Strategy State
-    const [strategyId, setStrategyId] = useState('1');
-    const [customStrategies, setCustomStrategies] = useState<Strategy[]>([]);
-
-    // Date Range
-    const [startDate, setStartDate] = useState('2023-01-01');
-    const [endDate, setEndDate] = useState('2023-12-31');
-
-    // Dynamic Strategy Parameters (Feature A)
-    const [params, setParams] = useState<Record<string, number>>({});
-
-    // Splitter State (Feature C)
-    const [splitRatio, setSplitRatio] = useState(80); // 80% Train, 20% Test
-
-    // Advanced Settings State
-    const [capital, setCapital] = useState(100000);
-    const [slippage, setSlippage] = useState(0.05);
-    const [commission, setCommission] = useState(20);
-    const [showAdvanced, setShowAdvanced] = useState(false);
-
-    // New Data Loading State (Improvement 1 & 2)
-    const [dataStatus, setDataStatus] = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
-    const [healthReport, setHealthReport] = useState<DataHealthReport | null>(null);
-
-    // --- Optimization State (Optuna / WFO) ---
-    const [isDynamic, setIsDynamic] = useState(false);
-    const [wfoConfig, setWfoConfig] = useState({ trainWindow: 12, testWindow: 3 });
-    const [autoTuneConfig, setAutoTuneConfig] = useState({ lookbackMonths: 12, trials: 30, metric: 'sharpe' });
-    const [paramRanges, setParamRanges] = useState<Record<string, { min: number, max: number, step: number }>>({});
-    const [isAutoTuning, setIsAutoTuning] = useState(false);
-    const [showRanges, setShowRanges] = useState(false);
-    const [reproducible, setReproducible] = useState(false);
+    const {
+        running, setRunning, mode, setMode, segment, setSegment, symbol, setSymbol,
+        symbolSearchQuery, setSymbolSearchQuery, searchResults, setSearchResults,
+        selectedInstrument, setSelectedInstrument, isSearching, setIsSearching,
+        universe, setUniverse, timeframe, setTimeframe, strategyId, setStrategyId,
+        customStrategies, setCustomStrategies, startDate, setStartDate, endDate, setEndDate,
+        params, setParams, capital, setCapital, slippage, setSlippage,
+        commission, setCommission, showAdvanced, setShowAdvanced, dataStatus, setDataStatus,
+        healthReport, setHealthReport, isDynamic, setIsDynamic, wfoConfig, setWfoConfig,
+        autoTuneConfig, setAutoTuneConfig, paramRanges, setParamRanges, isAutoTuning, setIsAutoTuning,
+        showRanges, setShowRanges, reproducible, setReproducible, top5Trials, setTop5Trials,
+        oosResults, setOosResults, isOosValidating, setIsOosValidating,
+        stopLossPct, setStopLossPct, takeProfitPct, setTakeProfitPct, useTrailingStop, setUseTrailingStop,
+        pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue
+    } = useBacktestContext();
 
     // Auto-Calculate WFO Windows when dates change
     useEffect(() => {
@@ -198,21 +170,6 @@ export const useBacktest = () => {
         doSearch();
     }, [debouncedSearchQuery, segment, mode]);
 
-    // Calculate Split Date
-    const splitDateString = useMemo(() => {
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        const diffTime = Math.abs(end.getTime() - start.getTime());
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-        if (isNaN(diffDays)) return '-';
-
-        const splitDayIndex = Math.floor(diffDays * (splitRatio / 100));
-        const splitDate = new Date(start);
-        splitDate.setDate(start.getDate() + splitDayIndex);
-        return splitDate.toISOString().split('T')[0];
-    }, [startDate, endDate, splitRatio]);
-
     const handleLoadData = async () => {
         setDataStatus('LOADING');
         try {
@@ -290,6 +247,11 @@ export const useBacktest = () => {
             status: 'running'
         });
 
+        const timeframeMap: Record<string, string> = {
+            [Timeframe.M1]: '1m', [Timeframe.M5]: '5m', [Timeframe.M15]: '15m',
+            [Timeframe.H1]: '1h', [Timeframe.D1]: '1d'
+        };
+
         try {
             const result = await fetchClient<{ bestParams: Record<string, number>, score: number, period: string, grid?: any[] }>('/optimization/auto-tune', {
                 method: 'POST',
@@ -297,15 +259,30 @@ export const useBacktest = () => {
                     symbol: selectedInstrument.symbol,
                     strategyId: strategyId,
                     ranges: paramRanges,
+                    timeframe: timeframeMap[timeframe] || '1d',
                     startDate: startDate,
                     lookbackMonths: autoTuneConfig.lookbackMonths,
                     scoringMetric: autoTuneConfig.metric,
-                    reproducible: reproducible
+                    reproducible: reproducible,
+                    config: {
+                        initial_capital: capital,
+                        slippage: slippage,
+                        commission: commission,
+                        stopLossPct,
+                        takeProfitPct,
+                        useTrailingStop,
+                        pyramiding,
+                        positionSizing,
+                        positionSizeValue
+                    }
                 })
             });
             if (result.bestParams) {
                 setParams(result.bestParams);
-                logOptunaResults(result.grid || []);
+                const sortedGrid = result.grid || [];
+                logOptunaResults(sortedGrid);
+                setTop5Trials(sortedGrid.slice(0, 5)); // Store top 5 for OOS validation
+                setOosResults([]); // Reset previous OOS results
                 logActiveRun(null);
                 setShowRanges(false);
             }
@@ -366,6 +343,12 @@ export const useBacktest = () => {
                     if (result.wfo) logWFOBreakdown(result.wfo);
                     if (result.grid) logOptunaResults(result.grid);
                     logActiveRun(null);
+
+                    // Inject properties required by the Results page
+                    result.timeframe = timeframe;
+                    result.symbol = selectedInstrument.symbol;
+                    result.strategyName = strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy';
+
                     navigate('/results', { state: { result } });
                 } else {
                     alert("Dynamic Backtest Failed: " + (result?.error || "Unknown error"));
@@ -393,6 +376,12 @@ export const useBacktest = () => {
                         strategy_logic: {
                             id: strategyId,
                             name: strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy',
+                            stopLossPct,
+                            takeProfitPct,
+                            useTrailingStop,
+                            pyramiding,
+                            positionSizing,
+                            positionSizeValue,
                             ...params
                         }
                     }
@@ -404,9 +393,7 @@ export const useBacktest = () => {
             } else {
                 // Path 3: Fallback for Universe mode
                 const config: any = {
-                    capital, slippage, commission, ...params,
-                    splitDate: splitDateString,
-                    trainTestSplit: splitRatio
+                    capital, slippage, commission, ...params
                 };
 
                 if (mode === 'UNIVERSE') {
@@ -425,23 +412,82 @@ export const useBacktest = () => {
         }
     };
 
+    const handleOOSValidation = async () => {
+        if (!selectedInstrument || top5Trials.length === 0) {
+            alert("Please run Auto-Tune first to generate Top 5 Parameters.");
+            return;
+        }
+
+        const timeframeMap: Record<string, string> = {
+            [Timeframe.M1]: '1m', [Timeframe.M5]: '5m', [Timeframe.M15]: '15m',
+            [Timeframe.H1]: '1h', [Timeframe.D1]: '1d'
+        };
+
+        setIsOosValidating(true);
+        try {
+            const result = await fetchClient<any[]>('/optimization/oos-validate', {
+                method: 'POST',
+                body: JSON.stringify({
+                    symbol: selectedInstrument.symbol,
+                    strategyId: strategyId,
+                    paramSets: top5Trials.map(t => t.paramSet),
+                    timeframe: timeframeMap[timeframe] || '1d',
+                    startDate,
+                    endDate,
+                    config: {
+                        initial_capital: capital,
+                        slippage: slippage,
+                        commission: commission,
+                        stopLossPct,
+                        takeProfitPct,
+                        useTrailingStop,
+                        pyramiding,
+                        positionSizing,
+                        positionSizeValue
+                    }
+                })
+            });
+
+            if (Array.isArray(result) && result.length > 0) {
+                // Pre-process results to include timeframe, symbol, and strategyName for the Results page
+                const formattedResults = result.map(res => ({
+                    ...res,
+                    timeframe,
+                    symbol: selectedInstrument.symbol,
+                    strategyName: strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy'
+                }));
+                // Route to results page with the array of OOS validations
+                navigate('/results', { state: { result: formattedResults, isOOSArray: true } });
+            } else {
+                alert("OOS Validation failed to return data array.");
+            }
+        } catch (e: any) {
+            console.error("OOS Validation error", e);
+            alert("OOS Validation Failed: " + (e.message || e));
+        } finally {
+            setIsOosValidating(false);
+        }
+    };
+
     return {
         state: {
             running, mode, segment, symbol, symbolSearchQuery, searchResults, selectedInstrument,
             isSearching, universe, timeframe, strategyId, customStrategies, startDate, endDate,
-            params, splitRatio, capital, slippage, commission, showAdvanced, dataStatus, healthReport,
+            params, capital, slippage, commission, showAdvanced, dataStatus, healthReport,
             isDynamic, wfoConfig, autoTuneConfig, paramRanges, isAutoTuning, showRanges, reproducible,
-            splitDateString
+            top5Trials, oosResults, isOosValidating,
+            stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue
         },
         setters: {
             setRunning, setMode, setSegment, setSymbol, setSymbolSearchQuery, setSearchResults,
             setSelectedInstrument, setIsSearching, setUniverse, setTimeframe, setStrategyId, setCustomStrategies,
-            setStartDate, setEndDate, setParams, setSplitRatio, setCapital, setSlippage, setCommission,
+            setStartDate, setEndDate, setParams, setCapital, setSlippage, setCommission,
             setShowAdvanced, setDataStatus, setHealthReport, setIsDynamic, setWfoConfig, setAutoTuneConfig,
-            setParamRanges, setIsAutoTuning, setShowRanges, setReproducible
+            setParamRanges, setIsAutoTuning, setShowRanges, setReproducible, setTop5Trials, setOosResults,
+            setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue
         },
         handlers: {
-            handleLoadData, handleAutoTune, handleRun
+            handleLoadData, handleAutoTune, handleRun, handleOOSValidation
         }
     };
 };

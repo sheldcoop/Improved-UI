@@ -458,7 +458,7 @@ const DebugConsole: React.FC = () => {
                                         {wfoBreakdown.map((row, i) => (
                                             <tr key={i} className="border-b border-slate-900/50 hover:bg-slate-900/30 transition-colors">
                                                 <td className="py-2 px-1 text-slate-400">{row.period.split(': ')[1]}</td>
-                                                <td className="py-2 px-1 font-mono text-emerald-500/80">{row.params}</td>
+                                                <td className="py-2 px-1 font-mono text-emerald-500/80">{typeof row.params === 'object' ? JSON.stringify(row.params) : String(row.params)}</td>
                                                 <td className="py-2 px-1 text-right">{row.trades}</td>
                                                 <td className={`py-2 px-1 text-right font-bold ${row.returnPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{row.returnPct}%</td>
                                                 <td className="py-2 px-1 text-right">{row.sharpe}</td>
@@ -488,9 +488,12 @@ const DebugConsole: React.FC = () => {
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-[9px] font-mono text-emerald-400 truncate">{JSON.stringify(trial.paramSet)}</div>
                                             </div>
-                                            <div className="flex space-x-4 shrink-0 font-mono text-[10px]">
-                                                <div><span className="text-slate-600 mr-2">SHP</span><span className="text-slate-200">{trial.sharpe}</span></div>
-                                                <div><span className="text-slate-600 mr-2">RET</span><span className={`font-bold ${trial.returnPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{trial.returnPct}%</span></div>
+                                            <div className="flex space-x-3 shrink-0 font-mono text-[9px]">
+                                                <div className="border-r border-slate-800 pr-2"><span className="text-slate-600 mr-1">TRDS</span><span className="text-slate-200">{trial.trades || 0}</span></div>
+                                                <div className="border-r border-slate-800 pr-2"><span className="text-slate-600 mr-1">WIN</span><span className="text-emerald-400">{trial.winRate || 0}%</span></div>
+                                                <div className="border-r border-slate-800 pr-2"><span className="text-slate-600 mr-1">DD</span><span className="text-red-400">-{trial.drawdown || 0}%</span></div>
+                                                <div className="border-r border-slate-800 pr-2"><span className="text-slate-600 mr-1">SHP</span><span className="text-blue-400">{trial.sharpe}</span></div>
+                                                <div><span className="text-slate-600 mr-1">RET</span><span className={`font-bold ${trial.returnPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{trial.returnPct}%</span></div>
                                             </div>
                                         </div>
                                     ))}

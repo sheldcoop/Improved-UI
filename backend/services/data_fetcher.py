@@ -10,7 +10,6 @@ import os
 import logging
 import pandas as pd
 import numpy as np
-import yfinance as yf
 from datetime import datetime
 from pathlib import Path
 
@@ -27,34 +26,21 @@ CACHE_TTL_HOURS = 24
 class DataFetcher:
     """Fetches historical market data with Parquet file caching.
 
-    Tries data sources in order: AlphaVantage → YFinance → Synthetic.
+    Primary data source: Dhan API.
     All fetched data is cached as Parquet (Snappy compressed) for 24 hours.
 
     Args:
-        headers: Flask request headers dict. Used to extract API keys
-            passed from the frontend (x-alpha-vantage-key, etc.).
+        headers: Flask request headers dict. (x-alpha-vantage-key is deprecated)
     """
 
-    # Hardcoded ticker map — will be replaced by Dhan security_id mapping
-    # when dhanhq integration is wired up (see DhanHQ-py-main/ for reference).
-    TICKER_MAP: dict[str, str] = {
-        "NIFTY 50": "^NSEI",
-        "BANKNIFTY": "^NSEBANK",
-        "RELIANCE": "RELIANCE.NS",
-        "HDFCBANK": "HDFCBANK.NS",
-        "INFY": "INFY.NS",
-        "ADANIENT": "ADANIENT.NS",
-    }
-
+    # Universe definitions for testing
     UNIVERSE_TICKERS: dict[str, list[str]] = {
-        "NIFTY_50": ["REL.NS", "TCS.NS", "HDFC.NS", "INFY.NS", "ICICI.NS", "AXIS.NS", "SBIN.NS"],
-        "BANK_NIFTY": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "AXISBANK.NS"],
+        "NIFTY_50": ["RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "AXISBANK", "SBIN"],
+        "BANK_NIFTY": ["HDFCBANK", "ICICIBANK", "SBIN", "AXISBANK", "KOTAKBANK", "INDUSINDBK"],
     }
 
     def __init__(self, headers: dict) -> None:
-        self.av_key: str | None = headers.get("x-alpha-vantage-key")
-        self.use_av: bool = headers.get("x-use-alpha-vantage") == "true"
-        self.use_dhan: bool = headers.get("x-use-dhan", "true") != "false"  # Default True, disable with header x-use-dhan: false
+        self.use_dhan: bool = True  # Always use Dhan as primary source
         self.used_synthetic: bool = False  # Set True when synthetic fallback is used
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -144,32 +130,50 @@ class DataFetcher:
                 if cache_start <= start_req and cache_end >= end_req:
                     needs_fetch = False
                     logger.info(f"⚡ Cache Hit (Full Coverage) for {symbol}")
-                    return cached_df
                 else:
                     logger.info(f"⚠️ Cache Partial Miss for {symbol}: Need {start_req.date()}..{end_req.date()}, have {cache_start.date()}..{cache_end.date()}")
 
         if not needs_fetch:
-             return cached_df
-             
-        # 3. Fetch fresh data
-        logger.info(f"🌍 Starting Fresh API Fetch for {symbol} ({from_date} to {to_date})")
-        fresh_df = self._fetch_live(symbol, timeframe, from_date, to_date)
-
-        # 4. Merge and Save
-        if fresh_df is not None and not fresh_df.empty:
-            if cached_df is not None and not cached_df.empty:
-                # Combine and deduplicate
-                combined = pd.concat([cached_df, fresh_df])
-                combined = combined[~combined.index.duplicated(keep='last')]
-                combined = combined.sort_index()
-                self._save_parquet(cache_key, combined)
-                return combined
-            else:
-                self._save_parquet(cache_key, fresh_df)
-                return fresh_df
-        
-        # If fetch failed but we have cache, return cache as fallback
-        return cached_df if cached_df is not None else None
+             result_df = cached_df
+        else:
+             # 3. Fetch fresh data
+             logger.info(f"🌍 Starting Fresh API Fetch for {symbol} ({from_date} to {to_date})")
+             fresh_df = self._fetch_live(symbol, timeframe, from_date, to_date)
+     
+             # 4. Merge and Save
+             result_df = None
+             if fresh_df is not None and not fresh_df.empty:
+                 if cached_df is not None and not cached_df.empty:
+                     # Combine and deduplicate
+                     combined = pd.concat([cached_df, fresh_df])
+                     combined = combined[~combined.index.duplicated(keep='last')]
+                     combined = combined.sort_index()
+                     self._save_parquet(cache_key, combined)
+                     result_df = combined
+                 else:
+                     self._save_parquet(cache_key, fresh_df)
+                     result_df = fresh_df
+             else:
+                 # If fetch failed but we have cache, return cache as fallback
+                 result_df = cached_df
+            
+        # 5. Filter result to requested date range
+        if result_df is not None and not result_df.empty:
+            if start_req:
+                if result_df.index.tz is not None and start_req.tz is None:
+                    start_req = start_req.tz_localize(result_df.index.tz)
+                elif result_df.index.tz is None and start_req.tz is not None:
+                    start_req = start_req.tz_localize(None)
+                result_df = result_df.loc[result_df.index >= start_req]
+            if end_req:
+                end_req_inclusive = end_req + pd.Timedelta(days=1, microseconds=-1)
+                if result_df.index.tz is not None and end_req_inclusive.tz is None:
+                    end_req_inclusive = end_req_inclusive.tz_localize(result_df.index.tz)
+                elif result_df.index.tz is None and end_req_inclusive.tz is not None:
+                    end_req_inclusive = end_req_inclusive.tz_localize(None)
+                result_df = result_df.loc[result_df.index <= end_req_inclusive]
+                
+        return result_df
 
     def get_cache_status(self) -> list[dict]:
         """Scan cache directory and return metadata for all cached datasets.
@@ -245,33 +249,26 @@ class DataFetcher:
     def _fetch_live(
         self, symbol: str, timeframe: str, from_date: str | None = None, to_date: str | None = None
     ) -> pd.DataFrame | dict | None:
-        """Dispatch to the correct data source based on symbol type.
-
+        """Fetch live data from Dhan.
+        
         Args:
             symbol: Ticker or universe ID.
             timeframe: Candle interval string.
-
+            
         Returns:
             DataFrame, dict of DataFrames (universe), or None on failure.
         """
-        if self.use_dhan:
-            df = self._fetch_dhan(symbol, timeframe, from_date, to_date)
-            if df is not None and not df.empty:
-                return df
-
-        if self.use_av and self.av_key:
-            df = self._fetch_alpha_vantage(symbol, timeframe)
-            if df is not None and not df.empty:
-                return df
-
-        df = self._fetch_yfinance(symbol, timeframe)
+        # 1. Try Dhan
+        df = self._fetch_dhan(symbol, timeframe, from_date, to_date)
         if df is not None and not df.empty:
             return df
 
+        # 2. Check for Universe Request
         if symbol in self.UNIVERSE_TICKERS:
             return self._fetch_universe(symbol, timeframe)
 
-        logger.warning(f"All data sources failed for {symbol}. Using synthetic data.")
+        # 3. Last Resort: Synthetic (for testing only)
+        logger.warning(f"Dhan fetch failed for {symbol}. Using synthetic data fallback.")
         self.used_synthetic = True
         return self._generate_synthetic(symbol, timeframe)
 
@@ -319,67 +316,6 @@ class DataFetcher:
             logger.error(f"Dhan fetch failed for {symbol}: {exc}")
             return None
 
-    def _fetch_alpha_vantage(self, symbol: str, timeframe: str) -> pd.DataFrame | None:
-        """Fetch data from AlphaVantage API.
-
-        Args:
-            symbol: Ticker symbol string.
-            timeframe: Candle interval string.
-
-        Returns:
-            Standardised OHLCV DataFrame or None on failure.
-        """
-        logger.info(f"Fetching {symbol} via AlphaVantage [{timeframe}]...")
-        try:
-            is_intraday = timeframe in ("1m", "5m", "15m", "1h")
-            function = "TIME_SERIES_INTRADAY" if is_intraday else "TIME_SERIES_DAILY"
-            interval_param = f"&interval={timeframe}" if is_intraday else ""
-            url = (
-                f"https://www.alphavantage.co/query"
-                f"?function={function}&symbol={symbol}"
-                f"&apikey={self.av_key}&datatype=csv{interval_param}"
-            )
-            df = pd.read_csv(url)
-            df = df.rename(
-                columns={
-                    "timestamp": "Date", "time": "Date",
-                    "open": "Open", "high": "High",
-                    "low": "Low", "close": "Close", "volume": "Volume",
-                }
-            )
-            df["Date"] = pd.to_datetime(df["Date"])
-            df = df.set_index("Date").sort_index()
-            return df if not df.empty else None
-        except Exception as exc:
-            logger.error(f"AlphaVantage failed for {symbol}: {exc}. Falling back to YFinance.")
-            return None
-
-    def _fetch_yfinance(self, symbol: str, timeframe: str) -> pd.DataFrame | None:
-        """Fetch data from YFinance.
-
-        Args:
-            symbol: Ticker symbol string (mapped via TICKER_MAP if needed).
-            timeframe: Candle interval string.
-
-        Returns:
-            Standardised OHLCV DataFrame or None on failure.
-        """
-        ticker = self.TICKER_MAP.get(symbol, symbol)
-        interval_map = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "1d": "1d"}
-        interval = interval_map.get(timeframe, "1d")
-        period = "59d" if interval in ("1m", "5m", "15m", "1h") else "2y"
-
-        logger.info(f"Fetching {ticker} via YFinance [{interval}]...")
-        try:
-            df = yf.download(ticker, period=period, interval=interval, progress=False)
-            if df.empty:
-                return None
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            return df[["Open", "High", "Low", "Close", "Volume"]]
-        except Exception as exc:
-            logger.error(f"YFinance failed for {ticker}: {exc}")
-            return None
 
     def _fetch_universe(self, universe_id: str, timeframe: str) -> dict:
         """Generate synthetic multi-asset universe data.

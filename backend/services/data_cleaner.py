@@ -46,6 +46,19 @@ class DataCleaner:
         return df[df.index.dayofweek < 5]
 
     @staticmethod
+    def remove_non_trading_hours(df: pd.DataFrame) -> pd.DataFrame:
+        """Filter data to include only NSE trading session (09:15 - 15:30 IST).
+        
+        This prevents indicators like RSI from being diluted by pre-market/post-market
+        flat price action common in some data sources (like YFinance).
+        """
+        if df.empty:
+            return df
+            
+        # indexer_between_time is inclusive
+        return df.between_time("09:15", "15:30")
+
+    @staticmethod
     def log_cleaning_report(original_len: int, cleaned_df: pd.DataFrame, symbol: str) -> None:
         """Log a summary of data cleaning actions."""
         removed = original_len - len(cleaned_df)
@@ -65,6 +78,7 @@ class DataCleaner:
         # 1. Temporal Normalization
         df = DataCleaner.fix_timezone(df)
         df = DataCleaner.remove_weekends(df)
+        df = DataCleaner.remove_non_trading_hours(df)
         df = DataCleaner.sort_chronological(df)
         df = DataCleaner.remove_duplicates(df)
         

@@ -73,6 +73,12 @@ const Results: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [result, setResult] = useState<BacktestResult | null>(null);
+
+  // OOS Array Support
+  const [oosResults, setOosResults] = useState<BacktestResult[]>([]);
+  const [activeOosIndex, setActiveOosIndex] = useState(0);
+  const [isOOSArray, setIsOOSArray] = useState(false);
+
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'TRADES' | 'DISTRIBUTION'>('OVERVIEW');
   const [distributionData, setDistributionData] = useState<any[]>([]);
 
@@ -82,28 +88,39 @@ const Results: React.FC = () => {
 
   // Safely load data on mount
   useEffect(() => {
-    if (location.state?.result) {
+    if (location.state?.isOOSArray && Array.isArray(location.state?.result)) {
+      const resultsArray = location.state.result;
+      setOosResults(resultsArray);
+      setIsOOSArray(true);
+      setResult(resultsArray[0]); // Default to Rank 1
+    } else if (location.state?.result) {
       const res = location.state.result as BacktestResult;
       setResult(res);
-
-      // Calculate Distribution
-      if (res.trades && res.trades.length > 0) {
-        const dist = res.trades.reduce((acc: any[], trade) => {
-          const bucket = Math.floor(trade.pnlPct);
-          const existing = acc.find(a => a.range === bucket);
-          if (existing) {
-            existing.count++;
-          } else {
-            acc.push({ range: bucket, count: 1 });
-          }
-          return acc;
-        }, []).sort((a: any, b: any) => a.range - b.range);
-        setDistributionData(dist);
-      }
+      setIsOOSArray(false);
     } else {
       navigate('/backtest');
+      return;
     }
   }, [location, navigate]);
+
+  // Recalculate Distribution when active result changes
+  useEffect(() => {
+    if (result && result.trades && result.trades.length > 0) {
+      const dist = result.trades.reduce((acc: any[], trade) => {
+        const bucket = Math.floor(trade.pnlPct);
+        const existing = acc.find(a => a.range === bucket);
+        if (existing) {
+          existing.count++;
+        } else {
+          acc.push({ range: bucket, count: 1 });
+        }
+        return acc;
+      }, []).sort((a: any, b: any) => a.range - b.range);
+      setDistributionData(dist);
+    } else {
+      setDistributionData([]);
+    }
+  }, [result]);
 
   const handleTradeClick = (trade: Trade) => {
     const entryIdx = result?.equityCurve.findIndex(c => c.date === trade.entryDate) || 0;
@@ -189,9 +206,14 @@ const Results: React.FC = () => {
           </button>
           <div className="flex items-center gap-3">
             <h2 className="text-2xl font-bold text-slate-100">{result.strategyName}</h2>
-            {result.isDynamic && (
+            {(result.isDynamic || result.mode === 'DYNAMIC') && !isOOSArray && (
               <Badge variant="info" className="animate-pulse bg-indigo-500/20 text-indigo-400 border-indigo-500/30">
                 <Split className="w-3 h-3 mr-1" /> Dynamic WFO
+              </Badge>
+            )}
+            {(isOOSArray || result.isOOS) && (
+              <Badge variant="warning" className="bg-amber-500/20 text-amber-400 border-amber-500/30">
+                <BarChartIcon className="w-3 h-3 mr-1 inline" /> OOS Validation
               </Badge>
             )}
           </div>
@@ -200,7 +222,7 @@ const Results: React.FC = () => {
             <span>•</span>
             <span>{result.timeframe}</span>
             <span>•</span>
-            <span>{result.startDate} to {result.endDate}</span>
+            <span>Simulation: {result.startDate} to {result.endDate}</span>
           </div>
         </div>
         <div className="flex space-x-2 bg-slate-900 p-1 rounded-lg border border-slate-800">
@@ -209,6 +231,28 @@ const Results: React.FC = () => {
           <Button variant={activeTab === 'DISTRIBUTION' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('DISTRIBUTION')} icon={<BarChartIcon className="w-4 h-4" />}>Distribution</Button>
         </div>
       </div>
+
+      {/* OOS Parameter Set Selector */}
+      {isOOSArray && oosResults.length > 0 && (
+        <div className="bg-slate-900/50 border border-indigo-500/30 p-2 rounded-xl flex items-center overflow-x-auto gap-2">
+          <span className="text-xs text-indigo-400 font-bold uppercase tracking-wider px-3 whitespace-nowrap">Param Sets (Rank)</span>
+          {oosResults.map((res: any, idx: number) => (
+            <button
+              key={idx}
+              onClick={() => {
+                setActiveOosIndex(idx);
+                setResult(oosResults[idx]);
+              }}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeOosIndex === idx
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/20 border border-indigo-500'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200 border border-transparent'
+                }`}
+            >
+              #{res.rank} <span className="text-xs opacity-70 ml-2 font-mono">{(res.metrics?.totalReturnPct || 0).toFixed(1)}% | Sh: {(res.metrics?.sharpeRatio || 0).toFixed(2)}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {activeTab === 'OVERVIEW' && (
         <>
@@ -234,7 +278,19 @@ const Results: React.FC = () => {
               {result.equityCurve && result.equityCurve.length > 0 ? (
                 <div className="flex-1 w-full min-h-0">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={result.equityCurve}>
+                    <AreaChart data={isOOSArray ? (
+                      // Combine OOS equity curves into a single dataset
+                      result.equityCurve.map((point: any, index: number) => {
+                        const mergedPoint = { date: point.date, value: point.value }; // Active result is the baseline "value"
+                        oosResults.forEach((res, idx) => {
+                          if (idx !== activeOosIndex && res.equityCurve && res.equityCurve[index]) {
+                            // @ts-ignore dynamic keys for extra lines
+                            mergedPoint[`line_${idx}`] = res.equityCurve[index].value;
+                          }
+                        });
+                        return mergedPoint;
+                      })
+                    ) : result.equityCurve}>
                       <defs>
                         <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor={CONFIG.COLORS.PROFIT} stopOpacity={0.3} />
@@ -254,7 +310,17 @@ const Results: React.FC = () => {
                       />
                       <YAxis yAxisId="left" stroke={CONFIG.COLORS.TEXT} fontSize={12} tickLine={false} axisLine={false} domain={['auto', 'auto']} tickFormatter={(val) => `₹${(val / 1000).toFixed(0)}k`} />
                       <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9' }} />
-                      <Area yAxisId="left" type="monotone" dataKey="value" name="Equity" stroke={CONFIG.COLORS.PROFIT} strokeWidth={2} fillOpacity={1} fill="url(#colorValue)" animationDuration={500} />
+
+                      {/* Render extra background curves if in OOS multi-run mode */}
+                      {isOOSArray && oosResults.map((_, idx) => (
+                        idx !== activeOosIndex && (
+                          <Area key={idx} yAxisId="left" type="monotone" dataKey={`line_${idx}`} name={`Rank ${idx + 1}`} stroke="#334155" strokeWidth={1} fill="none" opacity={0.4} />
+                        )
+                      ))}
+
+                      {/* Primary active curve always on top */}
+                      <Area yAxisId="left" type="monotone" dataKey="value" name={isOOSArray ? `Rank ${activeOosIndex + 1} (Active)` : "Equity"} stroke={CONFIG.COLORS.PROFIT} strokeWidth={2} fillOpacity={1} fill="url(#colorValue)" animationDuration={500} />
+
                       {zoomLeft && zoomRight && (
                         <ReferenceArea
                           x1={zoomLeft}

@@ -22,3 +22,21 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+myenv/
+
+# Backend Data & Cache
+backend/cache_dir/
+*.parquet
+.ipynb_checkpoints
