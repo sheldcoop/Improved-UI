@@ -32,6 +32,35 @@ class OptimizationEngine:
         return max(20, int(months * 21)) # Minimum 20 bars for technical indicators
 
     @staticmethod
+    def _detect_freq(df: pd.DataFrame) -> str:
+        """Detect VectorBT-compatible frequency string from DataFrame time delta.
+
+        Mirrors the same logic used in BacktestEngine so Sharpe/Calmar
+        annualization is correct for intraday data.
+
+        Args:
+            df: OHLCV DataFrame with a DatetimeIndex.
+
+        Returns:
+            VBT frequency string (e.g. '1m', '5m', '15m', '1h', '1D').
+        """
+        try:
+            if len(df) > 1:
+                diff = df.index[1] - df.index[0]
+                minutes = int(diff.total_seconds() / 60)
+                if minutes == 1:
+                    return "1m"
+                elif minutes == 5:
+                    return "5m"
+                elif minutes == 15:
+                    return "15m"
+                elif minutes == 60:
+                    return "1h"
+        except Exception:
+            pass
+        return "1D"
+
+    @staticmethod
     def run_optuna(
         symbol: str,
         strategy_id: str,
@@ -83,6 +112,8 @@ class OptimizationEngine:
 
         _META_KEYS_OPT = frozenset({"startDate", "endDate", "reproducible"})
 
+        vbt_freq = OptimizationEngine._detect_freq(df)
+
         def objective(trial: optuna.Trial) -> float:
             config: dict = {}
             for param, constraints in ranges.items():
@@ -99,7 +130,7 @@ class OptimizationEngine:
             try:
                 entries, exits = strategy.generate_signals(df)
                 pf = vbt.Portfolio.from_signals(
-                    df["Close"], entries, exits, freq="1D", fees=0.001
+                    df["Close"], entries, exits, freq=vbt_freq, fees=0.001
                 )
                 
                 if scoring_metric == "total_return":
@@ -135,7 +166,7 @@ class OptimizationEngine:
             strategy = StrategyFactory.get_strategy(strategy_id, config)
             entries, exits = strategy.generate_signals(df)
             pf = vbt.Portfolio.from_signals(
-                df["Close"], entries, exits, freq="1D", fees=0.001
+                df["Close"], entries, exits, freq=vbt_freq, fees=0.001
             )
             grid_results.append({
                 "paramSet": trial.params,
@@ -145,6 +176,205 @@ class OptimizationEngine:
             })
 
         return {"grid": grid_results, "wfo": []}
+
+    @staticmethod
+    def _fetch_and_prepare_df(
+        symbol: str,
+        wfo_config: dict,
+        headers: dict,
+        train_m: int,
+        test_m: int,
+        label: str = "WFO",
+    ) -> tuple[pd.DataFrame | None, object, object]:
+        """Fetch and slice data for a WFO run, projecting back to cover the training window.
+
+        Args:
+            symbol: Ticker symbol to fetch.
+            wfo_config: WFO config with startDate and endDate.
+            headers: Flask request headers.
+            train_m: Training window in months.
+            test_m: Testing window in months.
+            label: Log label string for the calling context.
+
+        Returns:
+            Tuple of (df, fetch_start_dt, relativedelta) or (None, ...) on failure.
+        """
+        from datetime import datetime
+        from dateutil.relativedelta import relativedelta
+
+        user_start_str = wfo_config.get("startDate")
+        user_end_str = wfo_config.get("endDate")
+        user_start_dt = datetime.strptime(user_start_str, "%Y-%m-%d")
+        fetch_start_dt = user_start_dt - relativedelta(months=train_m) - pd.Timedelta(days=15)
+
+        fetcher = DataFetcher(headers)
+        df = fetcher.fetch_historical_data(
+            symbol,
+            from_date=str(fetch_start_dt.date()),
+            to_date=user_end_str,
+        )
+
+        if df is not None and user_end_str:
+            try:
+                df = df.loc[:user_end_str]
+                logger.info(
+                    f"📊 {label} Data: {df.index.min().date()} to {df.index.max().date()} ({len(df)} bars)"
+                )
+            except Exception as e:
+                logger.warning(f"{label} slicing failed: {e}")
+
+        return df, fetch_start_dt, relativedelta
+
+    @staticmethod
+    def _wfo_loop(
+        df: pd.DataFrame,
+        strategy_id: str,
+        ranges: dict[str, dict],
+        metric: str,
+        vbt_freq: str,
+        train_m: int,
+        test_m: int,
+        fetch_start_dt: object,
+        collect_signals: bool = False,
+    ) -> dict:
+        """Core Walk-Forward loop shared by run_wfo() and generate_wfo_portfolio().
+
+        Iterates rolling train/test windows, optimises on training data, and
+        scores on out-of-sample test data.
+
+        Args:
+            df: Full OHLCV DataFrame (includes training lookback).
+            strategy_id: Strategy identifier string.
+            ranges: Parameter search space.
+            metric: Scoring metric for Optuna ('sharpe', 'total_return', etc.).
+            vbt_freq: VBT-compatible frequency string (e.g. '1D', '1h').
+            train_m: Training window in months.
+            test_m: Testing window in months.
+            fetch_start_dt: Start of the fetched data range (a datetime).
+            collect_signals: If True, accumulate concatenated entry/exit signals
+                and per-window param_history for portfolio construction.
+
+        Returns:
+            Dict with keys:
+              - 'wfo_results': list of per-window result dicts
+              - 'all_entries': pd.Series of concatenated entries (if collect_signals)
+              - 'all_exits': pd.Series of concatenated exits (if collect_signals)
+              - 'param_history': list of per-window param dicts (if collect_signals)
+        """
+        from dateutil.relativedelta import relativedelta
+
+        wfo_results: list[dict] = []
+        all_entries = pd.Series(False, index=df.index) if collect_signals else None
+        all_exits = pd.Series(False, index=df.index) if collect_signals else None
+        param_history: list[dict] = [] if collect_signals else []
+
+        current_date = fetch_start_dt + relativedelta(months=train_m)
+        if current_date < df.index.min():
+            current_date = df.index.min() + relativedelta(months=train_m)
+
+        run_count = 1
+        last_best_params = None
+
+        logger.info(f"--- WFO LOOP START | Data: {df.index.min().date()} to {df.index.max().date()} ---")
+
+        while current_date < df.index.max():
+            test_start_dt = current_date
+            test_end_dt = test_start_dt + relativedelta(months=test_m) - pd.Timedelta(days=1)
+            train_end_dt = test_start_dt - pd.Timedelta(days=1)
+            train_start_dt = train_end_dt - relativedelta(months=train_m) + pd.Timedelta(days=1)
+
+            if test_end_dt > df.index.max():
+                logger.info(f"Stopping WFO: window ends {test_end_dt.date()} (beyond data {df.index.max().date()})")
+                break
+
+            train_df = df.loc[train_start_dt : train_end_dt]
+            if len(train_df) < 50:
+                logger.warning(f"Window {run_count}: Insufficient training data ({len(train_df)} bars). Skipping.")
+                current_date += relativedelta(months=test_m)
+                continue
+
+            test_df = df.loc[test_start_dt : test_end_dt]
+            if test_df.empty:
+                logger.warning(f"Window {run_count}: Empty test data. Stopping.")
+                break
+
+            warmup_start_dt = test_start_dt - relativedelta(months=train_m)
+            test_df_with_warmup = df.loc[warmup_start_dt : test_end_dt]
+
+            logger.info(
+                f"Window {run_count}: Train {train_start_dt.date()}->{train_end_dt.date()} "
+                f"| Test {test_start_dt.date()}->{test_end_dt.date()}"
+            )
+
+            # --- Optimise on training data ---
+            best_params = None
+            try:
+                best_params = OptimizationEngine._find_best_params(train_df, strategy_id, ranges, metric)
+                last_best_params = best_params
+            except Exception as e:
+                logger.warning(f"Window {run_count} Optimization Failed: {e}")
+                if last_best_params:
+                    logger.info(f"Using FALLBACK params from previous window: {last_best_params}")
+                    best_params = last_best_params
+                else:
+                    logger.error(f"No fallback parameters available. Skipping window.")
+                    current_date += relativedelta(months=test_m)
+                    run_count += 1
+                    continue
+
+            # --- Score on test data ---
+            try:
+                strategy = StrategyFactory.get_strategy(strategy_id, best_params)
+                entries_full, exits_full = strategy.generate_signals(test_df_with_warmup)
+
+                entries = entries_full.loc[test_start_dt : test_end_dt]
+                exits = exits_full.loc[test_start_dt : test_end_dt]
+                entries = entries.reindex(test_df.index).fillna(False)
+                exits = exits.reindex(test_df.index).fillna(False)
+
+                pf = vbt.Portfolio.from_signals(
+                    test_df["Close"], entries, exits, freq=vbt_freq, fees=0.001
+                )
+                test_signals = int(entries.sum())
+                logger.info(f"Window {run_count} Signals: {test_signals} | Params: {best_params}")
+
+                window_result = {
+                    "period": f"Window {run_count}: {test_start_dt.date()} to {test_end_dt.date()}",
+                    "type": "TEST",
+                    "params": str(best_params),
+                    "returnPct": round(float(pf.total_return()) * 100, 2),
+                    "sharpe": round(float(pf.sharpe_ratio()), 2),
+                    "drawdown": round(float(abs(pf.max_drawdown())) * 100, 2),
+                    "trades": test_signals,
+                }
+                wfo_results.append(window_result)
+
+                if collect_signals:
+                    all_entries.loc[test_start_dt : test_end_dt] = entries.values
+                    all_exits.loc[test_start_dt : test_end_dt] = exits.values
+                    param_history.append({
+                        "period": window_result["period"],
+                        "start": str(test_start_dt.date()),
+                        "end": str(test_end_dt.date()),
+                        "params": str(best_params),
+                        "trades": test_signals,
+                        "returnPct": window_result["returnPct"],
+                        "sharpe": window_result["sharpe"],
+                    })
+
+            except Exception as e:
+                logger.error(f"Window {run_count} Test Execution Failed: {e}")
+
+            current_date += relativedelta(months=test_m)
+            run_count += 1
+
+        logger.info("--- WFO LOOP COMPLETE ---")
+        return {
+            "wfo_results": wfo_results,
+            "all_entries": all_entries,
+            "all_exits": all_exits,
+            "param_history": param_history,
+        }
 
     @staticmethod
     def run_wfo(
@@ -161,166 +391,38 @@ class OptimizationEngine:
             strategy_id: Strategy identifier string.
             ranges: Parameter search space (same format as run_optuna).
             wfo_config: WFO window config. Keys:
-                - trainWindow (int): Number of bars for training. Default 100.
-                - testWindow (int): Number of bars for testing. Default 30.
-                - scoringMetric (str): Metric to optimize (default 'sharpe').
+                - trainWindow (int): Training window in months. Default 6.
+                - testWindow (int): Testing window in months. Default 2.
+                - scoringMetric (str): Metric to optimize. Default 'sharpe'.
+                - startDate (str): Start date 'YYYY-MM-DD'.
+                - endDate (str): End date 'YYYY-MM-DD'.
             headers: Flask request headers for API key resolution.
 
         Returns:
-            List of WFO window result dicts, each with:
-            period, type, params, returnPct, sharpe, drawdown.
+            Dict with 'wfo' (list of window results) and 'alerts'.
             Returns {'error': str} if data is insufficient.
         """
-        # Convert month-based windows to bars (assuming frontend sends months)
         train_m = int(wfo_config.get("trainWindow", 6))
         test_m = int(wfo_config.get("testWindow", 2))
         train_window = OptimizationEngine.month_to_bars(train_m)
         test_window = OptimizationEngine.month_to_bars(test_m)
         metric = wfo_config.get("scoringMetric", "sharpe")
 
-        # 1. Project fetch_start backward to satisfy train_window requirements
-        # Senior Developer Tip: If user wants WFO starting 2023 with 6m train, we MUST fetch from 2022-06
-        from datetime import datetime
-        from dateutil.relativedelta import relativedelta
-        
-        user_start_str = wfo_config.get("startDate")
-        user_end_str = wfo_config.get("endDate")
-        user_start_dt = datetime.strptime(user_start_str, "%Y-%m-%d")
-        # Subtract training months + 15 day buffer for safety
-        fetch_start_dt = user_start_dt - relativedelta(months=train_m) - pd.Timedelta(days=15)
-        
-        fetcher = DataFetcher(headers)
-        df = fetcher.fetch_historical_data(
-            symbol,
-            from_date=str(fetch_start_dt.date()),
-            to_date=user_end_str
+        df, fetch_start_dt, _ = OptimizationEngine._fetch_and_prepare_df(
+            symbol, wfo_config, headers, train_m, test_m, label="WFO"
         )
-
-        # 2. Adjusted Slicing: Keep the training history needed for the first window
-        if df is not None and user_end_str:
-            try:
-                # Slice up to user_end, but keep from fetch_start (which includes training bars)
-                df = df.loc[:user_end_str]
-                logger.info(f"📊 Processed WFO Data: {df.index.min().date()} to {df.index.max().date()} ({len(df)} bars)")
-                logger.info(f"   Target Window: {user_start_str} to {user_end_str}")
-            except Exception as e:
-                logger.warning(f"WFO slicing failed: {e}")
 
         if df is None or (isinstance(df, pd.DataFrame) and len(df) < train_window + test_window):
             needed = train_window + test_window
             found = len(df) if df is not None else 0
             return {"error": f"Not enough data for WFO. Need {needed} bars (~{needed//21}m), found {found} bars."}
 
-        wfo_results: list[dict] = []
-        
-        # Robust Date-Based Initialization
-        # current_date is the start of the first TEST window
-        current_date = fetch_start_dt + relativedelta(months=train_m)
-        if current_date < df.index.min():
-             # Should not happen given fetch logic, but safety first
-             current_date = df.index.min() + relativedelta(months=train_m)
-
-        run_count = 1
-        last_best_params = None # Fallback mechanism
-
-        logger.info(f"--- WFO EXECUTION START (Robust) ---")
-        logger.info(f"Data Range: {df.index.min().date()} to {df.index.max().date()}")
-
-        while current_date < df.index.max():
-            # Define Test Window Dates
-            test_start_dt = current_date
-            # Test window ends X months later
-            test_end_dt = test_start_dt + relativedelta(months=test_m) - pd.Timedelta(days=1)
-            
-            # Define Train Window Dates (Rolling Lookback)
-            # Train ends exactly yesterday relative to Test start
-            train_end_dt = test_start_dt - pd.Timedelta(days=1)
-            # Train starts X months before Train end
-            train_start_dt = train_end_dt - relativedelta(months=train_m) + pd.Timedelta(days=1)
-            
-            # Stop if test window goes beyond available data
-            if test_end_dt > df.index.max():
-                logger.info(f"Stopping WFO: Next window ends {test_end_dt.date()} (beyond data {df.index.max().date()})")
-                break
-
-            # 1. Slice Training Data (Date-Based)
-            train_df = df.loc[train_start_dt : train_end_dt]
-            
-            if len(train_df) < 50: 
-                logger.warning(f"Window {run_count}: Insufficient training data ({len(train_df)} bars). Skipping.")
-                current_date += relativedelta(months=test_m)
-                continue
-            
-            # 2. Slice Testing Data with Warmup (Date-Based)
-            test_df = df.loc[test_start_dt : test_end_dt]
-            if test_df.empty:
-                logger.warning(f"Window {run_count}: Empty test data. Stopping.")
-                break
-                
-            # Warmup Slice: Extended history for indicators
-            warmup_start_dt = test_start_dt - relativedelta(months=train_m)
-            test_df_with_warmup = df.loc[warmup_start_dt : test_end_dt]
-
-            logger.info(f"Window {run_count}: Train {train_start_dt.date()}->{train_end_dt.date()} | Test {test_start_dt.date()}->{test_end_dt.date()}")
-
-            # 3. Optimize on Train Data with Fallback
-            best_params = None
-            try:
-                best_params = OptimizationEngine._find_best_params(train_df, strategy_id, ranges, metric)
-                last_best_params = best_params # Update fallback
-            except Exception as e:
-                logger.warning(f"Window {run_count} Optimization Failed: {e}")
-                if last_best_params:
-                    logger.info(f"⚠️ Using FALLBACK params from previous window: {last_best_params}")
-                    best_params = last_best_params
-                else:
-                    logger.error(f"❌ No fallback parameters available. Skipping window.")
-                    current_date += relativedelta(months=test_m)
-                    run_count += 1
-                    continue
-
-            # 4. Score on Test Data
-            try:
-                strategy = StrategyFactory.get_strategy(strategy_id, best_params)
-                
-                # Generate signals on EXTENDED data
-                entries_full, exits_full = strategy.generate_signals(test_df_with_warmup)
-                
-                # Slice signals to keep only the strict TEST period
-                # Use strict date slicing on the Series for robustness
-                entries = entries_full.loc[test_start_dt : test_end_dt]
-                exits = exits_full.loc[test_start_dt : test_end_dt]
-                
-                # Robust Index Alignment
-                # Reindex to match test_df to ensure 1:1 shape even if signals are sparse
-                entries = entries.reindex(test_df.index).fillna(False)
-                exits = exits.reindex(test_df.index).fillna(False)
-
-                pf = vbt.Portfolio.from_signals(
-                    test_df["Close"], entries, exits, freq="1D", fees=0.001
-                )
-                
-                test_signals = int(entries.sum())
-                logger.info(f"Window {run_count} Signals: {test_signals} | Params: {best_params}")
-
-                wfo_results.append({
-                    "period": f"Window {run_count}: {test_start_dt.date()} to {test_end_dt.date()}",
-                    "type": "TEST",
-                    "params": str(best_params),
-                    "returnPct": round(float(pf.total_return()) * 100, 2),
-                    "sharpe": round(float(pf.sharpe_ratio()), 2),
-                    "drawdown": round(float(abs(pf.max_drawdown())) * 100, 2),
-                    "trades": test_signals
-                })
-            except Exception as e:
-                logger.error(f"Window {run_count} Test Execution Failed: {e}")
-
-            current_date += relativedelta(months=test_m)
-            run_count += 1
-
-        logger.info(f"--- WFO EXECUTION COMPLETE ---")
-        
-        # Add diagnostics
+        vbt_freq = OptimizationEngine._detect_freq(df)
+        loop = OptimizationEngine._wfo_loop(
+            df, strategy_id, ranges, metric, vbt_freq,
+            train_m, test_m, fetch_start_dt, collect_signals=False,
+        )
+        wfo_results = loop["wfo_results"]
         alerts = AlertManager.analyze_wfo(wfo_results, df)
         return {"wfo": wfo_results, "alerts": alerts}
 
@@ -332,183 +434,69 @@ class OptimizationEngine:
         wfo_config: dict,
         headers: dict,
     ) -> dict:
-        """Run WFO and generate a single continuous out-of-sample portfolio result.
+        """Run WFO and return a single continuous out-of-sample portfolio result.
 
-        This method concatenates the signals from all OOS test windows and returns
-        a consolidated result structure compatible with the Analytics page.
+        Concatenates all OOS test-window signals into a single portfolio and
+        returns a result structure compatible with the Analytics page.
+
+        Args:
+            symbol: Ticker symbol to fetch data for.
+            strategy_id: Strategy identifier string.
+            ranges: Parameter search space.
+            wfo_config: WFO config (same keys as run_wfo).
+            headers: Flask request headers for API key resolution.
+
+        Returns:
+            Consolidated backtest result dict with paramHistory and wfo fields,
+            or {'error': str} if data is insufficient.
         """
-        # Convert month-based windows to bars (assuming frontend sends months)
         train_m = int(wfo_config.get("trainWindow", 6))
         test_m = int(wfo_config.get("testWindow", 2))
         train_window = OptimizationEngine.month_to_bars(train_m)
         test_window = OptimizationEngine.month_to_bars(test_m)
         metric = wfo_config.get("scoringMetric", "sharpe")
 
-        # 1. Project fetch_start backward to satisfy train_window requirements
-        from datetime import datetime
-        from dateutil.relativedelta import relativedelta
-        
-        user_start_str = wfo_config.get("startDate")
-        user_end_str = wfo_config.get("endDate")
-        user_start_dt = datetime.strptime(user_start_str, "%Y-%m-%d")
-        # Subtract training months + 15 day buffer for safety
-        fetch_start_dt = user_start_dt - relativedelta(months=train_m) - pd.Timedelta(days=15)
-
-        fetcher = DataFetcher(headers)
-        df = fetcher.fetch_historical_data(
-            symbol,
-            from_date=str(fetch_start_dt.date()),
-            to_date=user_end_str
+        df, fetch_start_dt, relativedelta = OptimizationEngine._fetch_and_prepare_df(
+            symbol, wfo_config, headers, train_m, test_m, label="WFO Portfolio"
         )
-
-        # 2. Adjusted Slicing for Portfolio
-        if df is not None and user_end_str:
-            try:
-                df = df.loc[:user_end_str]
-                logger.info(f"💾 WFO Portfolio Data: {df.index.min().date()} to {df.index.max().date()} ({len(df)} bars)")
-            except Exception as e:
-                logger.warning(f"Portfolio slicing failed: {e}")
 
         if df is None or len(df) < train_window + test_window:
             needed = train_window + test_window
             found = len(df) if df is not None else 0
             return {"error": f"Not enough data for concatenated WFO. Need {needed} bars (~{needed//21}m), found {found} bars."}
 
-        # Initialize global result containers indexed like df
-        all_entries = pd.Series(False, index=df.index)
-        all_exits = pd.Series(False, index=df.index)
-        param_history = []
+        vbt_freq = OptimizationEngine._detect_freq(df)
+        loop = OptimizationEngine._wfo_loop(
+            df, strategy_id, ranges, metric, vbt_freq,
+            train_m, test_m, fetch_start_dt, collect_signals=True,
+        )
+        param_history = loop["param_history"]
+        all_entries = loop["all_entries"]
+        all_exits = loop["all_exits"]
 
-        wfo_results: list[dict] = []
-        
-        # Robust Date-Based Initialization
-        current_date = fetch_start_dt + relativedelta(months=train_m)
-        if current_date < df.index.min():
-             current_date = df.index.min() + relativedelta(months=train_m)
-
-        run_count = 1
-        last_best_params = None
-
-        logger.info(f"--- WFO PORTFOLIO EXECUTION START (Robust) ---")
-
-        while current_date < df.index.max():
-            # Define Test Window Dates
-            test_start_dt = current_date
-            test_end_dt = test_start_dt + relativedelta(months=test_m) - pd.Timedelta(days=1)
-            
-            # Define Train Window Dates
-            train_end_dt = test_start_dt - pd.Timedelta(days=1)
-            train_start_dt = train_end_dt - relativedelta(months=train_m) + pd.Timedelta(days=1)
-            
-            if test_end_dt > df.index.max():
-                 break
-
-            # 1. Slice Training Data
-            train_df = df.loc[train_start_dt : train_end_dt]
-            
-            if len(train_df) < 50: 
-                logger.warning(f"Window {run_count}: Insufficient training data. Skipping.")
-                current_date += relativedelta(months=test_m)
-                continue
-
-            # 2. Slice Testing Data
-            test_df = df.loc[test_start_dt : test_end_dt]
-            if test_df.empty: 
-                break
-            
-            # Warmup Slice
-            warmup_start_dt = test_start_dt - relativedelta(months=train_m)
-            test_df_with_warmup = df.loc[warmup_start_dt : test_end_dt]
-
-            # 3. Optimize with Fallback
-            best_params = None
-            try:
-                best_params = OptimizationEngine._find_best_params(train_df, strategy_id, ranges, metric)
-                last_best_params = best_params
-            except Exception as e:
-                logger.warning(f"Window {run_count} Optimization Failed: {e}")
-                if last_best_params:
-                    logger.info(f"⚠️ Using FALLBACK params: {last_best_params}")
-                    best_params = last_best_params
-                else:
-                    logger.error(f"❌ No fallback parameters. Skipping window.")
-                    current_date += relativedelta(months=test_m)
-                    run_count += 1
-                    continue
-            
-            # 4. Generate Signals & Concatenate
-            try:
-                strategy = StrategyFactory.get_strategy(strategy_id, best_params)
-                entries_full, exits_full = strategy.generate_signals(test_df_with_warmup)
-                
-                # Strict Slicing
-                entries = entries_full.loc[test_start_dt : test_end_dt]
-                exits = exits_full.loc[test_start_dt : test_end_dt]
-                
-                # Align with Master Index (df)
-                # We need to fill ONLY the specific window in the global arrays
-                # Using update() is safer than simple assignment for sparse series
-                # But simple assignment with loc is fine if indices match
-                entries = entries.reindex(test_df.index).fillna(False)
-                exits = exits.reindex(test_df.index).fillna(False)
-                
-                all_entries.loc[test_start_dt : test_end_dt] = entries.values
-                all_exits.loc[test_start_dt : test_end_dt] = exits.values
-                
-                test_signals = int(entries.sum())
-                logger.info(f"WFO Window {test_start_dt.date()}->{test_end_dt.date()} | Params: {best_params} | Signals: {test_signals}")
-                
-                # Create a single window portfolio for reporting metrics (avoid double instantiation)
-                window_pf = vbt.Portfolio.from_signals(test_df["Close"], entries, exits, freq="1D", fees=0.001)
-                period_str = f"Window {len(param_history)+1}: {test_start_dt.date()} to {test_end_dt.date()}"
-                param_history.append({
-                    "period": period_str,
-                    "start": str(test_start_dt.date()),
-                    "end": str(test_end_dt.date()),
-                    "params": str(best_params),
-                    "trades": test_signals,
-                    "returnPct": round(float(window_pf.total_return()) * 100, 2),
-                    "sharpe": round(float(window_pf.sharpe_ratio()), 2)
-                })
-            except Exception as e:
-                logger.error(f"Window {run_count} Generation Failed: {e}", exc_info=True)
-            
-            current_date += relativedelta(months=test_m)
-            run_count += 1
-
-        # 4. Filter data to only includes OOS range for the final portfolio
-        # We start OOS exactly after the first training block
-        oos_start_date = fetch_start_dt + relativedelta(months=train_m)
+        # Slice to the OOS range (after the first training block)
+        from dateutil.relativedelta import relativedelta as _relativedelta
+        oos_start_date = fetch_start_dt + _relativedelta(months=train_m)
         oos_df = df.loc[oos_start_date:]
-        
-        # Align entries/exits to this OOS dataframe
-        # They are already globally aligned to 'df', so just slice
         oos_entries = all_entries.loc[oos_start_date:]
         oos_exits = all_exits.loc[oos_start_date:]
 
         if oos_df.empty:
             return {"error": "Calibration failed - no OOS data generated."}
 
-        # 5. Run single portfolio over all concatenated segments
-        # Note: VectorBT handles signal alignment automatically
         from services.backtest_engine import BacktestEngine
-        
-        # We use BacktestEngine's logic for consistency in extraction
-        # but we need to run pf.from_signals directly here since signals are pre-filtered
         pf = vbt.Portfolio.from_signals(
-            oos_df["Close"], oos_entries, oos_exits, 
+            oos_df["Close"], oos_entries, oos_exits,
             init_cash=wfo_config.get("initial_capital", 100000),
-            fees=0.001, freq="1D"
+            fees=0.001, freq=vbt_freq,
         )
-        
+
         results = BacktestEngine._extract_results(pf, oos_df)
         results["paramHistory"] = param_history
-        results["wfo"] = param_history # Populate wfo field for frontend DebugConsole
+        results["wfo"] = param_history
         results["isDynamic"] = True
-        
-        # Dynamic Diagnostics
-        results["metrics"]["alerts"] = AlertManager.analyze_wfo(param_history, df) # Use paramHistory as proxy for windows
-        
+        results["metrics"]["alerts"] = AlertManager.analyze_wfo(param_history, df)
+
         from utils.json_utils import clean_float_values
         return clean_float_values(results)
 
@@ -570,7 +558,7 @@ class OptimizationEngine:
                     return float(-999)
 
                 # Use a consistent fee rate for all optimization trials
-                pf_kwargs = {"freq": "1D", "fees": 0.001}
+                pf_kwargs = {"freq": vbt_freq, "fees": 0.001}
                 pf = vbt.Portfolio.from_signals(df["Close"], entries, exits, **pf_kwargs)
                 
                 # Calculate all metrics for reporting
@@ -604,8 +592,10 @@ class OptimizationEngine:
                 logger.debug(f"Trial {trial.number} failed: {e}")
                 return float(-999)
 
+        vbt_freq = OptimizationEngine._detect_freq(df)
+
         logger.info(f"--- OPTIMIZATION START ---")
-        logger.info(f"Metric: {scoring_metric} | Strategy: {strategy_id} | Bars: {len(df)}")
+        logger.info(f"Metric: {scoring_metric} | Strategy: {strategy_id} | Bars: {len(df)} | Freq: {vbt_freq}")
         
         seed = 42 if ranges.get("reproducible", False) else None
         sampler = optuna.samplers.TPESampler(seed=seed)
@@ -648,3 +638,98 @@ class OptimizationEngine:
             return study.best_params, grid_results
 
         return study.best_params
+
+    @staticmethod
+    def run_auto_tune(
+        symbol: str,
+        strategy_id: str,
+        ranges: dict,
+        start_date_str: str,
+        lookback: int,
+        metric: str,
+        headers: dict,
+    ) -> dict:
+        """Run a quick Optuna search on the lookback period before a given date.
+
+        Args:
+            symbol: Ticker symbol to optimise on.
+            strategy_id: Strategy identifier string.
+            ranges: Parameter search space.
+            start_date_str: Backtest start date 'YYYY-MM-DD'. Optimisation
+                runs on the period immediately before this date.
+            lookback: Lookback window in months before start_date_str.
+            metric: Scoring metric ('sharpe', 'total_return', 'calmar', 'drawdown').
+            headers: Flask request headers for API key resolution.
+
+        Returns:
+            Dict with keys: bestParams, score, period, grid.
+            Returns {'status': 'error', 'message': str} on failure.
+        """
+        from datetime import datetime, timedelta
+        from dateutil.relativedelta import relativedelta
+
+        try:
+            start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+            is_end = start_date - timedelta(days=1)
+            is_start = is_end - relativedelta(months=lookback)
+        except Exception as e:
+            return {"status": "error", "message": f"Invalid date parameters: {e}"}
+
+        logger.info(
+            f"Auto-Tune: {symbol} | Strategy: {strategy_id} | "
+            f"Lookback: {is_start.date()} to {is_end.date()} ({lookback}m)"
+        )
+
+        fetcher = DataFetcher(headers)
+        df = fetcher.fetch_historical_data(symbol, from_date=str(is_start.date()), to_date=str(is_end.date()))
+
+        if df is None or (isinstance(df, pd.DataFrame) and df.empty):
+            return {"status": "error", "message": f"No data found for {symbol} ({is_start.date()} to {is_end.date()})"}
+
+        try:
+            mask = (df.index >= pd.Timestamp(is_start)) & (df.index <= pd.Timestamp(is_end))
+            is_df = df.loc[mask].dropna(subset=["Close"])
+        except Exception as e:
+            return {"status": "error", "message": f"Data processing error: {e}"}
+
+        if len(is_df) < 20:
+            return {
+                "status": "error",
+                "message": (
+                    f"Insufficient data points ({len(is_df)}) for {lookback}m lookback before {start_date_str}."
+                ),
+            }
+
+        try:
+            best_params, grid = OptimizationEngine._find_best_params(
+                is_df, strategy_id, ranges, metric, return_trials=True
+            )
+        except Exception as e:
+            return {"status": "error", "message": f"Optimization engine error: {e}"}
+
+        try:
+            vbt_freq = OptimizationEngine._detect_freq(is_df)
+            strategy = StrategyFactory.get_strategy(strategy_id, best_params)
+            entries, exits = strategy.generate_signals(is_df)
+            pf = vbt.Portfolio.from_signals(is_df["Close"], entries, exits, freq=vbt_freq)
+
+            if metric == "total_return":
+                score = float(pf.total_return())
+            elif metric == "calmar":
+                score = float(pf.calmar_ratio()) if callable(pf.calmar_ratio) else float(pf.calmar_ratio)
+            elif metric == "drawdown":
+                score = float(-abs(pf.max_drawdown()))
+            else:
+                score = float(pf.sharpe_ratio()) if callable(pf.sharpe_ratio) else float(pf.sharpe_ratio)
+
+            if np.isnan(score):
+                score = 0.0
+        except Exception as e:
+            return {"status": "error", "message": f"Scoring calculation failed: {e}"}
+
+        return {
+            "bestParams": best_params,
+            "score": round(score, 3),
+            "period": f"{is_start.date()} to {is_end.date()}",
+            "grid": grid,
+        }

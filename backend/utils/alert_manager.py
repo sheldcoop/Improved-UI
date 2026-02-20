@@ -38,7 +38,8 @@ class AlertManager:
             })
 
         # 3. Data Gap Detection
-        if not df.empty:
+        # df can be a dict (universe mode) — only run gap check on single-asset DataFrames
+        if isinstance(df, pd.DataFrame) and not df.empty:
             # Check for gaps (assuming daily data, ignoring weekends)
             expected_days = (df.index.max() - df.index.min()).days
             # Approximate trading days: 5/7 of total days

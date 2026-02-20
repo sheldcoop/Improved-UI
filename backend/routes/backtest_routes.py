@@ -46,6 +46,20 @@ def run_backtest():
         if timeframe not in ("1m", "5m", "15m", "1h", "1d"):
             return jsonify({"status": "error", "message": "Invalid timeframe"}), 400
 
+        # Numeric parameter validation
+        slippage_raw = data.get("slippage", 0.05)
+        commission_raw = data.get("commission", 20)
+        capital_raw = data.get("initial_capital", 100000)
+        try:
+            if float(slippage_raw) < 0:
+                return jsonify({"status": "error", "message": "slippage must be >= 0"}), 400
+            if float(commission_raw) < 0:
+                return jsonify({"status": "error", "message": "commission must be >= 0"}), 400
+            if float(capital_raw) <= 0:
+                return jsonify({"status": "error", "message": "initial_capital must be > 0"}), 400
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "message": "slippage, commission, and initial_capital must be numbers"}), 400
+
         universe = data.get("universe")
         target = universe if universe else symbol
         strategy_id = data.get("strategyId")
@@ -89,8 +103,9 @@ def run_backtest():
 
         results = BacktestEngine.run(df, strategy_id, config)
 
-        if not results:
-            return jsonify({"status": "error", "message": "No data found for symbol"}), 404
+        if not results or results.get("status") == "failed":
+            msg = results.get("error", "No data found for symbol") if results else "No data found for symbol"
+            return jsonify({"status": "error", "message": msg}), 404
 
         response = {
             "id": f"bk-{random.randint(1000, 9999)}",
@@ -98,6 +113,7 @@ def run_backtest():
             "symbol": target,
             "timeframe": timeframe,
             "status": "completed",
+            "syntheticData": fetcher.used_synthetic,  # warn frontend when real data unavailable
             **results,  # includes startDate, endDate from real data (Issue #15 fix)
         }
         return jsonify(response), 200

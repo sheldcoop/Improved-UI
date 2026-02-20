@@ -55,6 +55,7 @@ class DataFetcher:
         self.av_key: str | None = headers.get("x-alpha-vantage-key")
         self.use_av: bool = headers.get("x-use-alpha-vantage") == "true"
         self.use_dhan: bool = headers.get("x-use-dhan", "true") != "false"  # Default True, disable with header x-use-dhan: false
+        self.used_synthetic: bool = False  # Set True when synthetic fallback is used
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
@@ -62,17 +63,25 @@ class DataFetcher:
     # ------------------------------------------------------------------
 
     def is_cached(self, symbol: str, timeframe: str = "1d", from_date: str | None = None, to_date: str | None = None) -> bool:
-        """Check if data for symbol/timeframe is fully covered in cache."""
-        # Must use the same key format as _cache_path() / fetch_historical_data()
+        """Check if data for symbol/timeframe is fully covered in a fresh cache.
+
+        Mirrors the same TTL logic as _load_parquet() so callers get a
+        consistent answer about whether a live fetch will actually be skipped.
+        """
         cache_key = f"{symbol}_{timeframe}"
         file_path = self._cache_path(cache_key)
-        
+
         if not file_path.exists():
             return False
-            
+
+        # Honour the same 24-hour TTL used by _load_parquet()
+        age_hours = (datetime.now().timestamp() - file_path.stat().st_mtime) / 3600
+        if age_hours > CACHE_TTL_HOURS:
+            return False
+
         if not from_date or not to_date:
             return True
-            
+
         try:
             df = pd.read_parquet(file_path)
             start_req = pd.Timestamp(from_date)
@@ -100,11 +109,20 @@ class DataFetcher:
             and a DatetimeIndex, or a dict of DataFrames for universe symbols.
             Returns None if all data sources fail.
         """
-        # Senior Developer Tip: Use a provider-neutral cache key 
-        # so switching providers (AV -> Dhan) doesn't invalidate data
+        # Use a provider-neutral cache key so switching providers doesn't invalidate data
         cache_key = f"{symbol}_{timeframe}"
 
-        # Senior Dev Logic: Smart Cache Merging
+        # Universe symbols return a dict of DataFrames — handle separately
+        if symbol in self.UNIVERSE_TICKERS:
+            cached_universe = self._load_universe_parquet(cache_key)
+            if cached_universe is not None:
+                return cached_universe
+            fresh_universe = self._fetch_universe(symbol, timeframe)
+            if fresh_universe:
+                self._save_universe_parquet(cache_key, fresh_universe)
+            return fresh_universe
+
+        # Smart Cache Merging for single-asset DataFrames
         # 1. Load cache
         cached_df = self._load_parquet(cache_key)
         
@@ -254,6 +272,7 @@ class DataFetcher:
             return self._fetch_universe(symbol, timeframe)
 
         logger.warning(f"All data sources failed for {symbol}. Using synthetic data.")
+        self.used_synthetic = True
         return self._generate_synthetic(symbol, timeframe)
 
     def _fetch_dhan(self, symbol: str, timeframe: str, from_date: str | None = None, to_date: str | None = None) -> pd.DataFrame | None:
@@ -444,6 +463,11 @@ class DataFetcher:
         safe_key = cache_key.replace(" ", "_").replace("/", "_")
         return CACHE_DIR / f"{safe_key}.parquet"
 
+    def _universe_cache_dir(self, cache_key: str) -> Path:
+        """Return the directory used to store universe (dict) cache files."""
+        safe_key = cache_key.replace(" ", "_").replace("/", "_")
+        return CACHE_DIR / f"universe_{safe_key}"
+
     def _load_parquet(self, cache_key: str) -> pd.DataFrame | None:
         """Load a cached DataFrame from Parquet if it exists and is fresh.
 
@@ -463,7 +487,6 @@ class DataFetcher:
             return None
 
         try:
-            # Senior Dev Practice: Explicitly log path and ensure it's absolute if needed
             df = pd.read_parquet(path)
             # Ensure columns are standardized (Open, High, Low, Close, Volume)
             if not df.empty:
@@ -472,6 +495,61 @@ class DataFetcher:
         except Exception as exc:
             logger.warning(f"Failed to read Parquet cache for {cache_key}: {exc}")
             return None
+
+    def _load_universe_parquet(self, cache_key: str) -> dict | None:
+        """Load a cached universe dict-of-DataFrames from Parquet files.
+
+        Each OHLCV key (Open, High, Low, Close, Volume) is stored as a
+        separate Parquet file inside a per-universe subdirectory.
+
+        Args:
+            cache_key: Unique string key for the cached universe.
+
+        Returns:
+            Dict of DataFrames keyed by OHLCV column name, or None on miss/stale.
+        """
+        cache_dir = self._universe_cache_dir(cache_key)
+        sentinel = cache_dir / ".meta"  # touch this file to track mtime
+        if not cache_dir.exists() or not sentinel.exists():
+            return None
+
+        age_hours = (datetime.now().timestamp() - sentinel.stat().st_mtime) / 3600
+        if age_hours > CACHE_TTL_HOURS:
+            logger.info(f"Universe cache stale for {cache_key} ({age_hours:.1f}h old). Refreshing.")
+            return None
+
+        try:
+            result = {}
+            for col in ("Open", "High", "Low", "Close", "Volume"):
+                p = cache_dir / f"{col}.parquet"
+                if not p.exists():
+                    return None
+                result[col] = pd.read_parquet(p)
+            logger.info(f"⚡ Universe Cache Hit for {cache_key}")
+            return result
+        except Exception as exc:
+            logger.warning(f"Failed to read universe cache for {cache_key}: {exc}")
+            return None
+
+    def _save_universe_parquet(self, cache_key: str, data: dict) -> None:
+        """Persist a universe dict-of-DataFrames to Parquet files.
+
+        Args:
+            cache_key: Unique string key for the cached universe.
+            data: Dict with OHLCV keys, each value a DataFrame.
+        """
+        if not data:
+            return
+        cache_dir = self._universe_cache_dir(cache_key)
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            for col, df in data.items():
+                df.to_parquet(cache_dir / f"{col}.parquet", compression="snappy")
+            # Touch sentinel file to track cache age
+            (cache_dir / ".meta").touch()
+            logger.info(f"💾 Cached Universe {cache_key} → {cache_dir.name}/")
+        except Exception as exc:
+            logger.warning(f"Failed to write universe cache for {cache_key}: {exc}")
 
     def _save_parquet(self, cache_key: str, df: pd.DataFrame) -> None:
         """Save a DataFrame to Parquet with Snappy compression.

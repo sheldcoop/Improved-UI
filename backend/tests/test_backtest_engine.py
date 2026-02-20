@@ -201,9 +201,19 @@ class TestComputeAdvancedMetrics:
 # ---------------------------------------------------------------------------
 
 class TestEdgeCases:
-    def test_run_returns_none_for_none_df(self):
-        assert BacktestEngine.run(None, "1") is None
+    def test_run_returns_failed_status_for_none_df(self):
+        """run() must return a failed-status dict (not None) for None input."""
+        result = BacktestEngine.run(None, "1")
+        assert result is not None, "run() should return a dict, not None"
+        assert result.get("status") == "failed", (
+            f"Expected status='failed', got {result!r}"
+        )
 
-    def test_run_returns_none_for_empty_df(self):
+    def test_run_returns_failed_status_for_empty_df(self):
+        """run() must return a failed-status dict (not None) for an empty DataFrame."""
         empty = pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
-        assert BacktestEngine.run(empty, "1") is None
+        result = BacktestEngine.run(empty, "1")
+        assert result is not None, "run() should return a dict, not None"
+        assert result.get("status") == "failed", (
+            f"Expected status='failed', got {result!r}"
+        )
