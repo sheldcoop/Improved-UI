@@ -64,9 +64,10 @@ class MonteCarloEngine:
             sigma: float = 0.015
             last_price: float = 100.0
         else:
-            returns = df["Close"].pct_change().dropna()
-            mu = float(returns.mean())
-            sigma = float(returns.std())
+            # Use log returns for proper GBM — avoids upward drift bias from arithmetic compounding
+            log_returns = np.log(df["Close"] / df["Close"].shift(1)).dropna()
+            mu = float(log_returns.mean())
+            sigma = float(log_returns.std())
             last_price = float(df["Close"].iloc[-1])
 
         sigma = sigma * vol_mult
@@ -74,11 +75,12 @@ class MonteCarloEngine:
         paths: list[dict] = []
 
         for i in range(simulations):
+            # GBM: S(t) = S(t-1) * exp(shock), shock ~ N(mu, sigma)
             shocks = np.random.normal(mu, sigma, days)
             price_path = np.zeros(days)
             price_path[0] = last_price
             for t in range(1, days):
-                price_path[t] = price_path[t - 1] * (1 + shocks[t])
+                price_path[t] = price_path[t - 1] * np.exp(shocks[t])
             paths.append({"id": i, "values": price_path.tolist()})
 
         logger.info(f"Monte Carlo: {simulations} paths for {symbol} (vol_mult={vol_mult})")

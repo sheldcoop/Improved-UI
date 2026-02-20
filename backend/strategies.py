@@ -522,8 +522,8 @@ def signal_logic(df):
     min_rsi = rsi.rolling({k_period}).min()
     max_rsi = rsi.rolling({k_period}).max()
     stoch_rsi = (rsi - min_rsi) / (max_rsi - min_rsi)
-    k_line = stoch_rsi.rolling(3).mean() * 100
-    
+    k_line = stoch_rsi.rolling({d_period}).mean() * 100
+
     entries = k_line.vbt.crossed_above(20)
     exits = k_line.vbt.crossed_below(80)
     return entries, exits
