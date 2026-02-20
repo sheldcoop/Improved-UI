@@ -447,7 +447,13 @@ class OptimizationEngine:
         total_return = float(pf.total_return())
         sharpe = float(pf.sharpe_ratio()) if not np.isnan(pf.sharpe_ratio()) else 0.0
         max_dd = float(pf.max_drawdown())
-        calmar = float(pf.calmar_ratio()) if callable(pf.calmar_ratio) else (pf.calmar_ratio if not np.isnan(pf.calmar_ratio) else 0.0)
+        
+        calmar = 0.0
+        try:
+            stats = pf.stats()
+            calmar = float(stats.get("Calmar Ratio", 0.0))
+        except Exception:
+            pass
         
         win_rate = 0.0
         try:
@@ -463,7 +469,9 @@ class OptimizationEngine:
         elif scoring_metric == "calmar":
             score = calmar
         elif scoring_metric == "drawdown":
-            score = -abs(max_dd)
+            # Optuna maximizes, so we pass the negative of the *raw* (positive absolute) percentage. 
+            # E.g. a 5% drawdown is -5.0 score. 
+            score = -abs(max_dd) * 100
         else:
             score = sharpe
             
