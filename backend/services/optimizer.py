@@ -205,6 +205,10 @@ class OptimizationEngine:
         user_start_str = wfo_config.get("startDate")
         user_end_str = wfo_config.get("endDate")
         user_start_dt = datetime.strptime(user_start_str, "%Y-%m-%d")
+        # NOTE: fetch_start_dt reaches back before user_start_dt by one full training
+        # window plus a 15-day buffer. This is intentional: Window 1 needs train_m months
+        # of historical data before the user's requested startDate. Consequently, Window 1's
+        # test period will begin roughly 15 days before user_start_dt, not exactly on it.
         fetch_start_dt = user_start_dt - relativedelta(months=train_m) - pd.Timedelta(days=15)
 
         fetcher = DataFetcher(headers)
@@ -308,6 +312,7 @@ class OptimizationEngine:
 
             # --- Optimise on training data ---
             best_params = None
+            using_fallback = False
             try:
                 best_params = OptimizationEngine._find_best_params(train_df, strategy_id, ranges, metric)
                 last_best_params = best_params
@@ -316,6 +321,7 @@ class OptimizationEngine:
                 if last_best_params:
                     logger.info(f"Using FALLBACK params from previous window: {last_best_params}")
                     best_params = last_best_params
+                    using_fallback = True
                 else:
                     logger.error(f"No fallback parameters available. Skipping window.")
                     current_date += relativedelta(months=test_m)
@@ -325,23 +331,32 @@ class OptimizationEngine:
             # --- Score on test data ---
             try:
                 strategy = StrategyFactory.get_strategy(strategy_id, best_params)
-                entries_full, exits_full = strategy.generate_signals(test_df_with_warmup)
+                # Generate signals on test_df only (no warmup) so Sharpe reflects
+                # a clean out-of-sample period without indicator warm-up bias.
+                entries_full, exits_full = strategy.generate_signals(test_df)
 
-                entries = entries_full.loc[test_start_dt : test_end_dt]
-                exits = exits_full.loc[test_start_dt : test_end_dt]
-                entries = entries.reindex(test_df.index).fillna(False)
-                exits = exits.reindex(test_df.index).fillna(False)
+                entries = entries_full.reindex(test_df.index).fillna(False)
+                exits = exits_full.reindex(test_df.index).fillna(False)
 
                 pf = vbt.Portfolio.from_signals(
                     test_df["Close"], entries, exits, freq=vbt_freq, fees=0.001
                 )
                 test_signals = int(entries.sum())
+                if test_signals < 5:
+                    logger.warning(
+                        f"Window {run_count}: Insufficient trades ({test_signals} < 5). "
+                        f"Skipping window {test_start_dt.date()} to {test_end_dt.date()}"
+                    )
+                    current_date += relativedelta(months=test_m)
+                    run_count += 1
+                    continue
                 logger.info(f"Window {run_count} Signals: {test_signals} | Params: {best_params}")
 
                 window_result = {
                     "period": f"Window {run_count}: {test_start_dt.date()} to {test_end_dt.date()}",
                     "type": "TEST",
                     "params": str(best_params),
+                    "usingFallback": using_fallback,
                     "returnPct": round(float(pf.total_return()) * 100, 2),
                     "sharpe": round(float(pf.sharpe_ratio()), 2),
                     "drawdown": round(float(abs(pf.max_drawdown())) * 100, 2),
@@ -357,6 +372,7 @@ class OptimizationEngine:
                         "start": str(test_start_dt.date()),
                         "end": str(test_end_dt.date()),
                         "params": str(best_params),
+                        "usingFallback": using_fallback,
                         "trades": test_signals,
                         "returnPct": window_result["returnPct"],
                         "sharpe": window_result["sharpe"],

@@ -287,6 +287,12 @@ class DynamicStrategy(BaseStrategy):
         Supports both VISUAL mode (rule builder) and CODE mode
         (sandboxed Python execution).
 
+        When ``nextBarEntry`` is True in the config, all signals are shifted
+        forward by one bar so execution happens on the next candle's open
+        rather than the same candle that generated the signal. This matches
+        the ATR Channel Breakout (strategy 7) and is the realistic default
+        for daily-bar strategies.
+
         Args:
             df: OHLCV DataFrame or dict of DataFrames (universe mode).
 
@@ -295,30 +301,36 @@ class DynamicStrategy(BaseStrategy):
             aligned to the input DataFrame's index.
         """
         if self.config.get("mode") == "CODE":
-            return self._execute_python_code(df)
-
-        entry_group = self.config.get("entryLogic")
-        exit_group = self.config.get("exitLogic")
-        target_index = df["Close"].index if isinstance(df, dict) else df.index
-        is_universe = isinstance(df, dict)
-
-        if not entry_group:
-            if is_universe:
-                entries = pd.DataFrame(False, index=target_index, columns=df["Close"].columns)
-            else:
-                entries = pd.Series(False, index=target_index)
-            exits = entries
+            entries, exits = self._execute_python_code(df)
         else:
-            entries = self._evaluate_node(df, entry_group)
-            if not exit_group:
-                if is_universe:
-                    exits = pd.DataFrame(False, index=target_index, columns=df["Close"].columns)
-                else:
-                    exits = pd.Series(False, index=target_index)
-            else:
-                exits = self._evaluate_node(df, exit_group)
+            entry_group = self.config.get("entryLogic")
+            exit_group = self.config.get("exitLogic")
+            target_index = df["Close"].index if isinstance(df, dict) else df.index
+            is_universe = isinstance(df, dict)
 
-        entries, exits = self._apply_time_filter(df, entries, exits)
+            if not entry_group:
+                if is_universe:
+                    entries = pd.DataFrame(False, index=target_index, columns=df["Close"].columns)
+                else:
+                    entries = pd.Series(False, index=target_index)
+                exits = entries
+            else:
+                entries = self._evaluate_node(df, entry_group)
+                if not exit_group:
+                    if is_universe:
+                        exits = pd.DataFrame(False, index=target_index, columns=df["Close"].columns)
+                    else:
+                        exits = pd.Series(False, index=target_index)
+                else:
+                    exits = self._evaluate_node(df, exit_group)
+
+            entries, exits = self._apply_time_filter(df, entries, exits)
+
+        # Delay by 1 bar: enter on next candle open, not signal candle close.
+        if self.config.get("nextBarEntry", False) and entries is not None and exits is not None:
+            entries = entries.shift(1).fillna(False)
+            exits = exits.shift(1).fillna(False)
+
         return entries, exits
 
     def _execute_python_code(
@@ -412,6 +424,7 @@ class StrategyFactory:
         if strategy_id == "1":
             # RSI Mean Reversion Preset
             return DynamicStrategy({
+                "nextBarEntry": True,  # Enter on next candle open after signal fires
                 "entryLogic": {
                     "type": "GROUP",
                     "logic": "AND",
@@ -472,6 +485,7 @@ def signal_logic(df):
             fast = int(config.get("fast", 20))
             slow = int(config.get("slow", 50))
             return DynamicStrategy({
+                "nextBarEntry": True,  # Enter on next candle open after crossover fires
                 "mode": "CODE",
                 "pythonCode": f"""
 def signal_logic(df):

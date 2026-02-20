@@ -275,9 +275,14 @@ const Results: React.FC = () => {
               <Card title="WFO Parameter History" className="h-[450px] overflow-y-auto">
                 <div className="space-y-3">
                   {result.paramHistory.map((h, i) => (
-                    <div key={i} className="bg-slate-900 border border-slate-800 p-3 rounded-lg">
+                    <div key={i} className={`bg-slate-900 border p-3 rounded-lg ${h.usingFallback ? 'border-amber-700/60' : 'border-slate-800'}`}>
                       <div className="flex justify-between text-[10px] text-slate-500 uppercase font-bold mb-2">
-                        <span>Window {i + 1}</span>
+                        <div className="flex items-center gap-2">
+                          <span>Window {i + 1}</span>
+                          {h.usingFallback && (
+                            <span className="px-1.5 py-0.5 bg-amber-900/50 text-amber-400 rounded text-[9px] tracking-wide">FALLBACK</span>
+                          )}
+                        </div>
                         <span>{h.start} to {h.end}</span>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
