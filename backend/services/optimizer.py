@@ -271,6 +271,7 @@ class OptimizationEngine:
         all_entries = pd.Series(False, index=df.index) if collect_signals else None
         all_exits = pd.Series(False, index=df.index) if collect_signals else None
         param_history: list[dict] = [] if collect_signals else []
+        all_trials: list[dict] = []  # accumulated Optuna trials across all windows
 
         current_date = fetch_start_dt + relativedelta(months=train_m)
         if current_date < df.index.min():
@@ -302,9 +303,6 @@ class OptimizationEngine:
                 logger.warning(f"Window {run_count}: Empty test data. Stopping.")
                 break
 
-            warmup_start_dt = test_start_dt - relativedelta(months=train_m)
-            test_df_with_warmup = df.loc[warmup_start_dt : test_end_dt]
-
             logger.info(
                 f"Window {run_count}: Train {train_start_dt.date()}->{train_end_dt.date()} "
                 f"| Test {test_start_dt.date()}->{test_end_dt.date()}"
@@ -313,8 +311,12 @@ class OptimizationEngine:
             # --- Optimise on training data ---
             best_params = None
             using_fallback = False
+            window_trials: list[dict] = []
             try:
-                best_params = OptimizationEngine._find_best_params(train_df, strategy_id, ranges, metric)
+                best_params, window_trials = OptimizationEngine._find_best_params(
+                    train_df, strategy_id, ranges, metric, return_trials=True
+                )
+                all_trials.extend(window_trials)
                 last_best_params = best_params
             except Exception as e:
                 logger.warning(f"Window {run_count} Optimization Failed: {e}")
@@ -371,7 +373,7 @@ class OptimizationEngine:
                         "period": window_result["period"],
                         "start": str(test_start_dt.date()),
                         "end": str(test_end_dt.date()),
-                        "params": str(best_params),
+                        "params": best_params,  # dict → JSON object so frontend can Object.entries()
                         "usingFallback": using_fallback,
                         "trades": test_signals,
                         "returnPct": window_result["returnPct"],
@@ -390,6 +392,7 @@ class OptimizationEngine:
             "all_entries": all_entries,
             "all_exits": all_exits,
             "param_history": param_history,
+            "grid": all_trials,
         }
 
     @staticmethod
@@ -440,7 +443,7 @@ class OptimizationEngine:
         )
         wfo_results = loop["wfo_results"]
         alerts = AlertManager.analyze_wfo(wfo_results, df)
-        return {"wfo": wfo_results, "alerts": alerts}
+        return {"wfo": wfo_results, "alerts": alerts, "grid": loop["grid"]}
 
     @staticmethod
     def generate_wfo_portfolio(
@@ -511,6 +514,7 @@ class OptimizationEngine:
         results["paramHistory"] = param_history
         results["wfo"] = param_history
         results["isDynamic"] = True
+        results["grid"] = loop["grid"]
         results["metrics"]["alerts"] = AlertManager.analyze_wfo(param_history, df)
 
         from utils.json_utils import clean_float_values
