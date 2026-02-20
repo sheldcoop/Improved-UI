@@ -309,7 +309,7 @@ class OptimizationEngine:
             except Exception as e:
                 logger.error(f"Window {run_count} Test Execution Failed: {e}")
 
-            current_idx += test_window
+            current_date += relativedelta(months=test_m)
             run_count += 1
 
         logger.info(f"--- WFO EXECUTION COMPLETE ---")
