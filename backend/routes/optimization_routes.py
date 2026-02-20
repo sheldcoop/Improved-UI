@@ -7,6 +7,7 @@ from flask import Blueprint, request, jsonify
 import logging
 
 from services.optimizer import OptimizationEngine
+from services.wfo_engine import WFOEngine
 
 optimization_bp = Blueprint("optimization", __name__)
 logger = logging.getLogger(__name__)
@@ -98,11 +99,11 @@ def run_wfo():
         logger.info(f"Running WFO for {symbol} | Train: {train_m}m, Test: {test_m}m | Full: {full_results}")
         
         if full_results:
-            results = OptimizationEngine.generate_wfo_portfolio(
+            results = WFOEngine.generate_wfo_portfolio(
                 symbol, strategy_id, ranges, wfo_config, request.headers
             )
         else:
-            results = OptimizationEngine.run_wfo(
+            results = WFOEngine.run_wfo(
                 symbol, strategy_id, ranges, wfo_config, request.headers
             )
         return jsonify(results), 200

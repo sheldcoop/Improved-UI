@@ -14,6 +14,7 @@ from services.scrip_master import search_instruments, get_instrument_by_symbol
 from services.dhan_historical import fetch_historical_data, validate_date_range
 from services.strategy_store import StrategyStore
 from services.backtest_engine import BacktestEngine
+from services.data_health import DataHealthService
 from utils.market_calendar import get_nse_trading_days, is_trading_day
 
 market_bp = Blueprint("market", __name__)
@@ -128,142 +129,12 @@ def validate_market_data():
         fetcher = DataFetcher(request.headers)
         fetcher.fetch_historical_data(symbol, timeframe, val_from, val_to)
 
-        report = _compute_data_health(symbol, timeframe, val_from, val_to)
+        report = DataHealthService.compute(symbol, timeframe, val_from, val_to)
         return jsonify(report), 200
 
     except Exception as exc:
         logger.error(f"Market validate error: {exc}", exc_info=True)
         return jsonify({"status": "error", "message": "Validation failed"}), 500
-
-
-def _compute_data_health(
-    symbol: str,
-    timeframe: str,
-    from_date: str,
-    to_date: str,
-) -> dict:
-    """Compute a DataHealthReport by inspecting the Parquet cache.
-
-    Args:
-        symbol: Ticker symbol.
-        timeframe: Candle interval string.
-        from_date: Start date 'YYYY-MM-DD'.
-        to_date: End date 'YYYY-MM-DD'.
-
-    Returns:
-        DataHealthReport dict with score, missingCandles, zeroVolumeCandles,
-        totalCandles, gaps (list of date strings), and status string.
-    """
-    from services.data_fetcher import CACHE_DIR
-    if not os.path.exists(CACHE_DIR):
-        os.makedirs(CACHE_DIR, exist_ok=True)
-    safe_symbol = symbol.replace(" ", "_").replace("/", "_")
-    
-    # Provider-agnostic check: find any parquet file for this symbol/timeframe
-    # Convention: {symbol}_{timeframe}_{provider}.parquet or just {symbol}_{timeframe}.parquet
-    parquet_path = None
-    if os.path.exists(CACHE_DIR):
-        files = os.listdir(CACHE_DIR)
-        for f in files:
-            if f.startswith(f"{safe_symbol}_{timeframe}") and f.endswith(".parquet"):
-                parquet_path = os.path.join(CACHE_DIR, f)
-                break
-
-    start_dt = pd.Timestamp(from_date)
-    end_dt = pd.Timestamp(to_date)
-
-    if parquet_path is None or not os.path.exists(parquet_path):
-        # No cache yet — return a neutral report
-        return {
-            "score": 0.0,
-            "missingCandles": 0,
-            "zeroVolumeCandles": 0,
-            "totalCandles": 0,
-            "gaps": [],
-            "status": "CRITICAL",
-            "note": "No cached data found. Run a backtest first to populate the cache.",
-        }
-
-    df = pd.read_parquet(parquet_path)
-    df = df[(df.index >= start_dt) & (df.index <= end_dt)]
-
-    total = len(df)
-    if total == 0:
-        return {
-            "score": 0.0,
-            "missingCandles": 0,
-            "zeroVolumeCandles": 0,
-            "totalCandles": 0,
-            "gaps": [],
-            "status": "CRITICAL",
-            "note": "No data in the requested date range.",
-        }
-
-    # Zero-volume candles
-    # Handle both Uppercase and lowercase columns
-    vol_col = "Volume" if "Volume" in df.columns else "volume"
-    zero_vol = int((df[vol_col] == 0).sum()) if vol_col in df.columns else 0
-
-    # Detect gaps: consecutive trading days with no data
-    if timeframe == "1d":
-        # Senior Dev Tip: Use the specialized trading calendar to exclude holidays and weekends
-        expected_days = get_nse_trading_days(start_dt.date(), end_dt.date())
-        actual_days = df.index.normalize().unique()
-        missing_days = expected_days.difference(actual_days)
-        missing = len(missing_days)
-        
-        if missing > 0:
-            logger.info(f"🔎 Data Health Audit for {symbol}: Found {missing} missing days.")
-            logger.info(f"📅 Missing Dates: {[str(d.date()) for d in missing_days]}")
-            
-        gaps = [str(d.date()) for d in missing_days[:10]]  # cap at 10 for response size
-    else:
-        # Intraday gap detection: calculate expected candles per day (9:15 to 15:30)
-        # 375 minutes / interval
-        try:
-            interval_mins = int(timeframe[:-1]) if timeframe[-1] == 'm' else 60
-            # NSE Market: 09:15 to 15:30 = 6 hours 15 mins = 375 mins
-            # 15m -> 25 candles, 5m -> 75 candles, 1m -> 375 candles
-            candles_per_day = 375 // interval_mins
-            expected_trading_days = get_nse_trading_days(start_dt.date(), end_dt.date())
-            expected_total = len(expected_trading_days) * candles_per_day
-            
-            missing = max(0, expected_total - total)
-            
-            # Simple gap detection: consecutive rows with timestamp difference > interval
-            diffs = df.index.to_series().diff()
-            # Allow for overnight and weekend jumps
-            mask = (diffs > pd.Timedelta(minutes=interval_mins))
-            # Filter out known non-trading jumps (e.g., overnight)
-            gaps = [str(d) for d in df.index[mask][:10]]
-        except Exception as e:
-            logger.warning(f"Intraday gap detection failed: {e}")
-            missing = 0
-            gaps = []
-
-    # Less punitive scoring: 
-    # - Missing candles: -5 points each (critical)
-    # - Zero Volume: -0.1 points each (often just closing markers)
-    raw_score = 100 - (missing * 5) - (zero_vol * 0.1)
-    score = round(max(0.0, min(100.0, raw_score)), 1)
-
-    if score >= 98:
-        status = "EXCELLENT"
-    elif score >= 85:
-        status = "GOOD"
-    elif score >= 60:
-        status = "POOR"
-    else:
-        status = "CRITICAL"
-
-    return {
-        "score": score,
-        "missingCandles": missing,
-        "zeroVolumeCandles": zero_vol,
-        "totalCandles": total,
-        "gaps": gaps,
-        "status": status,
-    }
 
 
 @market_bp.route("/instruments", methods=["GET"])

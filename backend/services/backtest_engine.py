@@ -109,8 +109,11 @@ class BacktestEngine:
         try:
             sample_df = df if isinstance(df, pd.DataFrame) else df["Close"]
             if len(sample_df) > 1:
-                diff = sample_df.index[1] - sample_df.index[0]
-                minutes = int(diff.total_seconds() / 60)
+                # Use the mode (most common) time difference to ignore overnight/weekend gaps
+                diffs = sample_df.index.to_series().diff()
+                mode_diff = diffs.mode()[0]
+                minutes = int(mode_diff.total_seconds() / 60)
+                
                 if minutes == 1: vbt_freq = "1m"
                 elif minutes == 5: vbt_freq = "5m"
                 elif minutes == 15: vbt_freq = "15m"

@@ -6,15 +6,16 @@ logger = logging.getLogger(__name__)
 class DataCleaner:
     """Institutional-grade market data cleaning service.
     
-    Centralizes all transformation and validation logic to ensure
-    consistent data quality across all symbols and timeframes.
+    Centralizes essential transformation and validation logic.
+    - Converts UTC to IST
+    - Removes zero/null prices
+    - Ensures chronological order uniquely
     """
 
     @staticmethod
     def fix_timezone(df: pd.DataFrame) -> pd.DataFrame:
         """Adjust UTC timestamps to IST (+5:30)."""
         # Dhan returns Unix timestamps. Pandas assumes UTC.
-        # Only apply if not already timezone aware (offset-naive)
         if df.index.tzinfo is None:
             df.index = df.index + pd.Timedelta(hours=5, minutes=30)
         return df
@@ -40,23 +41,6 @@ class DataCleaner:
         return df.sort_index()
 
     @staticmethod
-    def remove_weekends(df: pd.DataFrame) -> pd.DataFrame:
-        """Remove Saturday and Sunday rows from the dataset."""
-        # IST shift can sometimes create "Sunday" candles for Friday market close
-        return df[df.index.dayofweek < 5]
-
-    @staticmethod
-    def remove_non_trading_hours(df: pd.DataFrame, is_intraday: bool = True) -> pd.DataFrame:
-        """Filter data to include only NSE trading session (09:15 - 15:30 IST).
-        
-        Only applies to intraday data.
-        """
-        if df.empty or not is_intraday:
-            return df
-            
-        return df.between_time("09:15", "15:30")
-
-    @staticmethod
     def log_cleaning_report(original_len: int, cleaned_df: pd.DataFrame, symbol: str) -> None:
         """Log a summary of data cleaning actions."""
         removed = original_len - len(cleaned_df)
@@ -67,7 +51,7 @@ class DataCleaner:
 
     @staticmethod
     def clean(df: pd.DataFrame, symbol: str = 'unknown', is_intraday: bool = False) -> pd.DataFrame:
-        """Master sanitation pipeline. Runs all cleaning steps in optimal sequence."""
+        """Master sanitation pipeline. Runs essential cleaning steps in optimal sequence."""
         if df is None or df.empty:
             return df
             
@@ -75,8 +59,6 @@ class DataCleaner:
         
         # 1. Temporal Normalization
         df = DataCleaner.fix_timezone(df)
-        df = DataCleaner.remove_weekends(df)
-        df = DataCleaner.remove_non_trading_hours(df, is_intraday=is_intraday)
         df = DataCleaner.sort_chronological(df)
         df = DataCleaner.remove_duplicates(df)
         
