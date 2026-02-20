@@ -92,7 +92,8 @@ const Optimization: React.FC = () => {
     };
 
     return (
-        <div className="space-y-6">
+        // make optimization page use full width but cap at layout max, allow vertical growth
+        <div className="w-full h-full flex flex-col space-y-6 max-w-7xl mx-auto">
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-2xl font-bold text-slate-100">Optimization Engine</h2>

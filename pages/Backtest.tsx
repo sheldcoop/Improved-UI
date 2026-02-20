@@ -44,14 +44,16 @@ const Backtest: React.FC = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    // use entire available viewport area; flex container allows internal cards to stretch if needed
+    // layout already constrains width via parent `max-w-7xl`
+    <div className="w-full h-full flex flex-col space-y-8">
       <div className="text-center mb-10">
         <h2 className="text-3xl font-bold text-slate-100 mb-2">Backtest Engine</h2>
         <p className="text-slate-400">Validate strategy performance with professional-grade tools.</p>
       </div>
 
-      <Card className="p-8 shadow-2xl shadow-black/50 border-t-4 border-t-emerald-500">
-        <div className="space-y-8">
+      <Card className="p-8 shadow-2xl shadow-black/50 border-t-4 border-t-emerald-500 flex-1 flex flex-col overflow-y-auto">
+        <div className="space-y-8 flex-1 flex flex-col overflow-y-auto">
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
 
@@ -272,8 +274,9 @@ const Backtest: React.FC = () => {
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="md:col-span-1">
+            {/* make the selector noticeably wider than the parameter inputs and give params a little breathing room */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="md:col-span-2">
                 <select
                   value={strategyId}
                   onChange={(e) => setStrategyId(e.target.value)}
@@ -296,7 +299,7 @@ const Backtest: React.FC = () => {
 
               {/* In-Place Parameter Overrides & Auto-Tune */}
               <div className={`md:col-span-2 space-y-4 ${dataStatus !== 'READY' ? 'opacity-50 pointer-events-none' : ''}`}>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {customStrategies.find(s => s.id === strategyId)?.params?.map(param => (
                     <div key={param.name}>
                       <label className="text-xs text-slate-500 block mb-1">
@@ -307,7 +310,7 @@ const Backtest: React.FC = () => {
                         step={param.type === 'float' ? '0.1' : '1'}
                         value={params[param.name] ?? param.default}
                         onChange={(e) => setParams({ ...params, [param.name]: param.type === 'float' ? parseFloat(e.target.value) : parseInt(e.target.value) })}
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200"
+                        className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200"
                       />
                     </div>
                   ))}

@@ -98,7 +98,7 @@ const Settings: React.FC = () => {
     };
 
     return (
-        <div className="max-w-4xl mx-auto space-y-8">
+        <div className="w-full h-full flex flex-col space-y-8 max-w-7xl mx-auto">
             <div>
                 <h2 className="text-2xl font-bold text-slate-100">Settings</h2>
                 <p className="text-slate-400 text-sm">Manage your data connections and application preferences.</p>
