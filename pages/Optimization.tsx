@@ -56,7 +56,6 @@ const Optimization: React.FC = () => {
 
     const applyParamsAndRun = (paramSet: Record<string, number>) => {
         setGlobalParams(paramSet);
-        navigate('/');
     };
 
     const handleRun = async () => {
