@@ -240,7 +240,14 @@ const Optimization: React.FC = () => {
 
                         <div className="flex justify-center space-x-4">
                             <Button variant="secondary" onClick={() => setResults(null)}>Tune Again</Button>
-                            <Button variant="primary" onClick={() => navigate('/')} icon={<Play className="w-4 h-4" />}>Run Complete Backtest</Button>
+                            {/* pass state flag so backtest page can auto-execute */}
+                            <Button
+                                variant="primary"
+                                onClick={() => navigate('/backtest', { state: { autoRun: true } })}
+                                icon={<Play className="w-4 h-4" />}
+                            >
+                                Run Complete Backtest
+                            </Button>
                         </div>
                     </Card>
                 </div>

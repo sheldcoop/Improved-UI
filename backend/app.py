@@ -122,4 +122,11 @@ def validate_key():
 
 if __name__ == '__main__':
     logging.info("🚀 VectorBT Pro Backend (Modular) Starting...")
-    app.run(debug=True, port=5001)
+    # port can be overridden via BACKEND_PORT or PORT environment variable (useful when 5001 is occupied)
+    try:
+        port = int(os.environ.get('BACKEND_PORT') or os.environ.get('PORT') or 5001)
+    except ValueError:
+        port = 5001
+    if port != 5001:
+        logging.info(f"Using custom port {port} (via env var)")
+    app.run(debug=True, port=port)

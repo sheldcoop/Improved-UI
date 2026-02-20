@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Database, Sliders, AlertCircle, CheckCircle, Split, Info, AlertTriangle, CheckSquare, Clock, Shield, Activity } from 'lucide-react';
 import { MOCK_SYMBOLS, UNIVERSES } from '../constants';
@@ -15,7 +16,11 @@ import { useBacktest } from '../hooks/useBacktest';
 
 const Backtest: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { state, setters, handlers } = useBacktest();
+
+  // when navigated from optimization with autoRun flag we may need to load data
+  const [autoRunRequested, setAutoRunRequested] = useState(false);
   const {
     running, mode, segment, symbol, symbolSearchQuery, searchResults, selectedInstrument,
     isSearching, universe, timeframe, strategyId, customStrategies, startDate, endDate,
@@ -32,6 +37,29 @@ const Backtest: React.FC = () => {
     setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue
   } = setters;
   const { handleLoadData, handleAutoTune, handleRun, handleOOSValidation } = handlers;
+
+  // if the optimization page navigated here with autoRun flag, set a request
+  // then clear the history state so refresh doesn't repeat
+  useEffect(() => {
+    if (location.state && (location.state as any).autoRun) {
+      setAutoRunRequested(true);
+      navigate(location.pathname, { replace: true, state: {} as any });
+    }
+  }, [navigate, location.pathname, location.state]);
+
+  // when an auto-run is requested we need to ensure market data is loaded
+  // before calling handleRun.  The hook's handleRun already alerts if data
+  // isn't ready, so we intercept here and trigger load instead.
+  useEffect(() => {
+    if (!autoRunRequested) return;
+
+    if (dataStatus !== 'READY') {
+      handleLoadData();
+    } else {
+      handleRun();
+      setAutoRunRequested(false);
+    }
+  }, [autoRunRequested, dataStatus, handleLoadData, handleRun]);
 
   const renderHealthBadge = (status: string) => {
     switch (status) {
