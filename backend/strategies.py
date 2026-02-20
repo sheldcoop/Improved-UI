@@ -454,6 +454,7 @@ class StrategyFactory:
             period = int(config.get("period", 20))
             std_dev = float(config.get("std_dev", 2.0))
             return DynamicStrategy({
+                "nextBarEntry": True,  # Enter on next candle open after signal fires
                 "mode": "CODE",
                 "pythonCode": f"""
 def signal_logic(df):
@@ -470,6 +471,7 @@ def signal_logic(df):
             slow = int(config.get("slow", 26))
             signal = int(config.get("signal", 9))
             return DynamicStrategy({
+                "nextBarEntry": True,  # Enter on next candle open after crossover fires
                 "mode": "CODE",
                 "pythonCode": f"""
 def signal_logic(df):
@@ -502,6 +504,7 @@ def signal_logic(df):
             period = int(config.get("period", 10))
             multiplier = float(config.get("multiplier", 3.0))
             return DynamicStrategy({
+                "nextBarEntry": True,  # Enter on next candle open after signal fires
                 "mode": "CODE",
                 "pythonCode": f"""
 def signal_logic(df):
@@ -529,6 +532,7 @@ def signal_logic(df):
             k_period = int(config.get("k_period", 3))
             d_period = int(config.get("d_period", 3))
             return DynamicStrategy({
+                "nextBarEntry": True,  # Enter on next candle open after crossover fires
                 "mode": "CODE",
                 "pythonCode": f"""
 def signal_logic(df):
