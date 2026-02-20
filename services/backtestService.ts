@@ -133,30 +133,61 @@ export const runBacktest = async (strategyId: string | null, symbol: string, con
 };
 
 export interface OptimizationRanges {
-    rsi_period?: { min: number, max: number, step: number };
-    rsi_lower?: { min: number, max: number, step: number };
+    [key: string]: { min: number, max: number, step: number };
 }
 
-export const runOptimization = async (symbol: string = 'NIFTY 50', strategyId: string = '1', ranges: OptimizationRanges = {}): Promise<{ grid: OptimizationResult[], wfo: WFOResult[] }> => {
-    return executeWithFallback(API_ENDPOINTS.OPTIMIZATION, { method: 'POST', body: JSON.stringify({ symbol, strategyId, ranges }) }, async () => {
+export const runOptimization = async (
+    symbol: string = 'NIFTY 50',
+    strategyId: string = '1',
+    ranges: OptimizationRanges = {},
+    config?: any
+): Promise<{ grid: OptimizationResult[], bestParams: Record<string, number> }> => {
+    return executeWithFallback(API_ENDPOINTS.OPTIMIZATION, { method: 'POST', body: JSON.stringify({ symbol, strategyId, ranges, ...config }) }, async () => {
         await delay(1000);
         return {
             grid: [
-                { paramSet: { rsi: 14, lower: 30 }, sharpe: 1.5, returnPct: 12, drawdown: 5 },
-                { paramSet: { rsi: 21, lower: 35 }, sharpe: 1.8, returnPct: 15, drawdown: 4 }
+                { paramSet: { period: 14, lower: 30 }, sharpe: 1.5, returnPct: 12, drawdown: 5, trades: 40, winRate: 55, score: 1.5 },
+                { paramSet: { period: 21, lower: 35 }, sharpe: 1.8, returnPct: 15, drawdown: 4, trades: 30, winRate: 60, score: 1.8 }
             ],
-            wfo: []
+            bestParams: { period: 21, lower: 35 }
         };
     });
 };
 
-export const runWFO = async (symbol: string, strategyId: string, ranges: OptimizationRanges, wfoConfig: any): Promise<WFOResult[]> => {
-    return executeWithFallback(`${API_ENDPOINTS.OPTIMIZATION.replace('/run', '')}/wfo`, { method: 'POST', body: JSON.stringify({ symbol, strategyId, ranges, wfoConfig }) }, async () => {
+export const runAutoTune = async (
+    symbol: string,
+    strategyId: string,
+    ranges: OptimizationRanges,
+    targetDate: string,
+    lookbackMonths: number,
+    metric: string = 'sharpe',
+    config?: any
+): Promise<{ period: string, bestParams: Record<string, number>, grid: OptimizationResult[] }> => {
+    const payload = { symbol, strategyId, ranges, timeframe: '1d', start_date: targetDate, lookback: lookbackMonths, metric, ...config };
+    return executeWithFallback(`${API_ENDPOINTS.OPTIMIZATION.replace('/run', '')}/auto-tune`, { method: 'POST', body: JSON.stringify(payload) }, async () => {
         await delay(1000);
-        return [
-            { period: 'Window 1', type: 'TEST', params: 'P=14', returnPct: 5, sharpe: 1.2, drawdown: 2, trades: 10 },
-            { period: 'Window 2', type: 'TEST', params: 'P=16', returnPct: -2, sharpe: 0.5, drawdown: 8, trades: 5 },
-        ];
+        return {
+            period: "2025-07-31 to 2026-01-31",
+            bestParams: { period: 10, lower: 25, upper: 75 },
+            grid: []
+        };
+    });
+};
+
+export const runWFO = async (symbol: string, strategyId: string, ranges: OptimizationRanges, wfoConfig: any, config?: any): Promise<any> => {
+    return executeWithFallback(`${API_ENDPOINTS.OPTIMIZATION.replace('/run', '')}/wfo`, { method: 'POST', body: JSON.stringify({ symbol, strategyId, ranges, wfoConfig, ...config }) }, async () => {
+        await delay(3000);
+        return {
+            paramHistory: [
+                { start: '2023-01-01', end: '2023-03-01', params: { period: 14 } },
+                { start: '2023-03-01', end: '2023-06-01', params: { period: 16 } }
+            ],
+            metrics: {
+                totalReturnPct: 5.5,
+                sharpeRatio: 1.2
+            },
+            equityCurve: []
+        };
     });
 };
 

@@ -14,6 +14,7 @@ import { logActiveRun, logDataHealth, logOptunaResults, logWFOBreakdown, logAler
 import { useBacktest } from '../hooks/useBacktest';
 
 const Backtest: React.FC = () => {
+  const navigate = useNavigate();
   const { state, setters, handlers } = useBacktest();
   const {
     running, mode, segment, symbol, symbolSearchQuery, searchResults, selectedInstrument,
@@ -52,139 +53,14 @@ const Backtest: React.FC = () => {
       <Card className="p-8 shadow-2xl shadow-black/50 border-t-4 border-t-emerald-500">
         <div className="space-y-8">
 
-          {/* 1. STRATEGY SELECTION & DYNAMIC PARAMS */}
-          <div className="bg-slate-950/50 p-6 rounded-xl border border-slate-800">
-            <div className="flex items-center justify-between mb-4">
-              <label className="text-sm font-medium text-slate-400 flex items-center">
-                <Layers className="w-4 h-4 mr-2" /> Strategy Logic
-              </label>
-              <div className="text-xs text-emerald-400 flex items-center bg-emerald-500/10 px-2 py-1 rounded">
-                <Sliders className="w-3 h-3 mr-1" /> Parameters Active
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="md:col-span-1">
-                <select
-                  value={strategyId}
-                  onChange={(e) => setStrategyId(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:ring-1 focus:ring-emerald-500 outline-none"
-                >
-                  <optgroup label="Preset Strategies">
-                    <option value="3">Moving Average Crossover</option>
-                    <option value="1">RSI Mean Reversion</option>
-                  </optgroup>
-                  {customStrategies.length > 0 && (
-                    <optgroup label="My Custom Strategies">
-                      {customStrategies.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
-              </div>
-
-              {/* In-Place Parameter Overrides & Auto-Tune */}
-              <div className="md:col-span-2 space-y-4">
-                <div className="grid grid-cols-3 gap-4">
-                  {customStrategies.find(s => s.id === strategyId)?.params?.map(param => (
-                    <div key={param.name}>
-                      <label className="text-xs text-slate-500 block mb-1">
-                        {param.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
-                      </label>
-                      {!showRanges ? (
-                        <input
-                          type="number"
-                          step={param.type === 'float' ? '0.1' : '1'}
-                          value={params[param.name] ?? param.default}
-                          onChange={(e) => setParams({ ...params, [param.name]: param.type === 'float' ? parseFloat(e.target.value) : parseInt(e.target.value) })}
-                          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200"
-                        />
-                      ) : (
-                        <div className="flex gap-1">
-                          <input
-                            type="number"
-                            placeholder="Min"
-                            value={paramRanges[param.name]?.min ?? param.default}
-                            onChange={(e) => setParamRanges({ ...paramRanges, [param.name]: { ...(paramRanges[param.name] || {}), min: param.type === 'float' ? parseFloat(e.target.value) : parseInt(e.target.value), step: param.type === 'float' ? 0.1 : 1 } })}
-                            className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono"
-                          />
-                          <input
-                            type="number"
-                            placeholder="Max"
-                            value={paramRanges[param.name]?.max ?? (param.type === 'float' ? param.default + 2.0 : param.default * 2)}
-                            onChange={(e) => setParamRanges({ ...paramRanges, [param.name]: { ...(paramRanges[param.name] || {}), max: param.type === 'float' ? parseFloat(e.target.value) : parseInt(e.target.value), step: param.type === 'float' ? 0.1 : 1 } })}
-                            className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-[11px] text-emerald-400 font-mono"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Auto-Tune Row */}
-                {(customStrategies.find(s => s.id === strategyId)?.params?.length ?? 0) > 0 && (
-                  <div className="flex items-center gap-4 bg-slate-900/50 p-3 rounded border border-slate-800 border-dashed">
-                    <div className="flex-1">
-                      <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Optuna Metric</label>
-                      <select
-                        value={autoTuneConfig.metric}
-                        onChange={(e) => setAutoTuneConfig({ ...autoTuneConfig, metric: e.target.value })}
-                        className="bg-slate-950 border border-slate-800 rounded text-xs px-2 py-1 text-slate-300 outline-none w-full"
-                      >
-                        <option value="sharpe">Sharpe Ratio</option>
-                        <option value="calmar">Calmar Ratio</option>
-                        <option value="total_return">Total Return</option>
-                        <option value="drawdown">Min Drawdown</option>
-                      </select>
-                    </div>
-                    <div className="flex-1">
-                      <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Lookback</label>
-                      <select
-                        value={autoTuneConfig.lookbackMonths}
-                        onChange={(e) => setAutoTuneConfig({ ...autoTuneConfig, lookbackMonths: parseInt(e.target.value) })}
-                        className="bg-slate-950 border border-slate-800 rounded text-xs px-2 py-1 text-slate-300 outline-none w-full"
-                      >
-                        <option value="3">3 Months</option>
-                        <option value="6">6 Months</option>
-                        <option value="12">12 Months</option>
-                        <option value="24">24 Months</option>
-                      </select>
-                    </div>
-                    <button
-                      onClick={handleAutoTune}
-                      disabled={isAutoTuning}
-                      className="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 text-xs font-bold px-4 py-2 rounded border border-emerald-600/30 transition-all flex items-center h-fit mt-4"
-                    >
-                      {isAutoTuning ? <div className="w-3 h-3 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin mr-2" /> : <Sliders className="w-3 h-3 mr-2" />}
-                      {showRanges ? 'Run Auto-Tune' : 'Auto-Tune'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
 
-            {/* 2. ASSET SELECTION */}
-            <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-2">Backtest Mode</label>
-                <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-700">
-                  <button
-                    onClick={() => setMode('SINGLE')}
-                    className={`flex-1 py-1.5 text-sm rounded-md transition-all ${mode === 'SINGLE' ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
-                  >
-                    Single Symbol
-                  </button>
-                  <button
-                    onClick={() => setMode('UNIVERSE')}
-                    className={`flex-1 py-1.5 text-sm rounded-md transition-all ${mode === 'UNIVERSE' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
-                  >
-                    Multi-Asset Universe
-                  </button>
-                </div>
+            {/* 1. ASSET SELECTION */}
+            <div className="space-y-6 bg-slate-950/50 p-6 rounded-xl border border-slate-800">
+              <div className="flex items-center justify-between mb-4">
+                <label className="text-sm font-medium text-slate-400 flex items-center">
+                  <Database className="w-4 h-4 mr-2" /> Market Data Selection
+                </label>
               </div>
 
               {mode === 'SINGLE' ? (
@@ -381,6 +257,80 @@ const Backtest: React.FC = () => {
             </div>
           </div>
 
+          {/* 3. STRATEGY SELECTION & DYNAMIC PARAMS */}
+          <div className="bg-slate-950/50 p-6 rounded-xl border border-slate-800">
+            <div className="flex items-center justify-between mb-4">
+              <label className="text-sm font-medium text-slate-400 flex items-center">
+                <Layers className="w-4 h-4 mr-2" /> Strategy Logic
+              </label>
+              {dataStatus !== 'READY' && (
+                <div className="text-xs text-yellow-500 flex items-center bg-yellow-500/10 px-2 py-1 rounded">
+                  <AlertTriangle className="w-3 h-3 mr-1" /> Pending Data
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="md:col-span-1">
+                <select
+                  value={strategyId}
+                  onChange={(e) => setStrategyId(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:ring-1 focus:ring-emerald-500 outline-none"
+                  disabled={dataStatus !== 'READY'}
+                >
+                  <optgroup label="Preset Strategies">
+                    <option value="3">Moving Average Crossover</option>
+                    <option value="1">RSI Mean Reversion</option>
+                  </optgroup>
+                  {customStrategies.length > 0 && (
+                    <optgroup label="My Custom Strategies">
+                      {customStrategies.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+
+              {/* In-Place Parameter Overrides & Auto-Tune */}
+              <div className={`md:col-span-2 space-y-4 ${dataStatus !== 'READY' ? 'opacity-50 pointer-events-none' : ''}`}>
+                <div className="grid grid-cols-3 gap-4">
+                  {customStrategies.find(s => s.id === strategyId)?.params?.map(param => (
+                    <div key={param.name}>
+                      <label className="text-xs text-slate-500 block mb-1">
+                        {param.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                      </label>
+                      <input
+                        type="number"
+                        step={param.type === 'float' ? '0.1' : '1'}
+                        value={params[param.name] ?? param.default}
+                        onChange={(e) => setParams({ ...params, [param.name]: param.type === 'float' ? parseFloat(e.target.value) : parseInt(e.target.value) })}
+                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200"
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Tune Parameters Button */}
+                {(customStrategies.find(s => s.id === strategyId)?.params?.length ?? 0) > 0 && (
+                  <div className={`flex items-center gap-4 bg-slate-900/50 p-3 rounded border border-slate-800 border-dashed transition-opacity`}>
+                    <div className="flex-1">
+                      <p className="text-[11px] text-slate-400">Not sure what parameters to use? Use the Optimizer to scientifically search for the best values.</p>
+                    </div>
+                    <button
+                      onClick={() => navigate('/optimization')}
+                      disabled={dataStatus !== 'READY'}
+                      className={`bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 text-xs font-bold px-4 py-2 rounded border border-indigo-600/30 transition-all flex items-center h-fit shrink-0 ${dataStatus !== 'READY' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <Sliders className="w-3 h-3 mr-2" />
+                      {dataStatus !== 'READY' ? 'Load Data First' : 'Tune Parameters'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Advanced Settings Toggle */}
           <div className="border-t border-slate-800 pt-4">
             <button onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center text-sm text-slate-400 hover:text-emerald-400 transition-colors">
@@ -390,23 +340,6 @@ const Backtest: React.FC = () => {
             </button>
             {showAdvanced && (
               <div className="space-y-6 mt-4 bg-slate-950 p-6 rounded-xl border border-slate-800 animate-in fade-in slide-in-from-top-2">
-                {/* Dynamic WFO Toggle */}
-                <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                  <div>
-                    <h4 className="text-slate-200 font-bold flex items-center">
-                      <Split className="w-4 h-4 mr-2 text-indigo-400" />
-                      Dynamic WFO (Rolling Optimization)
-                    </h4>
-                    <p className="text-xs text-slate-500">Enable Walk-Forward Optimization for dynamic parameter updates.</p>
-                  </div>
-                  <button
-                    onClick={() => setIsDynamic(!isDynamic)}
-                    className={`w-12 h-6 rounded-full p-1 transition-colors ${isDynamic ? 'bg-indigo-600' : 'bg-slate-700'}`}
-                  >
-                    <div className={`w-4 h-4 rounded-full bg-white transition-transform ${isDynamic ? 'translate-x-6' : 'translate-x-0'}`} />
-                  </button>
-                </div>
-
                 {/* Reproducible Mode Toggle */}
                 <div className="flex items-center justify-between pb-4 border-b border-slate-800">
                   <div>
@@ -471,143 +404,11 @@ const Backtest: React.FC = () => {
                     </div>
                   </div>
                 </div>
-
-                {isDynamic && (
-                  <div className="space-y-4 animate-in fade-in zoom-in-95">
-                    <div className="grid grid-cols-2 gap-6">
-                      <div>
-                        <label className="text-xs text-slate-500 block mb-1">Train Window (Months)</label>
-                        <input
-                          type="number"
-                          value={wfoConfig.trainWindow}
-                          onChange={(e) => setWfoConfig({ ...wfoConfig, trainWindow: parseInt(e.target.value) })}
-                          className={`w-full bg-slate-900 border rounded px-2 py-2 text-sm text-slate-200 ${
-                            // Validation: Train + Test > Total
-                            (() => {
-                              const start = new Date(startDate);
-                              const end = new Date(endDate);
-                              const diffTime = Math.abs(end.getTime() - start.getTime());
-                              const totalMonths = Math.round(diffTime / (1000 * 60 * 60 * 24 * 30.44));
-                              return (wfoConfig.trainWindow + wfoConfig.testWindow) > totalMonths ? 'border-red-500 focus:ring-red-500' : 'border-slate-700'
-                            })()
-                            }`}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-slate-500 block mb-1">Test Window (Months)</label>
-                        <input
-                          type="number"
-                          value={wfoConfig.testWindow}
-                          onChange={(e) => setWfoConfig({ ...wfoConfig, testWindow: parseInt(e.target.value) })}
-                          className={`w-full bg-slate-900 border rounded px-2 py-2 text-sm text-slate-200 ${wfoConfig.testWindow < 1 ? 'border-yellow-500 focus:ring-yellow-500' : 'border-slate-700'
-                            }`}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Info & Validation Messages */}
-                    <div className="bg-slate-900/50 p-3 rounded border border-slate-800">
-                      {(() => {
-                        const start = new Date(startDate);
-                        const end = new Date(endDate);
-                        const diffTime = Math.abs(end.getTime() - start.getTime());
-                        const totalMonths = Math.round(diffTime / (1000 * 60 * 60 * 24 * 30.44));
-                        const totalWindow = wfoConfig.trainWindow + wfoConfig.testWindow;
-
-                        // Error 1: Total window > Data
-                        if (totalWindow > totalMonths) {
-                          return (
-                            <div className="text-xs text-red-400 flex items-start">
-                              <AlertCircle className="w-3 h-3 mr-1.5 mt-0.5 flex-shrink-0" />
-                              <span>
-                                <strong>Configuration Error:</strong> Train ({wfoConfig.trainWindow}m) + Test ({wfoConfig.testWindow}m) exceeds available data ({totalMonths}m).
-                              </span>
-                            </div>
-                          );
-                        }
-
-                        // Warning 1: Too few windows
-                        const expectedWindows = Math.floor((totalMonths - wfoConfig.trainWindow) / wfoConfig.testWindow);
-                        if (expectedWindows < 2) {
-                          return (
-                            <div className="text-xs text-yellow-400 flex items-start">
-                              <AlertTriangle className="w-3 h-3 mr-1.5 mt-0.5 flex-shrink-0" />
-                              <span>
-                                <strong>Warning:</strong> Only {expectedWindows} window(s) expected. Short backtest reliability.
-                              </span>
-                            </div>
-                          );
-                        }
-
-                        // Warning 2: Test window too small
-                        if (wfoConfig.testWindow < 1) {
-                          return (
-                            <div className="text-xs text-yellow-400 flex items-start">
-                              <AlertTriangle className="w-3 h-3 mr-1.5 mt-0.5 flex-shrink-0" />
-                              <span>
-                                <strong>Warning:</strong> Test window must be at least 1 month.
-                              </span>
-                            </div>
-                          );
-                        }
-
-                        // Info Success
-                        return (
-                          <div className="text-xs text-slate-400 flex items-start">
-                            <Info className="w-3 h-3 mr-1.5 mt-0.5 flex-shrink-0 text-emerald-500" />
-                            <span>
-                              Auto-calculated base on {totalMonths} months data.<br />
-                              <span className="text-emerald-400">Expected ~{Math.max(0, expectedWindows)} Walk-Forward Windows.</span>
-                            </span>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-6">
-                  <div>
-                    <label className="text-xs text-slate-500 block mb-1">Slippage (%)</label>
-                    <input type="number" step="0.01" value={slippage} onChange={(e) => setSlippage(parseFloat(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500 block mb-1">Commission (Flat ₹)</label>
-                    <input type="number" value={commission} onChange={(e) => setCommission(parseFloat(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200" />
-                  </div>
-                </div>
               </div>
             )}
           </div>
 
           <div className="pt-2 space-y-4">
-            {top5Trials.length > 0 && mode === 'SINGLE' && !isDynamic && (
-              <div className="bg-slate-900/80 p-5 rounded-xl border border-indigo-500/30">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-200 flex items-center">
-                      <Split className="w-4 h-4 mr-2 text-indigo-400" />
-                      Out-Of-Sample (OOS) Validation
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Test the Top {top5Trials.length} Auto-Tune parameters on unseen forward data.
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleOOSValidation}
-                    disabled={isOosValidating || dataStatus !== 'READY'}
-                    className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded shadow flex items-center text-sm disabled:opacity-50"
-                  >
-                    {isOosValidating ? (
-                      <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></div>Validating...</>
-                    ) : (
-                      <><CheckSquare className="w-4 h-4 mr-2" /> Run OOS Validation</>
-                    )}
-                  </button>
-                </div>
-              </div>
-            )}
-
             <button
               onClick={handleRun}
               disabled={running || dataStatus !== 'READY'}

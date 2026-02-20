@@ -238,6 +238,9 @@ export interface OptimizationResult {
   sharpe: number;
   returnPct: number;
   drawdown: number;
+  trades: number;
+  winRate: number;
+  score: number;
 }
 
 export interface WFOResult {
@@ -248,6 +251,7 @@ export interface WFOResult {
   sharpe: number;
   drawdown: number;
   trades: number;
+  winRate: number;
 }
 
 export type StrategyId = '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8';

@@ -11,7 +11,7 @@ import pandas as pd
 
 from services.data_fetcher import DataFetcher
 from services.scrip_master import search_instruments, get_instrument_by_symbol
-from services.dhan_historical import fetch_historical_data, validate_date_range
+from services.dhan_historical import fetch_historical_data
 from services.strategy_store import StrategyStore
 from services.backtest_engine import BacktestEngine
 from services.data_health import DataHealthService
@@ -19,6 +19,20 @@ from utils.market_calendar import get_nse_trading_days, is_trading_day
 
 market_bp = Blueprint("market", __name__)
 logger = logging.getLogger(__name__)
+
+def validate_date_range(from_date: str, to_date: str) -> tuple[str, str]:
+    """Helper to ensure dates are valid and logically ordered."""
+    from datetime import datetime
+    try:
+        from_dt = datetime.strptime(from_date, "%Y-%m-%d")
+        to_dt = datetime.strptime(to_date, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError("Invalid date format. Use YYYY-MM-DD")
+    
+    if from_dt > to_dt:
+        raise ValueError("from_date cannot be after to_date")
+        
+    return from_date, to_date
 
 
 @market_bp.route("/cache-status", methods=["GET"])
