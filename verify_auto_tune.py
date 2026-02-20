@@ -26,9 +26,9 @@ def verify_auto_tune():
     
     strategy_id = "1" # RSI
     ranges = {
-        "period": {"min": 5, "max": 20, "step": 5},
-        "lower": {"min": 20, "max": 40, "step": 10},
-        "upper": {"min": 60, "max": 80, "step": 10}
+        "period": {"min": 5, "max": 20, "step": 1},
+        "lower": {"min": 20, "max": 40, "step": 5},
+        "upper": {"min": 60, "max": 80, "step": 5}
     }
     
     config = {
@@ -63,10 +63,13 @@ def verify_auto_tune():
     print(f"\n--- 2. Auto-Tune Optimization (Target: {auto_tune_start_date_str}, Lookback: {lookback}m) ---")
     
     # Notice we use the same ranges natively
+    auto_ranges = ranges.copy()
+    auto_ranges["reproducible"] = True
+    
     auto_tune_results = OptimizationEngine.run_auto_tune(
         symbol=symbol,
         strategy_id=strategy_id,
-        ranges=ranges.copy(),
+        ranges=auto_ranges,
         timeframe=timeframe,
         start_date_str=auto_tune_start_date_str,
         lookback=lookback,
@@ -76,16 +79,34 @@ def verify_auto_tune():
     )
     
     print(f"Auto-Tune Period: {auto_tune_results.get('period')}")
-    print(f"Auto-Tune Best Params: {auto_tune_results.get('bestParams')}")
-    
-    print("\n--- 3. COMPARISON ---")
+    print("\n--- 3. TOP 10 COMPARISON ---")
     print(f"Manual Period: {opt_start_str} to {opt_end_str}")
     print(f"AutoTune Period: {auto_tune_results.get('period')}")
     
-    if optuna_results.get("bestParams") == auto_tune_results.get("bestParams"):
-        print("✅ SUCCESS: Auto-Tune parameters EXACTLY match manual Optuna parameters!")
+    manual_grid = optuna_results.get("grid", [])[:10]
+    auto_grid = auto_tune_results.get("grid", [])[:10]
+    
+    all_match = True
+    for i in range(min(len(manual_grid), 10)):
+        man_params = manual_grid[i]["paramSet"]
+        auto_params = auto_grid[i]["paramSet"]
+        
+        man_score = manual_grid[i]["score"]
+        auto_score = auto_grid[i]["score"]
+        
+        print(f"\nRank {i+1}:")
+        if man_params == auto_params and man_score == auto_score:
+            print(f"  ✅ MATCH: {man_params} | Score: {man_score}")
+        else:
+            print(f"  ❌ MISMATCH:")
+            print(f"     Manual:    {man_params} | Score: {man_score}")
+            print(f"     Auto-Tune: {auto_params} | Score: {auto_score}")
+            all_match = False
+
+    if all_match:
+        print("\n🎉 SUCCESS: The Top 10 parameter sets EXACTLY match between Manual Optuna and Auto-Tune!")
     else:
-        print("❌ FAILURE: Parameters do not match!")
+        print("\n⚠️ FAILURE: The parameter grids do not perfectly align.")
 
 if __name__ == "__main__":
     verify_auto_tune()

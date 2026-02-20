@@ -201,8 +201,14 @@ class OptimizationEngine:
         if return_trials:
             # Format trials for frontend
             grid_results = []
+            seen_params = set()
             for trial in study.trials:
                 if trial.value is None or trial.value == -999: continue
+                
+                # Deduplicate parameters so the UI table is clean
+                param_str = str(trial.params)
+                if param_str in seen_params: continue
+                seen_params.add(param_str)
                 
                 # Retrieve stored metrics or fallback to defaults
                 sharpe = trial.user_attrs.get("sharpe", 0.0)
