@@ -46,16 +46,14 @@ class DataCleaner:
         return df[df.index.dayofweek < 5]
 
     @staticmethod
-    def remove_non_trading_hours(df: pd.DataFrame) -> pd.DataFrame:
+    def remove_non_trading_hours(df: pd.DataFrame, is_intraday: bool = True) -> pd.DataFrame:
         """Filter data to include only NSE trading session (09:15 - 15:30 IST).
         
-        This prevents indicators like RSI from being diluted by pre-market/post-market
-        flat price action common in some data sources (like YFinance).
+        Only applies to intraday data.
         """
-        if df.empty:
+        if df.empty or not is_intraday:
             return df
             
-        # indexer_between_time is inclusive
         return df.between_time("09:15", "15:30")
 
     @staticmethod
@@ -68,7 +66,7 @@ class DataCleaner:
             logger.info(f"✨ DataCleaner [{symbol}]: Data clean, no rows removed")
 
     @staticmethod
-    def clean(df: pd.DataFrame, symbol: str = 'unknown') -> pd.DataFrame:
+    def clean(df: pd.DataFrame, symbol: str = 'unknown', is_intraday: bool = False) -> pd.DataFrame:
         """Master sanitation pipeline. Runs all cleaning steps in optimal sequence."""
         if df is None or df.empty:
             return df
@@ -78,7 +76,7 @@ class DataCleaner:
         # 1. Temporal Normalization
         df = DataCleaner.fix_timezone(df)
         df = DataCleaner.remove_weekends(df)
-        df = DataCleaner.remove_non_trading_hours(df)
+        df = DataCleaner.remove_non_trading_hours(df, is_intraday=is_intraday)
         df = DataCleaner.sort_chronological(df)
         df = DataCleaner.remove_duplicates(df)
         

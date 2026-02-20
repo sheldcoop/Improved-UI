@@ -13,3 +13,5 @@ pyarrow>=14.0.0
 dhanhq>=2.0.1
 python-dotenv>=1.0.0
 filelock>=3.13.0
+plotly<6.0.0
+pandas_market_calendars<5.0.0
