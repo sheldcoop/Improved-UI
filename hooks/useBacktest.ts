@@ -364,6 +364,7 @@ export const useBacktest = () => {
 
                 if (result && !result.error) {
                     if (result.wfo) logWFOBreakdown(result.wfo);
+                    if (result.grid) logOptunaResults(result.grid);
                     logActiveRun(null);
                     navigate('/results', { state: { result } });
                 } else {
