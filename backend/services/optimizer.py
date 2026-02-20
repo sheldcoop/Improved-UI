@@ -81,9 +81,15 @@ class OptimizationEngine:
         logger.info(f"First bar date: {df.index[0].date()}")
         logger.info(f"Last bar date: {df.index[-1].date()}")
 
+        _META_KEYS_OPT = frozenset({"startDate", "endDate", "reproducible"})
+
         def objective(trial: optuna.Trial) -> float:
             config: dict = {}
             for param, constraints in ranges.items():
+                if param in _META_KEYS_OPT:
+                    continue
+                if not isinstance(constraints, dict):
+                    continue
                 p_min = int(constraints.get("min", 10))
                 p_max = int(constraints.get("max", 50))
                 p_step = int(constraints.get("step", 1))
@@ -452,6 +458,8 @@ class OptimizationEngine:
                 test_signals = int(entries.sum())
                 logger.info(f"WFO Window {test_start_dt.date()}->{test_end_dt.date()} | Params: {best_params} | Signals: {test_signals}")
                 
+                # Create a single window portfolio for reporting metrics (avoid double instantiation)
+                window_pf = vbt.Portfolio.from_signals(test_df["Close"], entries, exits, freq="1D", fees=0.001)
                 period_str = f"Window {len(param_history)+1}: {test_start_dt.date()} to {test_end_dt.date()}"
                 param_history.append({
                     "period": period_str,
@@ -459,8 +467,8 @@ class OptimizationEngine:
                     "end": str(test_end_dt.date()),
                     "params": str(best_params),
                     "trades": test_signals,
-                    "returnPct": round(float(vbt.Portfolio.from_signals(test_df["Close"], entries, exits, freq="1D", fees=0.001).total_return()) * 100, 2),
-                    "sharpe": round(float(vbt.Portfolio.from_signals(test_df["Close"], entries, exits, freq="1D", fees=0.001).sharpe_ratio()), 2)
+                    "returnPct": round(float(window_pf.total_return()) * 100, 2),
+                    "sharpe": round(float(window_pf.sharpe_ratio()), 2)
                 })
             except Exception as e:
                 logger.error(f"Window {run_count} Generation Failed: {e}", exc_info=True)
@@ -524,9 +532,16 @@ class OptimizationEngine:
         """
         trial_logs = []
 
+        # Non-parameter keys injected by routes (startDate, endDate, reproducible) — skip them
+        _META_KEYS = frozenset({"startDate", "endDate", "reproducible"})
+
         def objective(trial: optuna.Trial) -> float:
             config: dict = {}
             for param, constraints in ranges.items():
+                if param in _META_KEYS:
+                    continue
+                if not isinstance(constraints, dict):
+                    continue  # skip non-dict values (e.g. injected strings)
                 val_min = constraints.get("min")
                 val_max = constraints.get("max")
                 val_step = constraints.get("step")
@@ -554,11 +569,8 @@ class OptimizationEngine:
                     logger.debug(f"Trial {trial.number}: {config} -> Score: -999 (0 trades)")
                     return float(-999)
 
-                # Pass risk params to portfolio
-                # Note: tsl_stop requires sl_trail=True in vectorbt
-                pf_kwargs = {"freq": "1D"}
-                
-                # Risk params logic removed for now
+                # Use a consistent fee rate for all optimization trials
+                pf_kwargs = {"freq": "1D", "fees": 0.001}
                 pf = vbt.Portfolio.from_signals(df["Close"], entries, exits, **pf_kwargs)
                 
                 # Calculate all metrics for reporting
