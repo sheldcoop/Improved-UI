@@ -1,19 +1,47 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { NAV_ITEMS, APP_NAME } from '../constants';
-import { Activity, Bell } from 'lucide-react';
+import { Activity, Bell, ChevronLeft, ChevronRight } from 'lucide-react';
 import DebugConsole from './DebugConsole';
+import useLocalStorage from '../utils/useLocalStorage';
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
 
+  // sidebar collapsed state (persisted to localStorage)
+  const [collapsed, setCollapsed] = useLocalStorage<boolean>('sidebar-collapsed', false);
+  const toggleSidebar = useCallback(() => {
+    setCollapsed(c => !c);
+  }, [setCollapsed]);
+
   return (
     <div className="flex h-screen bg-slate-950 text-slate-200 overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col flex-shrink-0">
-        <div className="p-6 flex items-center space-x-3">
-          <Activity className="text-emerald-500 w-8 h-8" />
-          <span className="text-xl font-bold tracking-tight text-slate-100">{APP_NAME}</span>
+      <aside
+        className={`bg-slate-900 border-r border-slate-800 flex flex-col flex-shrink-0
+          ${collapsed ? 'w-16' : 'w-64'} transition-[width] duration-200 ease-in-out`}
+      >
+        <div className={`p-6 flex items-center justify-between ${collapsed ? 'px-2' : ''}`}>
+          <div className="flex items-center space-x-3">
+            <Activity className="text-emerald-500 w-8 h-8" />
+            {!collapsed && (
+              <span className="text-xl font-bold tracking-tight text-slate-100">
+                {APP_NAME}
+              </span>
+            )}
+          </div>
+          {/* collapse toggle */}
+          <button
+            onClick={toggleSidebar}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-100 transition-colors"
+          >
+            {collapsed ? (
+              <ChevronRight className="w-5 h-5" />
+            ) : (
+              <ChevronLeft className="w-5 h-5" />
+            )}
+          </button>
         </div>
 
         <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
@@ -23,35 +51,40 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               <NavLink
                 key={item.path}
                 to={item.path}
-                className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 group ${
-                  isActive 
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-sm' 
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
-                }`}
+                title={collapsed ? item.name : undefined}
+                className={`flex items-center ${collapsed ? 'justify-center px-0' : 'space-x-3 px-4'}
+                  py-3 rounded-lg transition-all duration-200 group
+                  ${
+                    isActive
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-sm'
+                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
+                  }`}
               >
                 <item.icon className={`w-5 h-5 ${isActive ? 'text-emerald-400' : 'text-slate-500 group-hover:text-slate-300'}`} />
-                <span className="font-medium">{item.name}</span>
+                {!collapsed && <span className="font-medium">{item.name}</span>}
               </NavLink>
             );
           })}
         </nav>
 
-        <div className="p-4 border-t border-slate-800">
-          <div className="bg-slate-800/50 rounded-lg p-3 text-xs text-slate-500">
-            <div className="flex justify-between mb-1">
-              <span>Status</span>
-              <span className="text-emerald-500 font-semibold">Online</span>
-            </div>
-            <div className="flex justify-between">
-              <span>API Latency</span>
-              <span>45ms</span>
-            </div>
-            <div className="flex justify-between mt-2 pt-2 border-t border-slate-700/50">
-               <span>v1.0.0</span>
-               <span className="text-slate-600">Phase 12</span>
+        {!collapsed && (
+          <div className="p-4 border-t border-slate-800">
+            <div className="bg-slate-800/50 rounded-lg p-3 text-xs text-slate-500">
+              <div className="flex justify-between mb-1">
+                <span>Status</span>
+                <span className="text-emerald-500 font-semibold">Online</span>
+              </div>
+              <div className="flex justify-between">
+                <span>API Latency</span>
+                <span>45ms</span>
+              </div>
+              <div className="flex justify-between mt-2 pt-2 border-t border-slate-700/50">
+                 <span>v1.0.0</span>
+                 <span className="text-slate-600">Phase 12</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </aside>
 
       {/* Main Content */}

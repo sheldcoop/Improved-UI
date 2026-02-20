@@ -18,3 +18,5 @@ View your app in AI Studio: https://ai.studio/apps/drive/1wOQUkCU2nfL0MV3pFY02Rt
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+*Once the frontend is loaded, you can collapse the sidebar using the chevron button in the top-left; the application will remember your choice across reloads.*
