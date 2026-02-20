@@ -210,7 +210,7 @@ export interface BacktestResult {
   equityCurve: { date: string; value: number; drawdown: number }[];
   trades: Trade[];
   isDynamic?: boolean;
-  paramHistory?: { start: string; end: string; params: Record<string, number> }[];
+  paramHistory?: { start: string; end: string; params: Record<string, number>; usingFallback?: boolean }[];
   status: 'running' | 'completed' | 'failed';
 }
 
