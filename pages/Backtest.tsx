@@ -1,19 +1,15 @@
-
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Database, Sliders, AlertCircle, CheckCircle, Split, Info, AlertTriangle, CheckSquare, Clock, Shield, Activity, FileQuestionMark } from 'lucide-react';
-import { MOCK_SYMBOLS, UNIVERSES } from '../constants';
-import { runBacktest, validateMarketData, DataHealthReport, fetchStrategies } from '../services/api';
+import { UNIVERSES } from '../constants';
 import { Timeframe, Strategy } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
-import { fetchClient } from '../services/http';
-import { logActiveRun, logDataHealth, logOptunaResults, logWFOBreakdown, logAlert } from '../components/DebugConsole';
-
 import { useBacktest } from '../hooks/useBacktest';
 import { DataReportModal } from '../components/DataReportModal';
+import { DateInput } from '../components/ui/DateInput';
 
 const Backtest: React.FC = () => {
   const navigate = useNavigate();
@@ -160,7 +156,7 @@ const Backtest: React.FC = () => {
                     {/* Search Results Dropdown */}
                     {searchResults.length > 0 && !selectedInstrument && (
                       <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg max-h-60 overflow-y-auto shadow-xl">
-                        {searchResults.map((result) => (
+                        {searchResults.map((result: any) => (
                           <button
                             key={result.security_id}
                             onClick={() => {
@@ -199,7 +195,7 @@ const Backtest: React.FC = () => {
                     onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setUniverse(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-indigo-500 outline-none"
                   >
-                    {UNIVERSES && UNIVERSES.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    {UNIVERSES && UNIVERSES.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
                   </select>
                 </div>
               )}
@@ -209,7 +205,7 @@ const Backtest: React.FC = () => {
                   <Clock className="w-4 h-4 mr-2" /> Timeframe
                 </label>
                 <div className="grid grid-cols-4 gap-2">
-                  {Object.values(Timeframe).map(tf => (
+                  {Object.values(Timeframe).map((tf: any) => (
                     <button
                       key={tf}
                       onClick={() => setTimeframe(tf)}
@@ -230,9 +226,9 @@ const Backtest: React.FC = () => {
                   {dataStatus === 'READY' && <span className="text-xs text-emerald-400 font-mono">DATA LOCKED</span>}
                 </label>
                 <div className="flex space-x-2 mb-3">
-                  <input type="date" value={startDate} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStartDate(e.target.value)} className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200" />
+                  <DateInput value={startDate} onChange={setStartDate} className="flex-1" />
                   <span className="text-slate-600 self-center">-</span>
-                  <input type="date" value={endDate} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEndDate(e.target.value)} className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200" />
+                  <DateInput value={endDate} onChange={setEndDate} className="flex-1" />
                 </div>
 
                 {/* Improvement 1: Load Market Data Button */}
@@ -375,16 +371,16 @@ const Backtest: React.FC = () => {
               {/* In-Place Parameter Overrides & Auto-Tune */}
               <div className={`md:col-span-2 space-y-4 ${dataStatus !== 'READY' ? 'opacity-50 pointer-events-none' : ''}`}>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {customStrategies.find(s => s.id === strategyId)?.params?.map(param => (
+                  {customStrategies.find((s: Strategy) => s.id === strategyId)?.params?.map((param: any) => (
                     <div key={param.name}>
                       <label className="text-xs text-slate-500 block mb-1">
-                        {param.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                        {param.name.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
                       </label>
                       <input
                         type="number"
                         step={param.type === 'float' ? '0.1' : '1'}
                         value={params[param.name] ?? param.default}
-                        onChange={(e) => setParams({ ...params, [param.name]: param.type === 'float' ? parseFloat(e.target.value) : parseInt(e.target.value) })}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setParams({ ...params, [param.name]: param.type === 'float' ? parseFloat(e.target.value) : parseInt(e.target.value) })}
                         className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200"
                       />
                     </div>
@@ -392,7 +388,7 @@ const Backtest: React.FC = () => {
                 </div>
 
                 {/* Tune Parameters Button */}
-                {(customStrategies.find(s => s.id === strategyId)?.params?.length ?? 0) > 0 && (
+                {(customStrategies.find((s: Strategy) => s.id === strategyId)?.params?.length ?? 0) > 0 && (
                   <div className={`flex items-center gap-4 bg-slate-900/50 p-3 rounded border border-slate-800 border-dashed transition-opacity`}>
                     <div className="flex-1">
                       <p className="text-[11px] text-slate-400">Not sure what parameters to use? Use the Optimizer to scientifically search for the best values.</p>

@@ -11,7 +11,7 @@ import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { logAlert, logWFOBreakdown, logActiveRun } from '../components/DebugConsole';
 import AlertBanner from '../components/ui/AlertBanner';
-
+import { formatDateDisplay } from '../utils/dateUtils';
 // Reusable Metric Box
 const MetricBox: React.FC<{ label: string; value: string; subValue?: string; good?: boolean; icon?: React.ReactNode }> = ({ label, value, subValue, good, icon }) => (
   <div className="bg-slate-900 border border-slate-800 p-4 rounded-lg hover:border-slate-700 transition-colors">
@@ -50,7 +50,7 @@ const TradeTable: React.FC<{ trades: Trade[], onRowClick: (trade: Trade) => void
             className="hover:bg-slate-800/80 cursor-pointer transition-colors"
             onClick={() => onRowClick(trade)}
           >
-            <td className="px-4 py-3">{trade.entryDate}</td>
+            <td className="px-4 py-3">{formatDateDisplay(trade.entryDate)}</td>
             <td className="px-4 py-3">
               <Badge variant={trade.side === 'LONG' ? 'success' : 'danger'}>{trade.side}</Badge>
             </td>
@@ -222,7 +222,7 @@ const Results: React.FC = () => {
             <span>•</span>
             <span>{result.timeframe}</span>
             <span>•</span>
-            <span>Simulation: {result.startDate} to {result.endDate}</span>
+            <span>Simulation: {formatDateDisplay(result.startDate)} to {formatDateDisplay(result.endDate)}</span>
           </div>
         </div>
         <div className="flex space-x-2 bg-slate-900 p-1 rounded-lg border border-slate-800">
@@ -306,7 +306,7 @@ const Results: React.FC = () => {
                         axisLine={false}
                         minTickGap={30}
                         domain={zoomLeft && zoomRight ? [zoomLeft, zoomRight] : ['auto', 'auto']}
-                        allowDataOverflow
+                        tickFormatter={(val) => formatDateDisplay(val)}
                       />
                       <YAxis yAxisId="left" stroke={CONFIG.COLORS.TEXT} fontSize={12} tickLine={false} axisLine={false} domain={['auto', 'auto']} tickFormatter={(val) => `₹${(val / 1000).toFixed(0)}k`} />
                       <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9' }} />
@@ -349,7 +349,7 @@ const Results: React.FC = () => {
                             <span className="px-1.5 py-0.5 bg-amber-900/50 text-amber-400 rounded text-[9px] tracking-wide">FALLBACK</span>
                           )}
                         </div>
-                        <span>{h.start} to {h.end}</span>
+                        <span>{formatDateDisplay(h.start)} to {formatDateDisplay(h.end)}</span>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         {Object.entries(h.params).map(([k, v]) => (

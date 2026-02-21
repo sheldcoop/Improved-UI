@@ -102,6 +102,12 @@ class BacktestEngine:
                     df[k].columns = [c.capitalize() for c in df[k].columns]
 
         close_price = df["Close"] if isinstance(df, pd.DataFrame) else df["Close"]
+        
+        # Diagnostic logging for data range
+        if isinstance(df, pd.DataFrame):
+            logger.info(f"BacktestEngine Execution: symbol={strategy_id}, bars={len(df)}, range={df.index.min()} to {df.index.max()}")
+        elif isinstance(df, dict) and "Close" in df:
+            logger.info(f"BacktestEngine Universe Execution: assets={len(df['Close'].columns)}, bars={len(df['Close'])}")
 
         # --- 3. FREQUENCY DETECTION ---
         # Detect VBT-compatible freq from time-delta (Issue #18)

@@ -3,5 +3,8 @@
 export * from '../types';
 
 // Re-export services
-export { getOptionChain, getPaperPositions, validateMarketData, fetchAndValidateMarketData, type DataHealthReport } from './marketData';
-export { fetchStrategies, saveStrategy, runBacktest, runOptimization, runMonteCarlo } from './backtestService';
+export * from './marketService';
+export * from './strategyService';
+export * from './optimizationService';
+export * from './paperService';
+export * from './backtestService';

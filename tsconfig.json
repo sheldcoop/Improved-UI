@@ -27,5 +27,21 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.js",
+    "**/*.jsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "backend/venv",
+    ".venv",
+    "venv",
+    "cache_dir",
+    "backend/cache_dir",
+    "DhanHQ-py-main"
+  ]
 }

@@ -1,10 +1,7 @@
 import React, { useState } from 'react';
 import { AlertTriangle, X, CheckCircle, Info } from 'lucide-react';
 
-interface Alert {
-    type: 'warning' | 'success' | 'info' | 'error';
-    msg: string;
-}
+import { Alert } from '../../types';
 
 interface AlertBannerProps {
     alerts: Alert[];
@@ -20,10 +17,10 @@ const AlertBanner: React.FC<AlertBannerProps> = ({ alerts }) => {
 
     return (
         <div className={`mb-6 rounded-lg border p-4 shadow-lg animate-in fade-in slide-in-from-top-4 duration-500 ${hasWarnings
-                ? 'bg-yellow-900/20 border-yellow-500/30 text-yellow-200'
-                : allSuccess
-                    ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-200'
-                    : 'bg-blue-900/20 border-blue-500/30 text-blue-200'
+            ? 'bg-yellow-900/20 border-yellow-500/30 text-yellow-200'
+            : allSuccess
+                ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-200'
+                : 'bg-blue-900/20 border-blue-500/30 text-blue-200'
             }`}>
             <div className="flex items-start justify-between">
                 <div className="flex items-start space-x-3">
@@ -44,8 +41,8 @@ const AlertBanner: React.FC<AlertBannerProps> = ({ alerts }) => {
                             {alerts.map((alert, idx) => (
                                 <li key={idx} className="text-xs flex items-center space-x-2">
                                     <span className={`w-1.5 h-1.5 rounded-full ${alert.type === 'warning' ? 'bg-yellow-500' :
-                                            alert.type === 'success' ? 'bg-emerald-500' :
-                                                alert.type === 'error' ? 'bg-red-500' : 'bg-blue-500'
+                                        alert.type === 'success' ? 'bg-emerald-500' :
+                                            alert.type === 'error' ? 'bg-red-500' : 'bg-blue-500'
                                         }`} />
                                     <span>{alert.msg}</span>
                                 </li>

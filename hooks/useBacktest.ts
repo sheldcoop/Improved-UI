@@ -1,140 +1,13 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UNIVERSES } from '../constants';
-import { validateMarketData, fetchAndValidateMarketData, DataHealthReport, fetchStrategies, runBacktest } from '../services/api';
-import { delay } from '../services/http';
+import { fetchAndValidateMarketData, fetchStrategies, runBacktest, runOOSValidation } from '../services/api';
 import { Timeframe, Strategy } from '../types';
 import { fetchClient } from '../services/http';
 import { logActiveRun, logDataHealth, logOptunaResults, logWFOBreakdown, logAlert } from '../components/DebugConsole';
 import { useBacktestContext } from '../context/BacktestContext';
 
-// Debounce helper
-const useDebounce = (value: string, delay: number) => {
-    const [debouncedValue, setDebouncedValue] = useState(value);
-    useEffect(() => {
-        const handler = setTimeout(() => setDebouncedValue(value), delay);
-        return () => clearTimeout(handler);
-    }, [value, delay]);
-    return debouncedValue;
-};
-
-// Search instruments API
-const searchInstruments = async (segment: string, query: string) => {
-    return fetchClient<Array<{ symbol: string; display_name: string; security_id: string; instrument_type: string }>>(`/market/instruments?segment=${segment}&q=${encodeURIComponent(query)}`);
-};
-
-// Run backtest with Dhan API; include graceful fallback so the UI still works
-// even if the backend is unreachable.  This mirrors the logic used in
-// services/backtestService.runBacktest which uses executeWithFallback.
-const runBacktestWithDhan = async (payload: {
-    instrument_details: {
-        security_id: string;
-        symbol: string;
-        exchange_segment: string;
-        instrument_type: string;
-    };
-    parameters: {
-        timeframe: string;
-        start_date: string;
-        end_date: string;
-        initial_capital: number;
-        strategy_logic: {
-            name: string;
-            [key: string]: any;
-        };
-    };
-}) => {
-    // reuse executeWithFallback from http.ts; we import it inline here to avoid
-    // circular dependency with services/api (which also imports http).  Since
-    // this file already imports fetchClient, we can copy the helper code.
-
-    const executeWithFallback = async <T>(
-        endpoint: string,
-        options: RequestInit | undefined,
-        mockFn: () => Promise<T>
-    ): Promise<T> => {
-        const { CONFIG } = await import('../config');
-        if (!CONFIG.USE_MOCK_DATA) {
-            try {
-                return await fetchClient<T>(endpoint, options);
-            } catch (error) {
-                console.warn(`[Auto-Fallback] Backend ${endpoint} unreachable. Using Mock Data.`);
-            }
-        }
-        return mockFn();
-    };
-
-    return executeWithFallback<{
-        status: string;
-        data_summary?: {
-            total_candles: number;
-            start_date: string;
-            end_date: string;
-            open_price: number;
-            close_price: number;
-            high: number;
-            low: number;
-            avg_volume: number;
-        };
-        instrument?: {
-            symbol: string;
-            security_id: string;
-            timeframe: string;
-        };
-        note?: string;
-    }>(
-        '/market/backtest/run',
-        { method: 'POST', body: JSON.stringify(payload) },
-        async () => {
-            // comprehensive mock fallback adhering to BacktestResult interface
-            await delay(1500);
-            console.warn('Mock fallback for runBacktestWithDhan');
-
-            const now = new Date();
-            const startDt = new Date(payload.parameters.start_date);
-            const endDt = new Date(payload.parameters.end_date);
-
-            // simple equity curve with a flat line
-            const equityCurve = [] as Array<{ date: string; value: number; drawdown: number }>;
-            let iter = new Date(startDt);
-            while (iter <= endDt) {
-                equityCurve.push({ date: iter.toISOString().split('T')[0], value: 100000, drawdown: 0 });
-                iter.setDate(iter.getDate() + 1);
-            }
-
-            const backtestResult: any = {
-                id: `mock_${Math.random().toString(36).substr(2, 6)}`,
-                strategyName: payload.parameters.strategy_logic?.name || 'Mock Strategy',
-                symbol: payload.instrument_details.symbol,
-                timeframe: payload.parameters.timeframe,
-                startDate: payload.parameters.start_date,
-                endDate: payload.parameters.end_date,
-                metrics: {
-                    totalReturnPct: 0,
-                    cagr: 0,
-                    sharpeRatio: 0,
-                    sortinoRatio: 0,
-                    calmarRatio: 0,
-                    maxDrawdownPct: 0,
-                    avgDrawdownDuration: '0d',
-                    winRate: 0,
-                    profitFactor: 0,
-                    kellyCriterion: 0,
-                    totalTrades: 0,
-                    consecutiveLosses: 0,
-                    alpha: 0,
-                    beta: 0,
-                    volatility: 0,
-                    expectancy: 0
-                },
-                monthlyReturns: [],
-                equityCurve,
-                trades: [],
-                status: 'completed'
-            };
-            return backtestResult;
-        });
-};
+import { useDebounce } from './useDebounce';
+import { searchInstruments, runBacktestWithDhan } from '../services/backtestInternal';
 
 export const useBacktest = () => {
     const navigate = useNavigate();
@@ -497,39 +370,19 @@ export const useBacktest = () => {
             return;
         }
 
-        const timeframeMap: Record<string, string> = {
-            [Timeframe.M1]: '1m', [Timeframe.M5]: '5m', [Timeframe.M15]: '15m',
-            [Timeframe.H1]: '1h', [Timeframe.D1]: '1d'
-        };
-
         setIsOosValidating(true);
         try {
-            const result = await fetchClient<any[]>('/optimization/oos-validate', {
-                method: 'POST',
-                body: JSON.stringify({
-                    symbol: selectedInstrument.symbol,
-                    strategyId: strategyId,
-                    paramSets: top5Trials.map((t: any) => t.paramSet),
-                    timeframe: timeframeMap[timeframe] || '1d',
-                    startDate,
-                    endDate,
-                    config: {
-                        initial_capital: capital,
-                        slippage: slippage,
-                        commission: commission,
-                        stopLossPct,
-                        takeProfitPct,
-                        useTrailingStop,
-                        pyramiding,
-                        positionSizing,
-                        positionSizeValue
-                    }
-                })
-            });
+            const result = await runOOSValidation(
+                selectedInstrument.symbol,
+                strategyId,
+                top5Trials.map((t: any) => t.paramSet),
+                startDate,
+                endDate
+            );
 
-            if (Array.isArray(result) && result.length > 0) {
+            if (result && Array.isArray(result.results) && result.results.length > 0) {
                 // Pre-process results to include timeframe, symbol, and strategyName for the Results page
-                const formattedResults = result.map(res => ({
+                const formattedResults = result.results.map((res: any) => ({
                     ...res,
                     timeframe,
                     symbol: selectedInstrument.symbol,

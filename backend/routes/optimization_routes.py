@@ -29,6 +29,7 @@ def run_optimization():
     """
     try:
         data = request.json or {}
+        logger.info(f"DEBUG: run_optimization payload: {data}")
         symbol = data.get("symbol", "NIFTY 50")
         strategy_id = data.get("strategyId", "1")
         ranges = data.get("ranges", {})

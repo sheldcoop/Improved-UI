@@ -4,10 +4,12 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Zap, Sliders, Play, GitBranch, Repeat, Plus, Trash2, Target, ArrowRight, CheckCircle2 } from 'lucide-react';
-import { runOptimization, runWFO, runAutoTune } from '../services/backtestService';
+import { runOptimization, runWFO, runAutoTune } from '../services/optimizationService';
 import { OptimizationResult, WFOResult } from '../types';
 import { useBacktestContext } from '../context/BacktestContext';
 import { ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip } from 'recharts';
+import { formatDateDisplay } from '../utils/dateUtils';
+import { DateInput } from '../components/ui/DateInput';
 
 interface ParamConfig {
     id: string;
@@ -20,7 +22,7 @@ interface ParamConfig {
 const Optimization: React.FC = () => {
     const navigate = useNavigate();
     const {
-        symbol, strategyId, customStrategies, setParams: setGlobalParams, startDate,
+        symbol, strategyId, customStrategies, setParams: setGlobalParams, startDate, endDate,
         autoTuneConfig, setAutoTuneConfig,
         wfoConfig, setWfoConfig,
         capital, commission, slippage, pyramiding, positionSizing, positionSizeValue,
@@ -75,7 +77,15 @@ const Optimization: React.FC = () => {
 
         try {
             if (activeTab === 'GRID') {
-                const res = await runOptimization(symbol || 'NIFTY 50', strategyId || '1', ranges, { n_trials: 30, scoring_metric: optunaMetric, config: configPayload });
+                const optConfig = {
+                    n_trials: 30,
+                    scoring_metric: optunaMetric,
+                    startDate,
+                    endDate,
+                    config: configPayload
+                };
+                console.log(">>> DEBUG: runOptimization payload:", { symbol, strategyId, ranges, ...optConfig });
+                const res = await runOptimization(symbol || 'NIFTY 50', strategyId || '1', ranges, optConfig);
                 setResults({ grid: res.grid, wfo: [], bestParams: res.bestParams });
             } else if (activeTab === 'AUTOTUNE') {
                 const res = await runAutoTune(symbol || 'NIFTY 50', strategyId || '1', ranges, startDate || '2026-01-01', autoTuneConfig.lookbackMonths || 6, autoTuneConfig.metric || optunaMetric, configPayload);
@@ -99,7 +109,7 @@ const Optimization: React.FC = () => {
                     <h2 className="text-2xl font-bold text-slate-100">Optimization Engine</h2>
                     <p className="text-emerald-400 text-sm mt-1 flex items-center">
                         <Target className="w-4 h-4 mr-1" />
-                        Targeting <strong>{customStrategies.find(s => s.id === strategyId)?.name || 'Strategy'}</strong> on <strong>{symbol || 'Asset'}</strong> spanning <strong>{startDate}</strong> to Present.
+                        Targeting <strong>{customStrategies.find(s => s.id === strategyId)?.name || 'Strategy'}</strong> on <strong>{symbol || 'Asset'}</strong> spanning <strong>{formatDateDisplay(startDate)}</strong> to Present.
                     </p>
                 </div>
                 <div className="flex space-x-2 bg-slate-900 border border-slate-800 p-1 rounded-lg">
@@ -164,7 +174,7 @@ const Optimization: React.FC = () => {
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="text-xs text-slate-500 block mb-1">Target Start Date</label>
-                                            <input type="date" className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-200" value={startDate} disabled />
+                                            <DateInput value={startDate} onChange={() => { }} disabled className="w-full" />
                                             <p className="text-[10px] text-slate-500 mt-1">Locked to Backtest date</p>
                                         </div>
                                         <div>
@@ -227,7 +237,7 @@ const Optimization: React.FC = () => {
                     <Card className="text-center py-12 border-emerald-500 border">
                         <CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
                         <h3 className="text-2xl font-bold text-slate-100 mb-2">Auto-Tuned Successfully</h3>
-                        <p className="text-slate-400 mb-6">Found optimal parameters across {results.period}. Your Backtest settings have been pre-filled.</p>
+                        <p className="text-slate-400 mb-6">Found optimal parameters. Your Backtest settings have been pre-filled.</p>
 
                         <div className="flex justify-center flex-wrap gap-2 mb-8">
                             {Object.entries(results.bestParams || {}).map(([k, v]) => (

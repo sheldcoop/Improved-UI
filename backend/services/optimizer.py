@@ -77,16 +77,24 @@ class OptimizationEngine:
         """Run Optuna hyperparameter optimisation for a strategy."""
         if config is None: config = {}
         fetcher = DataFetcher(headers)
+        from_date = ranges.get("startDate")
+        to_date = ranges.get("endDate")
+        
+        logger.info(f"Fetching data for Optimization: symbol={symbol}, from_date={from_date}, to_date={to_date}")
+        
         df = fetcher.fetch_historical_data(
             symbol,
-            from_date=ranges.get("startDate"),
-            to_date=ranges.get("endDate")
+            from_date=from_date,
+            to_date=to_date
         )
         if df is None or (isinstance(df, pd.DataFrame) and df.empty):
+            logger.error(f"Data fetch failed for {symbol}")
             return {"error": "No data available for symbol"}
 
-        logger.info(f"Optimization Range: {ranges.get('startDate')} to {ranges.get('endDate')} ({len(df)} bars)")
-        
+        # Log first and last index to verify range
+        if not df.empty:
+            logger.info(f"Fetched Data: {len(df)} bars. Range: {df.index.min()} to {df.index.max()}")
+
         # Use our consolidated search engine
         ranges["reproducible"] = reproducible
         best_params, grid = OptimizationEngine._find_best_params(
@@ -147,13 +155,20 @@ class OptimizationEngine:
                 strategy = StrategyFactory.get_strategy(strategy_id, trial_params)
                 entries, exits = strategy.generate_signals(df)
                 
+                # Diagnostic: Check signal counts
+                entry_count = int(entries.sum().sum()) if isinstance(entries, pd.DataFrame) else int(entries.sum())
+                
+                if entry_count == 0:
+                    logger.debug(f"Trial {trial.number}: {trial_params} -> Score: -999 (0 entry signals generated)")
+                    return float(-999)
+
                 pf = OptimizationEngine._build_portfolio(
                     df["Close"], entries, exits, config, vbt_freq
                 )
                 
                 trade_count = int(pf.trades.count())
                 if trade_count == 0:
-                    logger.debug(f"Trial {trial.number}: {trial_params} -> Score: -999 (0 trades)")
+                    logger.debug(f"Trial {trial.number}: {trial_params} -> Score: -999 (0 trades executed by VBT)")
                     return float(-999)
                 
                 score, sharpe, return_pct, max_dd, win_rate = OptimizationEngine._extract_score(
@@ -168,13 +183,13 @@ class OptimizationEngine:
                 trial.set_user_attr("winRate", win_rate)
                     
                 if np.isnan(score):
-                    logger.debug(f"Trial {trial.number}: {trial_params} -> Score: -999 (NaN score)")
+                    logger.debug(f"Trial {trial.number}: {trial_params} -> Score: -999 (NaN score for metric {scoring_metric})")
                     return float(-999)
                     
                 logger.info(f"Trial {trial.number}: {trial_params} | Metric: {scoring_metric} | Score: {score:.4f} | Trades: {trade_count}")
                 return float(score)
             except Exception as e:
-                logger.debug(f"Trial {trial.number} failed: {e}")
+                logger.error(f"Trial {trial.number} exception: {e}", exc_info=True)
                 return float(-999)
 
         vbt_freq = OptimizationEngine._detect_freq(df)

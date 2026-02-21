@@ -180,6 +180,11 @@ export interface Trade {
   status: 'WIN' | 'LOSS';
 }
 
+export interface Alert {
+  type: 'warning' | 'success' | 'info' | 'error';
+  msg: string;
+}
+
 export interface BacktestResult {
   id: string;
   strategyName: string;
@@ -204,16 +209,19 @@ export interface BacktestResult {
     beta: number;
     volatility: number;
     expectancy: number;
-    alerts?: string[];
+    alerts?: Alert[];
   };
   monthlyReturns: { year: number; month: number; returnPct: number }[];
   equityCurve: { date: string; value: number; drawdown: number }[];
   trades: Trade[];
   isDynamic?: boolean;
+  isOOS?: boolean;
+  mode?: string;
+  wfo?: any[];
+  rank?: number;
   paramHistory?: { start: string; end: string; params: Record<string, number>; usingFallback?: boolean }[];
   status: 'running' | 'completed' | 'failed';
 }
-
 export interface MarketData {
   symbol: string;
   exchange: 'NSE' | 'BSE' | 'NFO';
