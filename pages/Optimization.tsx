@@ -32,12 +32,13 @@ const Optimization: React.FC = () => {
         autoTuneConfig, setAutoTuneConfig,
         wfoConfig, setWfoConfig,
         capital, commission, slippage, pyramiding, positionSizing, positionSizeValue,
-        stopLossPct, takeProfitPct, useTrailingStop
+        stopLossPct, takeProfitPct, useTrailingStop,
+        optResults, setOptResults
     } = useBacktestContext();
 
     // Auto-Tune is the default — it's the only valid out-of-sample workflow
     const [activeTab, setActiveTab] = useState<'AUTOTUNE' | 'WFO' | 'GRID'>('AUTOTUNE');
-    const [results, setResults] = useState<{ grid: OptimizationResult[], wfo: WFOResult[], period?: string, bestParams?: Record<string, number> } | null>(null);
+    // results are stored in context so they survive navigation away from this page
     const [running, setRunning] = useState(false);
     const [optunaMetric, setOptunaMetric] = useState('sharpe');
 
@@ -81,15 +82,16 @@ const Optimization: React.FC = () => {
         setParams(params.map(p => p.id === id ? { ...p, [field]: value } : p));
 
     const applyParamsAndRun = (paramSet: Record<string, number>) => {
-        // copy parameters into the shared context
+        // copy parameters into the shared context so the backtest page immediately
+        // shows them.  We no longer request an automatic simulation run – the user
+        // can review the settings and hit "Run Simulation" manually.
         setGlobalParams(paramSet);
-        // immediately transition to the backtest page and trigger an auto-run
-        navigate('/backtest', { state: { autoRun: true } });
+        navigate('/backtest', { state: { appliedParams: paramSet } });
     };
 
     const handleRun = async () => {
         setRunning(true);
-        setResults(null);
+        setOptResults(null);
 
         const ranges = params.reduce((acc, p) => {
             acc[p.name] = { min: p.min, max: p.max, step: p.step };
@@ -112,14 +114,14 @@ const Optimization: React.FC = () => {
                     config: configPayload
                 };
                 const res = await runOptimization(symbol || 'NIFTY 50', strategyId || '1', ranges, optConfig);
-                setResults({ grid: res.grid, wfo: [], bestParams: res.bestParams });
+                setOptResults({ grid: res.grid, wfo: [], bestParams: res.bestParams });
             } else if (activeTab === 'AUTOTUNE') {
                 const res = await runAutoTune(symbol || 'NIFTY 50', strategyId || '1', ranges, startDate || '2026-01-01', autoTuneConfig.lookbackMonths || 6, autoTuneConfig.metric || optunaMetric, { timeframe, ...configPayload });
-                setResults({ grid: res.grid, wfo: [], period: res.period, bestParams: res.bestParams });
+                setOptResults({ grid: res.grid, wfo: [], period: res.period, bestParams: res.bestParams });
                 setGlobalParams(res.bestParams);
             } else {
                 const wfoRes = await runWFO(symbol || 'NIFTY 50', strategyId || '1', ranges, wfoConfig, configPayload);
-                setResults({ grid: [], wfo: wfoRes });
+                setOptResults({ grid: [], wfo: wfoRes });
             }
         } catch (e) {
             alert("Optimization failed: " + e);
@@ -270,7 +272,7 @@ const Optimization: React.FC = () => {
             </div>
 
             {/* Config + Right panel */}
-            {!results && !running && (
+            {!optResults && !running && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     {/* Left: Parameter configuration (shared by all tabs) */}
                     <Card title="Hyperparameter Search Space">
@@ -394,20 +396,20 @@ const Optimization: React.FC = () => {
             )}
 
             {/* AUTO-TUNE RESULTS */}
-            {results && activeTab === 'AUTOTUNE' && (
+            {optResults && activeTab === 'AUTOTUNE' && (
                 <div className="max-w-xl mx-auto space-y-4">
                     <Card className="text-center py-12 border-emerald-500 border">
                         <CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
                         <h3 className="text-2xl font-bold text-slate-100 mb-1">Auto-Tuned Successfully</h3>
-                        {results.period && (
+                        {optResults?.period && (
                             <p className="text-xs text-slate-500 mb-4">
-                                Optimized on: <span className="text-slate-300">{results.period}</span>
+                                Optimized on: <span className="text-slate-300">{optResults?.period}</span>
                             </p>
                         )}
                         <p className="text-slate-400 mb-6">Found optimal parameters on out-of-sample data. Your Backtest settings have been pre-filled.</p>
 
                         <div className="flex justify-center flex-wrap gap-2 mb-8">
-                            {Object.entries(results.bestParams || {}).map(([k, v]) => (
+                            {Object.entries(optResults?.bestParams || {}).map(([k, v]) => (
                                 <div key={k} className="bg-slate-900 border border-slate-700 px-4 py-2 rounded">
                                     <span className="text-xs text-slate-500 block uppercase tracking-wider">{k}</span>
                                     <span className="text-lg font-mono text-emerald-400">{v as React.ReactNode}</span>
@@ -416,7 +418,7 @@ const Optimization: React.FC = () => {
                         </div>
 
                         <div className="flex justify-center space-x-4">
-                            <Button variant="secondary" onClick={() => setResults(null)}>Tune Again</Button>
+                            <Button variant="secondary" onClick={() => setOptResults(null)}>Tune Again</Button>
                             <Button
                                 variant="primary"
                                 onClick={() => navigate('/backtest', { state: { autoRun: true } })}
@@ -430,7 +432,7 @@ const Optimization: React.FC = () => {
             )}
 
             {/* GRID RESULTS */}
-            {results && activeTab === 'GRID' && (
+            {optResults && activeTab === 'GRID' && (
                 <div className="space-y-4">
                     <div className="flex items-center justify-between">
                         <div>
@@ -440,7 +442,7 @@ const Optimization: React.FC = () => {
                                 In-sample results — verify with Auto-Tune or Walk-Forward before trading
                             </p>
                         </div>
-                        <Button variant="secondary" onClick={() => setResults(null)}>Reset</Button>
+                        <Button variant="secondary" onClick={() => setOptResults(null)}>Reset</Button>
                     </div>
                     <Card className="p-0 overflow-hidden">
                         <table className="w-full text-left text-sm text-slate-400">
@@ -456,7 +458,7 @@ const Optimization: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-800">
-                                {results.grid?.slice(0, 10).map((res, idx) => (
+                                {optResults?.grid?.slice(0, 10).map((res, idx) => (
                                     <tr key={idx} className="hover:bg-slate-800/50 group transition-colors">
                                         <td className="p-4 font-bold text-emerald-500">#{idx + 1}</td>
                                         <td className="p-4 font-mono text-xs text-slate-300">
@@ -484,12 +486,12 @@ const Optimization: React.FC = () => {
             )}
 
             {/* WFO RESULTS */}
-            {results && activeTab === 'WFO' && (
+            {optResults && activeTab === 'WFO' && (
                 <div className="grid grid-cols-1 gap-6">
                     <Card title="Out-of-Sample Performance (Test Windows)">
                         <div className="h-[300px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={results.wfo}>
+                                <BarChart data={optResults.wfo}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
                                     <XAxis dataKey="period" stroke="#64748b" />
                                     <YAxis stroke="#64748b" />
@@ -512,7 +514,7 @@ const Optimization: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-800">
-                                {(results.wfo || []).map((res: any, idx) => (
+                                {(optResults?.wfo || []).map((res: any, idx) => (
                                     <tr key={idx}>
                                         <td className="p-3">{res.period}</td>
                                         <td className="p-3 font-mono text-xs text-slate-300">{res.params}</td>
@@ -526,7 +528,7 @@ const Optimization: React.FC = () => {
                             </tbody>
                         </table>
                     </Card>
-                    <Button variant="secondary" onClick={() => setResults(null)} className="w-full">Back to Config</Button>
+                    <Button variant="secondary" onClick={() => setOptResults(null)} className="w-full">Back to Config</Button>
                 </div>
             )}
         </div>

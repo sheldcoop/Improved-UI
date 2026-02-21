@@ -221,6 +221,10 @@ export interface BacktestResult {
   rank?: number;
   paramHistory?: { start: string; end: string; params: Record<string, number>; usingFallback?: boolean }[];
   status: 'running' | 'completed' | 'failed';
+  // when backtest is invoked via optimization or passed explicit parameters
+  // we echo the values here so the UI can display them to the user.
+  // This mirrors the behaviour of the optimisation endpoints.
+  paramSet?: Record<string, number>;
 }
 export interface MarketData {
   symbol: string;

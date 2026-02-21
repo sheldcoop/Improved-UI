@@ -223,6 +223,18 @@ const Results: React.FC = () => {
             <span>{result.timeframe}</span>
             <span>•</span>
             <span>Simulation: {formatDateDisplay(result.startDate)} to {formatDateDisplay(result.endDate)}</span>
+            {result.paramSet && (
+              <>
+                <span>•</span>
+                <span className="font-mono text-xs">
+                  {Object.entries(result.paramSet).map(([k, v], i) => (
+                    <span key={k}>
+                      {k}: {v}{i < Object.entries(result.paramSet).length - 1 ? ", " : ""}
+                    </span>
+                  ))}
+                </span>
+              </>
+            )}
           </div>
         </div>
         <div className="flex space-x-2 bg-slate-900 p-1 rounded-lg border border-slate-800">

@@ -247,6 +247,61 @@ class TestOptimizationEngine:
         assert self.RANGES["lower"]["min"] <= best["lower"] <= self.RANGES["lower"]["max"]
         assert self.RANGES["upper"]["min"] <= best["upper"] <= self.RANGES["upper"]["max"]
 
+    def test_http_backtest_after_optimize(self, client):
+        """Full HTTP flow: optimise then backtest the top candidate.
+
+        This ensures that parameters produced by the optimisation endpoint can be
+        submitted to the backtest route and that the returned result correctly
+        echoes the same parameters.
+        """
+        # 1. run optimisation via endpoint – patch the data fetcher so that Optuna
+        # sees a sufficiently long DataFrame and actually returns candidates.
+        df = _make_oscillating_ohlcv(n=300)
+        df.columns = [c.capitalize() for c in df.columns]
+        from unittest.mock import patch
+        with patch("services.data_fetcher.DataFetcher.fetch_historical_data", return_value=df):
+            payload = {
+                "symbol": "TEST",  # symbol value is only used for logging
+                "strategyId": "1",
+                "ranges": self.RANGES,
+                "timeframe": "1d",
+                "startDate": "2023-01-01",
+                "lookbackMonths": 12,
+                "scoringMetric": "sharpe",
+                "reproducible": True,
+                "config": {"initial_capital": 100000}
+            }
+            opt_resp = client.post("/api/v1/optimization/run", json=payload)
+        assert opt_resp.status_code == 200
+        opt_data = opt_resp.get_json() or {}
+        assert "grid" in opt_data and len(opt_data["grid"]) > 0
+        top = opt_data["grid"][0]
+        assert "paramSet" in top
+
+        # 2. backtest using the top paramSet; reuse the same patch since the
+        # backtest route also calls DataFetcher under the hood.
+        with patch("services.data_fetcher.DataFetcher.fetch_historical_data", return_value=df):
+            bt_payload = {
+                "instrument_details": {
+                    "security_id": "1",
+                    "symbol": "TEST",
+                    "exchange_segment": "NSE_EQ",
+                    "instrument_type": "EQ",
+                },
+                "parameters": {
+                    "timeframe": "1d",
+                    "start_date": "2023-01-01",
+                    "end_date": "2023-01-15",
+                    "initial_capital": 50000,
+                    "strategy_logic": top["paramSet"],
+                },
+            }
+            bt_resp = client.post("/api/v1/market/backtest/run", json=bt_payload)
+        assert bt_resp.status_code == 200
+        bt_data = bt_resp.get_json() or {}
+        assert bt_data.get("paramSet") == top["paramSet"], "Server must echo same paramSet"
+        assert bt_data.get("metrics") is not None
+
     def test_build_portfolio_tolerates_object_dtype(self):
         """_build_portfolio should accept object-dtype signal series without error.
 
@@ -436,54 +491,32 @@ class TestMarketRoute:
 
         assert resp.status_code in (200, 400), f"Unexpected status {resp.status_code}"
 
-
-# ---------------------------------------------------------------------------
-# Market route tests
-# ---------------------------------------------------------------------------
-
-class TestMarketRoute:
-    """HTTP-level tests for /market/backtest/run endpoint."""
-
-    def test_backtest_route_tolerates_object_signals(self, client):
-        """Route should not crash even when the strategy yields object-type signals.
-
-        We patch the strategy to force such output, then verify the response is
-        a graceful 400 or 200 rather than a server error.
+    def test_backtest_route_includes_param_set(self, client):
+        """The JSON returned by /market/backtest/run should echo the
+        strategy parameters under ``paramSet`` so the frontend knows what was
+        actually simulated.
         """
-        import pandas as pd
-        from unittest.mock import patch
-
-        # minimal data frame
-        df = pd.DataFrame({
-            "Open": [100, 101],
-            "High": [101, 102],
-            "Low": [99, 100],
-            "Close": [100, 101],
-            "Volume": [1000, 1000],
-        }, index=pd.bdate_range("2023-01-01", periods=2, freq="B"))
-
-        # patch fetcher to return our df, and strategy to produce object signals
-        with patch("services.data_fetcher.DataFetcher.fetch_historical_data", return_value=df), \
-             patch("strategies.StrategyFactory.get_strategy") as mock_sf:
-            arr = pd.Series([True, False], index=df.index).astype(object)
-            mock_sf.return_value.generate_signals.return_value = (arr, arr)
-
-            payload = {
-                "instrument_details": {
-                    "security_id": "1",
-                    "symbol": "TEST",
-                    "exchange_segment": "NSE_EQ",
-                    "instrument_type": "EQ",
-                },
-                "parameters": {
-                    "timeframe": "1d",
-                    "start_date": "2023-01-01",
-                    "end_date": "2023-01-10",
-                },
-            }
-            resp = client.post("/api/v1/market/backtest/run", json=payload)
-
-        assert resp.status_code in (200, 400), f"Unexpected status {resp.status_code}"
+        payload = {
+            "instrument_details": {
+                "security_id": "1",
+                "symbol": "TEST",
+                "exchange_segment": "NSE_EQ",
+                "instrument_type": "EQ",
+            },
+            "parameters": {
+                "timeframe": "1d",
+                "start_date": "2023-01-01",
+                "end_date": "2023-01-10",
+                "initial_capital": 50000,
+                "strategy_logic": {"period": 10, "lower": 20, "upper": 80}
+            },
+        }
+        resp = client.post("/api/v1/market/backtest/run", json=payload)
+        assert resp.status_code == 200, f"Expected success, got {resp.status_code}"
+        data = resp.get_json() or {}
+        # paramSet should exactly match the strategy_logic we sent
+        assert data.get("paramSet") == payload["parameters"]["strategy_logic"], \
+            "Returned paramSet must match submitted strategy_logic"            
 
 
 class TestAutoTuneDateLogic:

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Timeframe, Strategy } from '../types';
+import { Timeframe, Strategy, OptimizationResult, WFOResult } from '../types';
 import { UNIVERSES } from '../constants';
 import { DataHealthReport } from '../services/api';
 
@@ -83,6 +83,10 @@ interface BacktestContextType {
     setShowRanges: (val: boolean) => void;
     reproducible: boolean;
     setReproducible: (val: boolean) => void;
+    // stored optimisation results (grid / wfo etc). persisted in memory so we
+    // don't lose them when switching pages.
+    optResults: { grid: OptimizationResult[]; wfo: WFOResult[]; period?: string; bestParams?: Record<string, number> } | null;
+    setOptResults: (val: { grid: OptimizationResult[]; wfo: WFOResult[]; period?: string; bestParams?: Record<string, number> } | null) => void;
 
     // OOS
     top5Trials: any[];
@@ -148,6 +152,7 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
     const [isAutoTuning, setIsAutoTuning] = useState(false);
     const [showRanges, setShowRanges] = useState(false);
     const [reproducible, setReproducible] = useState(false);
+    const [optResults, setOptResults] = useState<{ grid: OptimizationResult[]; wfo: WFOResult[]; period?: string; bestParams?: Record<string, number> } | null>(null);
     const [top5Trials, setTop5Trials] = useState<any[]>([]);
     const [oosResults, setOosResults] = useState<any[]>([]);
     const [isOosValidating, setIsOosValidating] = useState(false);
@@ -175,6 +180,8 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
         dataStatus, setDataStatus, healthReport, setHealthReport, isDynamic, setIsDynamic,
         wfoConfig, setWfoConfig, autoTuneConfig, setAutoTuneConfig, paramRanges, setParamRanges,
         isAutoTuning, setIsAutoTuning, showRanges, setShowRanges, reproducible, setReproducible,
+        // persisted optimization results
+        optResults, setOptResults,
         top5Trials, setTop5Trials, oosResults, setOosResults, isOosValidating, setIsOosValidating,
         stopLossPct, setStopLossPct, takeProfitPct, setTakeProfitPct, useTrailingStop, setUseTrailingStop,
         pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,

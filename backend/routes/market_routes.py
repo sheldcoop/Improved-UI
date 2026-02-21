@@ -312,6 +312,14 @@ def run_backtest():
             "status": "completed",
             **bt_results
         }
+        # Echo back the exact parameters used in the simulation so the frontend
+        # can display them on the results/analytics page.  This matches the
+        # behaviour of the optimisation endpoints which already include
+        # ``paramSet`` in their responses.
+        # ``strategy_logic`` contains the merged configuration that was passed
+        # to ``BacktestEngine.run`` (contains stopLossPct, any tunable params,
+        # etc.).  We expose that as ``paramSet`` in the response object.
+        response["paramSet"] = strategy_logic
         
         logger.info(f"Backtest completed successfully for {inst_details['symbol']}")
         return jsonify(response), 200

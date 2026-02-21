@@ -39,14 +39,26 @@ const Backtest: React.FC = () => {
   } = setters;
   const { handleLoadData, handleAutoTune, handleRun, handleOOSValidation } = handlers;
 
-  // if the optimization page navigated here with autoRun flag, set a request
-  // then clear the history state so refresh doesn't repeat
+  // When the optimization page brings us here it may supply a parameter set
+  // under ``appliedParams``.  In the old flow we also passed an ``autoRun``
+  // flag which triggered an immediate simulation; the new behaviour leaves the
+  // decision to the user.  We still clear the history state afterwards so a
+  // page refresh doesn't reapply or rerun unexpectedly.
   useEffect(() => {
-    if (location.state && (location.state as any).autoRun) {
+    if (!location.state) return;
+
+    const { appliedParams, autoRun } = location.state as any;
+    if (appliedParams) {
+      setParams(appliedParams);
+    }
+    if (autoRun) {
       setAutoRunRequested(true);
+    }
+
+    if (appliedParams || autoRun) {
       navigate(location.pathname, { replace: true, state: {} as any });
     }
-  }, [navigate, location.pathname, location.state]);
+  }, [navigate, location.pathname, location.state, setParams]);
 
   // when an auto-run is requested we need to ensure market data is loaded
   // before calling handleRun.  The hook's handleRun already alerts if data
