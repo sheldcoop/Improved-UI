@@ -120,19 +120,17 @@ export const useBacktest = () => {
         try {
             const target = mode === 'SINGLE' ? symbol : universe;
 
-            // Calculate extended from_date (Lookback + Backtest)
-            const fromDateObj = new Date(startDate);
-            let extendedFromDate = startDate;
+            // Calculate extended from_date to cover BOTH:
+            //   1. Indicator warmup lookback (if toggle is ON)
+            //   2. Auto-Tune optimization lookback (always needed so auto-tune has data)
+            const indicatorLookback = useLookback ? lookbackMonths : 0;
+            const optimizationLookback = autoTuneConfig.lookbackMonths; // months needed before startDate for auto-tune
+            const totalLookbackMonths = Math.max(indicatorLookback, optimizationLookback);
 
-            if (useLookback) {
-                fromDateObj.setMonth(fromDateObj.getMonth() - lookbackMonths);
-                extendedFromDate = fromDateObj.toISOString().split('T')[0];
-                console.log(`Applying ${lookbackMonths}-month indicator lookback: ${startDate} -> ${extendedFromDate}`);
-            } else {
-                // Strictly NO lookback if toggle is OFF
-                extendedFromDate = startDate;
-                console.log(`Lookback DISABLED: Fetching exactly from ${startDate}`);
-            }
+            const fromDateObj = new Date(startDate);
+            fromDateObj.setMonth(fromDateObj.getMonth() - totalLookbackMonths);
+            const extendedFromDate = fromDateObj.toISOString().split('T')[0];
+            console.log(`Data fetch range: ${extendedFromDate} → ${endDate} (indicator: ${indicatorLookback}m, auto-tune: ${optimizationLookback}m)`);
 
             logActiveRun({
                 type: 'DATA_LOADING',

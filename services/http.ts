@@ -31,7 +31,13 @@ export async function fetchClient<T>(endpoint: string, options?: RequestInit): P
     const duration = `${(endTime - startTime).toFixed(0)}ms`;
 
     if (!response.ok) {
-      throw new Error(`API Error: ${response.status} ${response.statusText}`);
+      // Try to extract the backend's error message from the JSON body
+      let backendMessage = `${response.status} ${response.statusText}`;
+      try {
+        const errBody = await response.json();
+        if (errBody?.message) backendMessage = errBody.message;
+      } catch { /* ignore parse errors */ }
+      throw new Error(backendMessage);
     }
 
     if (!endpoint.includes('/debug/')) {
@@ -69,7 +75,7 @@ export async function executeWithFallback<T>(
       // Re-throw for critical endpoints so callers can show a proper error instead of silently using fake data
       const criticalEndpoints = ['/market/backtest/run', '/optimization/run', '/optimization/auto-tune', '/optimization/wfo'];
       if (criticalEndpoints.some(e => endpoint.includes(e))) {
-        throw new Error(`Backend unreachable: ${endpoint}. Please ensure the backend server is running.`);
+        throw error; // rethrow the original error which has the real backend message
       }
     }
   }

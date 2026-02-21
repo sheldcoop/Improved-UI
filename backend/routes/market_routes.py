@@ -16,6 +16,7 @@ from services.strategy_store import StrategyStore
 from services.backtest_engine import BacktestEngine
 from services.data_health import DataHealthService
 from utils.market_calendar import get_nse_trading_days, is_trading_day
+from utils.json_utils import clean_float_values
 
 market_bp = Blueprint("market", __name__)
 logger = logging.getLogger(__name__)
@@ -79,7 +80,7 @@ def fetch_data():
         sample_data = sample_data.rename(columns={sample_data.columns[0]: 'timestamp'})
         sample_data = sample_data.loc[:, ~sample_data.columns.duplicated()]
         sample_data['timestamp'] = sample_data['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
-        sample_list = sample_data.to_dict(orient='records')
+        sample_list = clean_float_values(sample_data.to_dict(orient='records'))
 
         return jsonify({
             "status": "success", 
