@@ -1,5 +1,5 @@
 
-import { OptimizationResult } from '../types';
+import { OptimizationResult, OptimizationResponse } from '../types';
 import { API_ENDPOINTS } from '../config';
 import { delay, executeWithFallback } from './http';
 
@@ -12,7 +12,7 @@ export const runOptimization = async (
     strategyId: string = '1',
     ranges: OptimizationRanges = {},
     config?: any
-): Promise<{ grid: OptimizationResult[], bestParams: Record<string, number> }> => {
+): Promise<OptimizationResponse> => {
     return executeWithFallback(API_ENDPOINTS.OPTIMIZATION, { method: 'POST', body: JSON.stringify({ symbol, strategyId, ranges, ...config }) }, async () => {
         await delay(1000);
         return {

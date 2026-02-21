@@ -78,10 +78,20 @@ def run_optimization():
         scoring_metric = data.get("scoringMetric", "sharpe")
         reproducible = data.get("reproducible", False)
         config = data.get("config", {})
+        risk_ranges = data.get("riskRanges")  # optional second-phase search space
 
         logger.info(f"Running Optuna Optimisation for {symbol} | Metric: {scoring_metric} | Timeframe: {timeframe} | Reproducible: {reproducible}")
         results = OptimizationEngine.run_optuna(
-            symbol, strategy_id, ranges, request.headers, n_trials, scoring_metric, reproducible, config=config, timeframe=timeframe
+            symbol,
+            strategy_id,
+            ranges,
+            request.headers,
+            n_trials,
+            scoring_metric,
+            reproducible,
+            config=config,
+            timeframe=timeframe,
+            risk_ranges=risk_ranges,
         )
         return jsonify(results), 200
 

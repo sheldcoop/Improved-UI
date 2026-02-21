@@ -13,7 +13,7 @@ const CATEGORY_PATTERNS: Array<[string, RegExp]> = [
     ['Risk', /Volatility|Drawdown|Sharpe|Sortino|Calmar|Kelly|Omega|Tail|VaR|Beta|Alpha/i],
     ['Time', /Start|End|Period|Duration/i],
     ['Distribution', /Skew|Kurtosis/i],
-    ['Benchmark', /Benchmark/i],
+    // leave benchmark out of categories; will treat specially
 ];
 
 const determineCategory = (key: string) => {
@@ -52,10 +52,15 @@ const ReturnsStatsTable: React.FC<ReturnsStatsTableProps> = ({ stats }) => {
     // build grouped rows
     const groups: Record<string, Array<{ key: string; value: string }>> = {};
     Object.entries(stats).forEach(([k, v]) => {
-        const cat = determineCategory(k);
-        const display = formatValue(k, v);
+        // remap benchmark return key for clarity
+        let key = k;
+        if (/Benchmark Return/i.test(k)) {
+            key = 'Underlying Return [%]';
+        }
+        const cat = determineCategory(key);
+        const display = formatValue(key, v);
         if (!groups[cat]) groups[cat] = [];
-        groups[cat].push({ key: k, value: display });
+        groups[cat].push({ key, value: display });
     });
 
     const sortedCategories = Object.keys(groups).sort();

@@ -438,6 +438,28 @@ const Backtest: React.FC = () => {
                       />
                     </div>
                   ))}
+
+                  {/* always expose stop-loss and take-profit as top‑level overrides */}
+                  <div>
+                    <label className="text-xs text-slate-500 block mb-1">Stop Loss %</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={stopLossPct}
+                      onChange={(e) => setStopLossPct(parseFloat(e.target.value))}
+                      className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 block mb-1">Take Profit %</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={takeProfitPct}
+                      onChange={(e) => setTakeProfitPct(parseFloat(e.target.value))}
+                      className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200"
+                    />
+                  </div>
                 </div>
 
                 {/* Tune Parameters Button */}
@@ -490,26 +512,18 @@ const Backtest: React.FC = () => {
                 </div>
 
 
-                {/* Risk Management & Execution */}
+                {/* Risk Management & Execution updated – stop loss and take‑profit are surfaced above */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-4 border-b border-slate-800">
                   <div className="space-y-4">
                     <h4 className="text-xs font-bold text-slate-500 uppercase flex items-center">
                       <Shield className="w-3 h-3 mr-1" /> Risk Management
                     </h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-[10px] text-slate-500 block mb-1">Stop Loss %</label>
-                        <input type="number" step="0.1" value={stopLossPct} onChange={e => setStopLossPct(parseFloat(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500" />
-                      </div>
-                      <div>
-                        <label className="text-[10px] text-slate-500 block mb-1">Take Profit %</label>
-                        <input type="number" step="0.1" value={takeProfitPct} onChange={e => setTakeProfitPct(parseFloat(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500" />
-                      </div>
+                    <div className="grid grid-cols-1 gap-4">
+                      <label className="flex items-center space-x-2 text-[10px] text-slate-400 cursor-pointer">
+                        <input type="checkbox" checked={useTrailingStop} onChange={e => setUseTrailingStop(e.target.checked)} className="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500" />
+                        <span>Use Trailing Stop</span>
+                      </label>
                     </div>
-                    <label className="flex items-center space-x-2 text-[10px] text-slate-400 cursor-pointer">
-                      <input type="checkbox" checked={useTrailingStop} onChange={e => setUseTrailingStop(e.target.checked)} className="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500" />
-                      <span>Use Trailing Stop</span>
-                    </label>
                   </div>
                   <div className="space-y-4">
                     <h4 className="text-xs font-bold text-slate-500 uppercase flex items-center">

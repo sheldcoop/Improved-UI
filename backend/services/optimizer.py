@@ -73,9 +73,17 @@ class OptimizationEngine:
         scoring_metric: str = "sharpe",
         reproducible: bool = False,
         config: dict | None = None,
-        timeframe: str = "1d"
+        timeframe: str = "1d",
+        risk_ranges: dict[str, dict] | None = None,
     ) -> dict:
-        """Run Optuna hyperparameter optimisation for a strategy."""
+        """Run Optuna hyperparameter optimisation for a strategy.
+
+        Supports an optional second phase where *risk_ranges* (stop-loss,
+        take-profit, etc.) are optimised after the primary parameters have
+        been selected.  When *risk_ranges* is provided the response will
+        include both primary and risk grids as well as combined parameter
+        sets.
+        """
         if config is None: config = {}
         fetcher = DataFetcher(headers)
         from_date = ranges.get("startDate")
@@ -97,13 +105,30 @@ class OptimizationEngine:
         if not df.empty:
             logger.info(f"Fetched Data: {len(df)} bars. Range: {df.index.min()} to {df.index.max()}")
 
-        # Use our consolidated search engine
+        # first-phase optimisation
         ranges["reproducible"] = reproducible
         best_params, grid = OptimizationEngine._find_best_params(
             df, strategy_id, ranges, scoring_metric, return_trials=True, n_trials=n_trials, config=config
         )
 
-        return {"grid": grid, "wfo": [], "bestParams": best_params}
+        response: dict = {"grid": grid, "wfo": [], "bestParams": best_params}
+
+        # if risk_ranges supplied, run second-phase optimisation
+        if risk_ranges:
+            logger.info("Starting secondary optimisation for risk parameters")
+            # pass best primary parameters separately so they are fixed in the next study
+            try:
+                risk_best, risk_grid = OptimizationEngine._find_best_params(
+                    df, strategy_id, risk_ranges, scoring_metric,
+                    return_trials=True, n_trials=n_trials, config=config, fixed_params=best_params
+                )
+                response["riskGrid"] = risk_grid
+                response["bestRiskParams"] = risk_best
+                response["combinedParams"] = {**best_params, **risk_best}
+            except Exception as e:
+                logger.warning(f"Secondary risk optimisation failed: {e}")
+                # leave risk keys out if it fails
+        return response
 
     # WFO methods have been extracted to services.wfo_engine.WFOEngine
     
@@ -115,7 +140,8 @@ class OptimizationEngine:
         scoring_metric: str = "sharpe",
         return_trials: bool = False,
         n_trials: int = 30,
-        config: dict | None = None
+        config: dict | None = None,
+        fixed_params: dict | None = None,
     ) -> dict | tuple[dict, list[dict]]:
         """Find best parameters for a training window using Optuna."""
         if config is None: config = {}
@@ -128,8 +154,16 @@ class OptimizationEngine:
         # Non-parameter keys injected by routes (startDate, endDate, reproducible) — skip them
         _META_KEYS = frozenset({"startDate", "endDate", "reproducible"})
 
+        # frequency won't change during optimisation and is needed inside the
+        # objective closure, so compute once early. A local variable is fine
+        # because `objective` will capture it by reference and it's assigned
+        # before any trial is executed.
+        vbt_freq = OptimizationEngine._detect_freq(df)
+
         def objective(trial: optuna.Trial) -> float:
             trial_params: dict = {}
+
+            # build parameter set for this trial
             for param, constraints in ranges.items():
                 if param in _META_KEYS:
                     continue
@@ -153,48 +187,54 @@ class OptimizationEngine:
                     p_step = int(val_step) if val_step is not None else 1
                     trial_params[param] = trial.suggest_int(param, p_min, p_max, step=p_step)
 
+            # merge in any fixed params so they cannot vary during this study
+            if fixed_params:
+                trial_params.update(fixed_params)
+
+            # evaluate this parameter set inside a try/except so that failures
+            # are translated into a very poor score rather than blowing up the
+            # entire optimisation study.  The optimization service and the
+            # legacy engine both used similar logic.
             try:
                 strategy = StrategyFactory.get_strategy(strategy_id, trial_params)
                 entries, exits = strategy.generate_signals(df)
-                
-                # Diagnostic: Check signal counts
-                entry_count = int(entries.sum().sum()) if isinstance(entries, pd.DataFrame) else int(entries.sum())
-                
-                if entry_count == 0:
-                    logger.debug(f"Trial {trial.number}: {trial_params} -> Score: -999 (0 entry signals generated)")
-                    return float(-999)
 
                 pf = OptimizationEngine._build_portfolio(
                     df["Close"], entries, exits, config, vbt_freq
                 )
-                
-                trade_count = int(pf.trades.count())
-                if trade_count == 0:
-                    logger.debug(f"Trial {trial.number}: {trial_params} -> Score: -999 (0 trades executed by VBT)")
-                    return float(-999)
-                
+
+                # extract scoring components
                 score, sharpe, return_pct, max_dd, win_rate = OptimizationEngine._extract_score(
                     pf, scoring_metric
                 )
-                
-                # Store in trial attributes for retrieval
-                trial.set_user_attr("returnPct", return_pct)
-                trial.set_user_attr("sharpe", sharpe)
-                trial.set_user_attr("drawdown", max_dd)
-                trial.set_user_attr("trades", trade_count)
-                trial.set_user_attr("winRate", win_rate)
-                    
-                if np.isnan(score):
-                    logger.debug(f"Trial {trial.number}: {trial_params} -> Score: -999 (NaN score for metric {scoring_metric})")
-                    return float(-999)
-                    
-                logger.info(f"Trial {trial.number}: {trial_params} | Metric: {scoring_metric} | Score: {score:.4f} | Trades: {trade_count}")
-                return float(score)
+
+                # count trades (closed trades is most appropriate)
+                try:
+                    trade_count = int(pf.trades.closed.count())
+                except Exception:
+                    trade_count = 0
             except Exception as e:
                 logger.error(f"Trial {trial.number} exception: {e}", exc_info=True)
                 return float(-999)
 
-        vbt_freq = OptimizationEngine._detect_freq(df)
+            # store metrics so frontend grid can display them later
+            trial.set_user_attr("returnPct", return_pct)
+            trial.set_user_attr("sharpe", sharpe)
+            trial.set_user_attr("drawdown", max_dd)
+            trial.set_user_attr("trades", trade_count)
+            trial.set_user_attr("winRate", win_rate)
+
+            if np.isnan(score):
+                logger.debug(
+                    f"Trial {trial.number}: {trial_params} -> Score: -999 (NaN score for metric {scoring_metric})"
+                )
+                return float(-999)
+
+            logger.info(
+                f"Trial {trial.number}: {trial_params} | Metric: {scoring_metric} | "
+                f"Score: {score:.4f} | Trades: {trade_count}"
+            )
+            return float(score)
 
         logger.info(f"--- OPTIMIZATION START ---")
         logger.info(f"Metric: {scoring_metric} | Strategy: {strategy_id} | Bars: {len(df)} | Freq: {vbt_freq}")

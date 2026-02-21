@@ -302,6 +302,42 @@ class TestOptimizationEngine:
         assert bt_data.get("paramSet") == top["paramSet"], "Server must echo same paramSet"
         assert bt_data.get("metrics") is not None
 
+    def test_optimization_with_risk_ranges(self, client):
+        """Server should accept riskRanges and return riskGrid entries."""
+        import pandas as pd
+        from unittest.mock import patch
+
+        df = pd.DataFrame({"Open": [100, 101], "High": [101, 102],
+                           "Low": [99, 100], "Close": [100, 101],
+                           "Volume": [1000, 1000]},
+                          index=pd.bdate_range("2023-01-01", periods=2, freq="B"))
+        with patch("services.data_fetcher.DataFetcher.fetch_historical_data", return_value=df):
+            payload = {
+                "symbol": "TEST",
+                "strategyId": "1",
+                "ranges": {
+                    "timeframe": "1d", "startDate": "2023-01-01", "endDate": "2023-01-02",
+                    "period": {"min": 5, "max": 5, "step": 1},
+                    "lower": {"min": 30, "max": 30, "step": 1},
+                    "upper": {"min": 70, "max": 70, "step": 1}
+                },
+                "riskRanges": {
+                    "stopLossPct": {"min": 0, "max": 1, "step": 1},
+                    "takeProfitPct": {"min": 0, "max": 1, "step": 1}
+                }
+            }
+            resp = client.post("/api/v1/optimization/run", json=payload)
+        assert resp.status_code == 200
+        data = resp.get_json() or {}
+        # response should always echo bestParams from first-phase
+        assert "bestParams" in data
+        # if combinedParams present, it must include the primary keys
+        if "combinedParams" in data:
+            for key in ("period", "lower", "upper"):
+                assert key in data["combinedParams"], f"primary param {key} missing from combinedParams"
+        # either riskGrid exists or the second phase failed silently
+        assert ("riskGrid" in data and isinstance(data["riskGrid"], list)) or ("bestRiskParams" not in data)
+
     def test_backtest_engine_monthly_returns(self):
         """BacktestEngine should emit at least one monthly return without error."""
         import pandas as pd

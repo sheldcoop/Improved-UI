@@ -32,6 +32,8 @@ const Optimization: React.FC = () => {
         wfoConfig, setWfoConfig,
         capital, commission, slippage, pyramiding, positionSizing, positionSizeValue,
         stopLossPct, takeProfitPct, useTrailingStop,
+        // setters we'll need when applying parameters
+        setStopLossPct, setTakeProfitPct, setUseTrailingStop,
         optResults, setOptResults
     } = useBacktestContext();
 
@@ -42,6 +44,13 @@ const Optimization: React.FC = () => {
     const [optunaMetric, setOptunaMetric] = useState('sharpe');
 
     const [params, setParams] = useState<ParamConfig[]>([]);
+    const [enableRiskSearch, setEnableRiskSearch] = useState(false);
+    const [riskParams, setRiskParams] = useState<ParamConfig[]>([
+        { id: 'r0', name: 'stopLossPct', min: 0, max: 5, step: 1 },
+        { id: 'r1', name: 'takeProfitPct', min: 0, max: 5, step: 1 }
+    ]);
+    // when user wants to perform secondary optimisation after picking a primary
+    const [selectedParams, setSelectedParams] = useState<Record<string, number> | null>(null);
 
     const strategyName =
         customStrategies.find(s => s.id === strategyId)?.name ??
@@ -85,6 +94,20 @@ const Optimization: React.FC = () => {
         // shows them.  We no longer request an automatic simulation run – the user
         // can review the settings and hit "Run Simulation" manually.
         setGlobalParams(paramSet);
+
+        // if the parameter set includes risk values we store them in their
+        // dedicated state variables as well. this ensures the main UI fields
+        // (which now sit outside of "params") are populated correctly.
+        if (paramSet.stopLossPct !== undefined) {
+            setStopLossPct(paramSet.stopLossPct as number);
+        }
+        if (paramSet.takeProfitPct !== undefined) {
+            setTakeProfitPct(paramSet.takeProfitPct as number);
+        }
+        if (paramSet.useTrailingStop !== undefined) {
+            setUseTrailingStop(Boolean(paramSet.useTrailingStop));
+        }
+
         navigate('/backtest', { state: { appliedParams: paramSet } });
     };
 
@@ -104,7 +127,7 @@ const Optimization: React.FC = () => {
 
         try {
             if (activeTab === 'GRID') {
-                const optConfig = {
+                const optConfig: any = {
                     n_trials: 30,
                     scoring_metric: optunaMetric,
                     startDate,
@@ -112,11 +135,21 @@ const Optimization: React.FC = () => {
                     timeframe,
                     config: configPayload
                 };
+
+                if (enableRiskSearch) {
+                    optConfig.riskRanges = riskParams.reduce((acc, p) => {
+                        acc[p.name] = { min: p.min, max: p.max, step: p.step };
+                        return acc;
+                    }, {} as any);
+                }
+
                 const res = await runOptimization(symbol || 'NIFTY 50', strategyId || '1', ranges, optConfig);
-                setOptResults({ grid: res.grid, wfo: [], bestParams: res.bestParams });
+                setOptResults({ ...res, wfo: [], period: undefined });
+                // clear any previous manual selection since we just re-ran full search
+                setSelectedParams(null);
             } else if (activeTab === 'WFO') {
                 const wfoRes = await runWFO(symbol || 'NIFTY 50', strategyId || '1', ranges, wfoConfig, configPayload);
-                setOptResults({ grid: [], wfo: wfoRes });
+                setOptResults({ grid: [], wfo: wfoRes, period: undefined } as any);
             }
         } catch (e) {
             alert("Optimization failed: " + e);
@@ -256,6 +289,40 @@ const Optimization: React.FC = () => {
                                         No tunable parameters defined for this strategy.
                                     </div>
                                 )}
+                                {/* risk section toggle */}
+                                <div className="mt-4">
+                                    <label className="inline-flex items-center space-x-2">
+                                        <input type="checkbox" checked={enableRiskSearch} onChange={() => setEnableRiskSearch(!enableRiskSearch)} className="form-checkbox" />
+                                        <span className="text-sm text-slate-300">Also search stop-loss / take-profit ranges</span>
+                                    </label>
+                                </div>
+                                {enableRiskSearch && (
+                                    <div className="mt-3 space-y-3">
+                                        {riskParams.map((param) => (
+                                            <div key={param.id} className="grid grid-cols-12 gap-2 items-center bg-slate-950 p-2 rounded border border-slate-800">
+                                                <div className="col-span-4">
+                                                    <span className="text-sm font-medium text-slate-300 ml-2">
+                                                        {param.name.replace(/_/g, ' ').toUpperCase()}
+                                                    </span>
+                                                </div>
+                                                <div className="col-span-8 grid grid-cols-3 gap-3">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-[10px] text-slate-500 mb-1">Min</span>
+                                                        <input type="number" step={param.step} value={param.min} onChange={(e) => setRiskParams(riskParams.map(r => r.id === param.id ? {...r, min: parseFloat(e.target.value)} : r))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 focus:border-emerald-500 outline-none" />
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-[10px] text-slate-500 mb-1">Max</span>
+                                                        <input type="number" step={param.step} value={param.max} onChange={(e) => setRiskParams(riskParams.map(r => r.id === param.id ? {...r, max: parseFloat(e.target.value)} : r))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 focus:border-emerald-500 outline-none" />
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-[10px] text-slate-500 mb-1">Step</span>
+                                                        <input type="number" step={param.step} value={param.step} onChange={(e) => setRiskParams(riskParams.map(r => r.id === param.id ? {...r, step: parseFloat(e.target.value)} : r))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 focus:border-emerald-500 outline-none" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
 
                             {/* Tab-specific controls */}
@@ -368,7 +435,10 @@ const Optimization: React.FC = () => {
                                         <td className="p-4">{res.winRate?.toFixed(1)}%</td>
                                         <td className="p-4"><span className="text-red-400">-{res.drawdown?.toFixed(2)}%</span></td>
                                         <td className="p-4">{res.trades}</td>
-                                        <td className="p-4 text-right">
+                                        <td className="p-4 text-right flex space-x-2 justify-end">
+                                            {enableRiskSearch && (
+                                                <Button size="sm" variant={selectedParams === res.paramSet ? 'secondary' : 'ghost'} onClick={() => setSelectedParams(res.paramSet)} className="opacity-0 group-hover:opacity-100 transition-opacity" icon={<CheckCircle2 className="w-4 h-4" />}>{selectedParams === res.paramSet ? 'Selected' : 'Choose'}</Button>
+                                            )}
                                             <Button size="sm" onClick={() => applyParamsAndRun(res.paramSet)} className="opacity-0 group-hover:opacity-100 transition-opacity" icon={<ArrowRight className="w-4 h-4" />}>Apply</Button>
                                         </td>
                                     </tr>
@@ -376,53 +446,119 @@ const Optimization: React.FC = () => {
                             </tbody>
                         </table>
                     </Card>
-                </div>
-            )}
 
-            {/* WFO RESULTS */}
-            {optResults && activeTab === 'WFO' && (
-                <div className="grid grid-cols-1 gap-6">
-                    <Card title="Out-of-Sample Performance (Test Windows)">
-                        <div className="h-[300px]">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={optResults.wfo}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                                    <XAxis dataKey="period" stroke="#64748b" />
-                                    <YAxis stroke="#64748b" />
-                                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9' }} />
-                                    <Bar dataKey="returnPct" name="Return %" fill="#6366f1" />
-                                </BarChart>
-                            </ResponsiveContainer>
+                    {/* risk grid section, only if backend returned it */}
+
+                    {/* section for sequential risk optimisation */}
+                    {enableRiskSearch && optResults && activeTab === 'GRID' && (
+                        <div className="mt-4 px-4 py-3 rounded bg-slate-800 border border-slate-700">
+                            {!selectedParams ? (
+                                <p className="text-sm text-slate-300">
+                                    Pick a configuration above and click <strong>Choose</strong> to run a separate SL/TP study on that set.
+                                </p>
+                            ) : (
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm text-slate-200">
+                                        Selected: {Object.entries(selectedParams).map(([k,v])=>`${k}: ${v}`).join(', ')}
+                                    </span>
+                                    <Button size="sm" onClick={async () => {
+                                        // rerun optimisation with selected parameters locked
+                                        setRunning(true);
+                                        setOptResults(null);
+                                        const fixedRanges = Object.fromEntries(
+                                            Object.entries(selectedParams!).map(([k,v]) => [k, { min: v, max: v, step: 1 }])
+                                        );
+                                        const riskRangesObj = riskParams.reduce((acc, p) => {
+                                            acc[p.name] = { min: p.min, max: p.max, step: p.step };
+                                            return acc;
+                                        }, {} as any);
+                                        try {
+                                            // rebuild the configuration payload here since we're outside
+                                        // the scope of the top-level `handleRun` function.
+                                        const configPayload = {
+                                            initial_capital: capital,
+                                            commission,
+                                            slippage,
+                                            pyramiding,
+                                            positionSizing,
+                                            positionSizeValue,
+                                            stopLossPct,
+                                            takeProfitPct,
+                                            useTrailingStop
+                                        };
+                                        const res = await runOptimization(symbol || 'NIFTY 50', strategyId || '1', fixedRanges, {
+                                            n_trials: 30,
+                                            scoring_metric: optunaMetric,
+                                            startDate,
+                                            endDate,
+                                            timeframe,
+                                            config: configPayload,
+                                            riskRanges: riskRangesObj
+                                        });
+                                            setOptResults({ ...res, wfo: [], period: undefined });
+                                        } catch (e) {
+                                            alert("Risk optimisation failed: " + e);
+                                        }
+                                        setRunning(false);
+                                    }}>
+                                        Run SL/TP search
+                                    </Button>
+                                </div>
+                            )}
                         </div>
-                    </Card>
+                    )}
 
-                    <Card title="Walk-Forward Log">
-                        <table className="w-full text-left text-sm text-slate-400">
-                            <thead className="bg-slate-950 text-slate-200">
-                                <tr>
-                                    <th className="p-3">Window</th>
-                                    <th className="p-3">Optimal Params</th>
-                                    <th className="p-3">OOS Sharpe</th>
-                                    <th className="p-3">OOS Return</th>
-                                    <th className="p-3">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-800">
-                                {(optResults?.wfo || []).map((res: any, idx) => (
-                                    <tr key={idx}>
-                                        <td className="p-3">{res.period}</td>
-                                        <td className="p-3 font-mono text-xs text-slate-300">{res.params}</td>
-                                        <td className="p-3">{res.sharpe?.toFixed(2)}</td>
-                                        <td className={`p-3 font-bold ${(res.returnPct || 0) > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                            {res.returnPct?.toFixed(2)}%
-                                        </td>
-                                        <td className="p-3"><Badge variant="info">Verified</Badge></td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </Card>
-                    <Button variant="secondary" onClick={() => setOptResults(null)} className="w-full">Back to Config</Button>
+                    {optResults?.riskGrid && optResults.riskGrid.length > 0 && (
+                        <div className="space-y-4 mt-6">
+                            <h4 className="text-lg font-semibold text-slate-200">Risk Parameter Search Results</h4>
+                            <Card className="p-0 overflow-hidden">
+                                <table className="w-full text-left text-sm text-slate-400">
+                                    <thead className="bg-slate-950 text-slate-200">
+                                        <tr>
+                                            <th className="p-4 rounded-tl-lg">Rank</th>
+                                            <th className="p-4">Risk Set</th>
+                                            <th className="p-4">Score ({optunaMetric})</th>
+                                            <th className="p-4">Win Rate</th>
+                                            <th className="p-4">Drawdown</th>
+                                            <th className="p-4">Trades</th>
+                                            <th className="p-4 text-right rounded-tr-lg">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800">
+                                        {optResults.riskGrid.slice(0, 10).map((res, idx) => (
+                                            <tr key={idx} className="hover:bg-slate-800/50 group transition-colors">
+                                                <td className="p-4 font-bold text-emerald-500">#{idx + 1}</td>
+                                                <td className="p-4 font-mono text-xs text-slate-300">
+                                                    <div className="flex gap-2 flex-wrap">
+                                                        {Object.entries(res.paramSet).map(([k, v]) => (
+                                                            <span key={k} className="bg-slate-950 border border-slate-700 px-2 py-0.5 rounded">
+                                                                {k}: <span className="text-indigo-400">{v as React.ReactNode}</span>
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </td>
+                                                <td className="p-4 text-slate-100 font-medium">{res.score.toFixed(4)}</td>
+                                                <td className="p-4">{res.winRate?.toFixed(1)}%</td>
+                                                <td className="p-4"><span className="text-red-400">-{res.drawdown?.toFixed(2)}%</span></td>
+                                                <td className="p-4">{res.trades}</td>
+                                                <td className="p-4 text-right">
+                                                    <Button size="sm" onClick={() => {
+                                                        // when applying risk params we want to merge with the best
+                                                        // primary parameters previously selected
+                                                        const combined = {
+                                                            ...(optResults.combinedParams ?? {}),
+                                                            ...res.paramSet
+                                                        };
+                                                        applyParamsAndRun(combined);
+                                                    }} className="opacity-0 group-hover:opacity-100 transition-opacity" icon={<ArrowRight className="w-4 h-4" />}>Apply</Button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </Card>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

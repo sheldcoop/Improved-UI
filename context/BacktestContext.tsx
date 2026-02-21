@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Timeframe, Strategy, OptimizationResult, WFOResult } from '../types';
+import { Timeframe, Strategy, OptimizationResult, OptimizationResponse, WFOResult } from '../types';
 import { UNIVERSES } from '../constants';
 import { DataHealthReport } from '../services/api';
 
@@ -81,8 +81,8 @@ interface BacktestContextType {
     setReproducible: (val: boolean) => void;
     // stored optimisation results (grid / wfo etc). persisted in memory so we
     // don't lose them when switching pages.
-    optResults: { grid: OptimizationResult[]; wfo: WFOResult[]; period?: string; bestParams?: Record<string, number> } | null;
-    setOptResults: (val: { grid: OptimizationResult[]; wfo: WFOResult[]; period?: string; bestParams?: Record<string, number> } | null) => void;
+    optResults: (OptimizationResponse & { wfo: WFOResult[]; period?: string }) | null;
+    setOptResults: (val: (OptimizationResponse & { wfo: WFOResult[]; period?: string }) | null) => void;
 
     // OOS
     top5Trials: any[];
@@ -151,7 +151,7 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
     const [paramRanges, setParamRanges] = useState<Record<string, { min: number, max: number, step: number }>>({});
     const [showRanges, setShowRanges] = useState(false);
     const [reproducible, setReproducible] = useState(false);
-    const [optResults, setOptResults] = useState<{ grid: OptimizationResult[]; wfo: WFOResult[]; period?: string; bestParams?: Record<string, number> } | null>(null);
+    const [optResults, setOptResults] = useState<(OptimizationResponse & { wfo: WFOResult[]; period?: string }) | null>(null);
     const [top5Trials, setTop5Trials] = useState<any[]>([]);
     const [oosResults, setOosResults] = useState<any[]>([]);
     const [isOosValidating, setIsOosValidating] = useState(false);

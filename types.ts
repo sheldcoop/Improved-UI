@@ -255,6 +255,18 @@ export interface OptimizationResult {
   score: number;
 }
 
+// Response from the backend optimisation endpoint. The server will always
+// provide `grid` and `bestParams` for the first-phase search. When a secondary
+// risk search is enabled the object may also contain `riskGrid`,
+// `bestRiskParams` and a merged `combinedParams` entry.
+export interface OptimizationResponse {
+  grid: OptimizationResult[];
+  bestParams: Record<string, number>;
+  riskGrid?: OptimizationResult[];
+  bestRiskParams?: Record<string, number>;
+  combinedParams?: Record<string, number>;
+}
+
 export interface WFOResult {
   period: string; // e.g., "Run 1 (Train)" or "Run 1 (Test)"
   type: 'TRAIN' | 'TEST';
