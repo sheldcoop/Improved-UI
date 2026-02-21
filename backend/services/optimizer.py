@@ -299,41 +299,52 @@ class OptimizationEngine:
         )
 
         fetcher = DataFetcher(headers)
-        df = fetcher.fetch_historical_data(symbol, timeframe=timeframe, from_date=str(is_start.date()), to_date=str(is_end.date()))
+        # Fetch full cached data without date bounds to guarantee a cache hit.
+        # Filtering to the lookback window is done in Python below.
+        full_df = fetcher.fetch_historical_data(symbol, timeframe=timeframe)
 
-        if df is None or (isinstance(df, pd.DataFrame) and df.empty):
+        if full_df is None or (isinstance(full_df, pd.DataFrame) and full_df.empty):
             return {"status": "error", "message": f"No cached data for {symbol}. Please click 'Load Data' first."}
 
-        # Normalize columns consistency (Issue #Alignment)
-        if isinstance(df, pd.DataFrame):
-            df.columns = [c.capitalize() for c in df.columns]
+        # Normalize columns
+        if isinstance(full_df, pd.DataFrame):
+            full_df.columns = [c.capitalize() for c in full_df.columns]
 
+        # Slice to the lookback window, handling tz-aware vs tz-naive indexes
         try:
-            mask = (df.index >= pd.Timestamp(is_start)) & (df.index <= pd.Timestamp(is_end))
-            is_df = df.loc[mask].dropna(subset=["Close"])
+            idx = full_df.index
+            ts_start = pd.Timestamp(is_start)
+            ts_end = pd.Timestamp(is_end)
+            if idx.tz is not None:
+                ts_start = ts_start.tz_localize(idx.tz)
+                ts_end = ts_end.tz_localize(idx.tz)
+            mask = (idx >= ts_start) & (idx <= ts_end)
+            is_df = full_df.loc[mask].dropna(subset=["Close"])
         except Exception as e:
             return {"status": "error", "message": f"Data processing error: {e}"}
 
         if len(is_df) < 20:
-            # Look at the full cached data (no date filter) to give an accurate suggestion
-            full_df = fetcher.fetch_historical_data(symbol, timeframe=timeframe)
-            if full_df is not None and not full_df.empty:
-                cache_start = full_df.index.min().strftime("%Y-%m-%d")
-                cache_end = full_df.index.max().strftime("%Y-%m-%d")
-                suggested_start = (full_df.index.min() + relativedelta(months=lookback)).strftime("%Y-%m-%d")
+            cache_start = full_df.index.min().strftime("%Y-%m-%d")
+            cache_end = full_df.index.max().strftime("%Y-%m-%d")
+            actual_bars = len(is_df)
+            # Suggest moving start date forward so there are 6 full months before it in the cache
+            suggested_start = (full_df.index.min() + relativedelta(months=lookback)).strftime("%Y-%m-%d")
+            if suggested_start <= start_date_str:
+                # Cache starts close to or after startDate-lookback; user needs more history
                 return {
                     "status": "error",
                     "message": (
-                        f"No {timeframe} data before {start_date_str} for Auto-Tune. "
+                        f"Only {actual_bars} bars found in the {lookback}-month lookback window before {start_date_str}. "
                         f"Your loaded cache covers {cache_start} \u2192 {cache_end}. "
-                        f"Set your backtest Start Date to '{suggested_start}' or later, then Load Data."
+                        f"Load more historical data or reduce the Auto-Tune lookback period."
                     ),
                 }
             return {
                 "status": "error",
                 "message": (
-                    f"No {timeframe} data before {start_date_str}. "
-                    f"Click 'Load Data' to fetch {lookback} months of data before your backtest start date."
+                    f"Only {actual_bars} bars found before {start_date_str} for Auto-Tune "
+                    f"(cache: {cache_start} \u2192 {cache_end}). "
+                    f"Set your backtest Start Date to '{suggested_start}' or later, then Load Data."
                 ),
             }
 
