@@ -1,112 +1,98 @@
+ > /Users/prince/Desktop/Improved-UI/test_api.py && > /Users/prince/Desktop/Improved-UI/test_api2.py && > /Users/prince/Desktop/Improved-UI/test_api3.py
+ nl -ba /Users/prince/Desktop/Improved-UI/backend/tests/test_integration.py | sed -n '380,450p'
+ nl -ba /Users/prince/Desktop/Improved-UI/backend/tests/test_integration.py | head -n 500
+ grep -n "TestAutoTuneRoute" -n /Users/prince/Desktop/Improved-UI/backend/tests/test_integration.py
+ nl -ba "/Users/prince/Desktop/Improved-UI/backend/tests/test_integration.py" | head -n 450
+ cat -n "/Users/prince/Desktop/Improved-UI/backend/tests/test_integration.py" | head -n 450
+ sed -i '' '/class TestAutoTuneRoute/,/# Auto-tune\b/d' /Users/prince/Desktop/Improved-UI/backend/tests/test_integration.py
+ python - <<'PY'
+import pathlib
+path=pathlib.Path("/Users/prince/Desktop/Improved-UI/backend/tests/test_integration.py")
+lines=path.read_text().splitlines()
+out=[]
+skip=False
+for line in lines:
+    if line.startswith('class TestAutoTuneRoute'):
+        skip=True
+        continue
+    if skip and line.strip().startswith('#') and 'Market route tests' in line:
+        skip=False
+        out.append(line)
+        continue
+    if not skip:
+        out.append(line)
+path.write_text("\n".join(out))
+PY
+ python - <<'PY'
+import pathlib
+path=pathlib.Path("/Users/prince/Desktop/Improved-UI/backend/tests/test_integration.py")
+lines=path.read_text().splitlines()
+out=[]
+skip=False
+for line in lines:
+    if line.startswith('class TestAutoTuneRoute'):
+        skip=True
+        continue
+    if skip and line.startswith('class TestMarketRoute'):
+        skip=False
+    if not skip:
+        out.append(line)
+path.write_text("\n".join(out))
+PY
+ echo '' > /Users/prince/Desktop/Improved-UI/test_api.py && echo '' > /Users/prince/Desktop/Improved-UI/test_api2.py && echo '' > /Users/prince/Desktop/Improved-UI/test_api3.py
+ npm run build
+ npm run build
+ echo hello
+ cd /Users/prince/Desktop/Improved-UI/backend && pytest backend/tests/test_integration.py::TestAutoTuneDateLogic -q
+ cd /Users/prince/Desktop/Improved-UI/backend && pytest backend/tests/test_integration.py::TestOptimizationValidation -q
+ cd /Users/prince/Desktop/Improved-UI/backend && pytest backend/tests/test_integration.py -q
+ cd /Users/prince/Desktop/Improved-UI/backend && ls backend/tests
+ cd /Users/prince/Desktop/Improved-UI/backend && pytest backend/tests/test_integration.py::TestOptimizationValidation -q
+ python - <<'PY'
+import pytest, sys
+print(pytest.__version__)
+print(pytest.main(['backend/tests/test_integration.py::TestOptimizationValidation','-q']))
+PY
+ cd /Users/prince/Desktop/Improved-UI/backend && python - <<'PY'
+import pytest, sys
+print('pytest', pytest.__version__)
+res = pytest.main(['backend/tests/test_integration.py::TestOptimizationValidation','-q'])
+print('exit', res)
+PY
+ cd /Users/prince/Desktop/Improved-UI/backend && pytest backend/tests/test_integration.py::TestCacheVersioning -q
+ cd /Users/prince/Desktop/Improved-UI/backend && pytest backend/tests/test_integration.py::TestErrorLogging -q
+ cd /Users/prince/Desktop/Improved-UI/backend && pytest tests/test_integration.py::TestOptimizationValidation -q
+ cd /Users/prince/Desktop/Improved-UI/backend && pytest -q tests/test_integration.py::TestOptimizationValidation
+ cd /Users/prince/Desktop/Improved-UI/backend && pytest -q
+ pwd; ls -l
+ echo hello
+ python - <<'PYTHON'
+import pytest, sys
+pytest.main(['-q','tests/test_integration.py::TestOptimizationValidation::test_run_missing_symbol'])
+PYTHON
+ cd /Users/prince/Desktop/Improved-UI/backend && python - <<'PYTHON'
+import pytest
 import sys
-import json
-from pathlib import Path
-from datetime import datetime, timedelta
-from dateutil.relativedelta import relativedelta
-
-sys.path.append(str(Path(__file__).resolve().parent / "backend"))
-
-from services.optimizer import OptimizationEngine
-
-def verify_auto_tune():
-    symbol = "RELIANCE"
-    timeframe = "1d"
-    
-    # We will test Auto-Tune for a start date of 2026-02-01 with a 6 month lookback.
-    # This means the auto-tune optimization window is mathematically:
-    auto_tune_start_date_str = "2026-02-01"
-    lookback = 6
-    
-    start_dt = datetime.strptime(auto_tune_start_date_str, "%Y-%m-%d")
-    is_end = start_dt - timedelta(days=1)   # 2026-01-31
-    is_start = is_end - relativedelta(months=lookback) # 2025-07-31
-    
-    opt_start_str = str(is_start.date())
-    opt_end_str = str(is_end.date())
-    
-    strategy_id = "1" # RSI
-    ranges = {
-        "period": {"min": 5, "max": 20, "step": 1},
-        "lower": {"min": 20, "max": 40, "step": 5},
-        "upper": {"min": 60, "max": 80, "step": 5}
-    }
-    
-    config = {
-        "initial_capital": 100000,
-        "commission": 20,
-        "slippage": 0.05,
-        "positionSizing": "Fixed Capital",
-        "positionSizeValue": 100000,
-        "pyramiding": 1
-    }
-    
-    headers = {}
-    
-    print(f"--- 1. Manual Optuna Optimization ({opt_start_str} to {opt_end_str}) ---")
-    
-    manual_ranges = ranges.copy()
-    manual_ranges["startDate"] = opt_start_str
-    manual_ranges["endDate"] = opt_end_str
-    
-    optuna_results = OptimizationEngine.run_optuna(
-        symbol=symbol,
-        strategy_id=strategy_id,
-        ranges=manual_ranges,
-        headers=headers,
-        scoring_metric="sharpe",
-        reproducible=True,
-        config=config
-    )
-    
-    print(f"Manual Best Params: {optuna_results.get('bestParams')}")
-    
-    print(f"\n--- 2. Auto-Tune Optimization (Target: {auto_tune_start_date_str}, Lookback: {lookback}m) ---")
-    
-    # Notice we use the same ranges natively
-    auto_ranges = ranges.copy()
-    auto_ranges["reproducible"] = True
-    
-    auto_tune_results = OptimizationEngine.run_auto_tune(
-        symbol=symbol,
-        strategy_id=strategy_id,
-        ranges=auto_ranges,
-        timeframe=timeframe,
-        start_date_str=auto_tune_start_date_str,
-        lookback=lookback,
-        metric="sharpe",
-        headers=headers,
-        config=config
-    )
-    
-    print(f"Auto-Tune Period: {auto_tune_results.get('period')}")
-    print("\n--- 3. TOP 10 COMPARISON ---")
-    print(f"Manual Period: {opt_start_str} to {opt_end_str}")
-    print(f"AutoTune Period: {auto_tune_results.get('period')}")
-    
-    manual_grid = optuna_results.get("grid", [])[:10]
-    auto_grid = auto_tune_results.get("grid", [])[:10]
-    
-    all_match = True
-    for i in range(min(len(manual_grid), 10)):
-        man_params = manual_grid[i]["paramSet"]
-        auto_params = auto_grid[i]["paramSet"]
-        
-        man_score = manual_grid[i]["score"]
-        auto_score = auto_grid[i]["score"]
-        
-        print(f"\nRank {i+1}:")
-        if man_params == auto_params and man_score == auto_score:
-            print(f"  ✅ MATCH: {man_params} | Score: {man_score}")
-        else:
-            print(f"  ❌ MISMATCH:")
-            print(f"     Manual:    {man_params} | Score: {man_score}")
-            print(f"     Auto-Tune: {auto_params} | Score: {auto_score}")
-            all_match = False
-
-    if all_match:
-        print("\n🎉 SUCCESS: The Top 10 parameter sets EXACTLY match between Manual Optuna and Auto-Tune!")
-    else:
-        print("\n⚠️ FAILURE: The parameter grids do not perfectly align.")
-
-if __name__ == "__main__":
-    verify_auto_tune()
+# run a couple of tests and write results to a file
+with open('test_output.txt', 'w') as f:
+    ret = pytest.main(['tests/test_integration.py::TestOptimizationValidation::test_run_missing_symbol',
+                       'tests/test_integration.py::TestOptimizationValidation::test_run_ranges_not_dict',
+                       'tests/test_integration.py::TestOptimizationValidation::test_run_bad_dates',
+                       'tests/test_integration.py::TestErrorLogging::test_uncaught_exception_returns_json',
+                       'tests/test_integration.py::TestErrorLogging::test_metadata_written_and_readable'],
+                      stdout=f)
+print('pytest returned', ret)
+PYTHON && cat test_output.txt
+ npm run dev --silent
+ npm run dev
+ npx tsc --noEmit
+ grep -n "jest" package.json
+ sed -n '1,120p' package.json
+ cat package.json | head -n 60
+ ls -l package.json && wc -l package.json
+ cd /Users/prince/Desktop/Improved-UI/backend && python - <<'PYTHON'
+import pytest
+pytest.main(['-q','tests/test_integration.py::TestMarketRoute::test_fetch_requires_symbol',
+            'tests/test_integration.py::TestMarketRoute::test_fetch_success_returns_health_and_sample'])
+PYTHON
+ npx tsc --noEmit

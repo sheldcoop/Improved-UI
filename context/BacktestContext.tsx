@@ -73,12 +73,8 @@ interface BacktestContextType {
     setIsDynamic: (val: boolean) => void;
     wfoConfig: { trainWindow: number; testWindow: number };
     setWfoConfig: (val: { trainWindow: number; testWindow: number }) => void;
-    autoTuneConfig: { lookbackMonths: number; trials: number; metric: string };
-    setAutoTuneConfig: (val: { lookbackMonths: number; trials: number; metric: string }) => void;
     paramRanges: Record<string, { min: number; max: number; step: number }>;
     setParamRanges: (val: Record<string, { min: number; max: number; step: number }>) => void;
-    isAutoTuning: boolean;
-    setIsAutoTuning: (val: boolean) => void;
     showRanges: boolean;
     setShowRanges: (val: boolean) => void;
     reproducible: boolean;
@@ -103,6 +99,10 @@ interface BacktestContextType {
     setUseLookback: (val: boolean) => void;
     lookbackMonths: number;
     setLookbackMonths: (val: number) => void;
+
+    // Loading guards
+    isFetchingData: boolean;
+    setIsFetchingData: (val: boolean) => void;
 }
 
 const BacktestContext = createContext<BacktestContextType | undefined>(undefined);
@@ -124,6 +124,8 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
     const [capital, setCapital] = useState(() => load('capital', 100000));
     const [strategyId, setStrategyId] = useState(() => load('strategyId', '1'));
     const [selectedInstrument, setSelectedInstrument] = useState(() => load('selectedInstrument', null));
+    const [healthReport, setHealthReport] = useState<any>(() => load('healthReport', null));
+    const [fullReportData, setFullReportData] = useState<any>(() => load('fullReportData', null));
 
     // States without persistence (Memory only)
     const [mode, setMode] = useState<'SINGLE' | 'UNIVERSE'>('SINGLE');
@@ -143,23 +145,20 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
     const [positionSizing, setPositionSizing] = useState('Fixed Capital');
     const [positionSizeValue, setPositionSizeValue] = useState(100000);
     const [running, setRunning] = useState(false);
-    const [dataStatus, setDataStatus] = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>('IDLE');
-    const [healthReport, setHealthReport] = useState<DataHealthReport | null>(null);
+    const [dataStatus, setDataStatus] = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>(() => load('dataStatus', 'IDLE'));
     const [isDynamic, setIsDynamic] = useState(false);
     const [wfoConfig, setWfoConfig] = useState({ trainWindow: 12, testWindow: 3 });
-    const [autoTuneConfig, setAutoTuneConfig] = useState({ lookbackMonths: 12, trials: 30, metric: 'sharpe' });
     const [paramRanges, setParamRanges] = useState<Record<string, { min: number, max: number, step: number }>>({});
-    const [isAutoTuning, setIsAutoTuning] = useState(false);
     const [showRanges, setShowRanges] = useState(false);
     const [reproducible, setReproducible] = useState(false);
     const [optResults, setOptResults] = useState<{ grid: OptimizationResult[]; wfo: WFOResult[]; period?: string; bestParams?: Record<string, number> } | null>(null);
     const [top5Trials, setTop5Trials] = useState<any[]>([]);
     const [oosResults, setOosResults] = useState<any[]>([]);
     const [isOosValidating, setIsOosValidating] = useState(false);
-    const [fullReportData, setFullReportData] = useState<any | null>(null);
     const [isReportOpen, setIsReportOpen] = useState(false);
     const [useLookback, setUseLookback] = useState(false);
     const [lookbackMonths, setLookbackMonths] = useState(12);
+    const [isFetchingData, setIsFetchingData] = useState(false);
     // Save to localStorage effects
     useEffect(() => { localStorage.setItem('backtest_segment', JSON.stringify(segment)); }, [segment]);
     useEffect(() => { localStorage.setItem('backtest_symbol', JSON.stringify(symbol)); }, [symbol]);
@@ -169,6 +168,16 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
     useEffect(() => { localStorage.setItem('backtest_capital', JSON.stringify(capital)); }, [capital]);
     useEffect(() => { localStorage.setItem('backtest_strategyId', JSON.stringify(strategyId)); }, [strategyId]);
     useEffect(() => { localStorage.setItem('backtest_selectedInstrument', JSON.stringify(selectedInstrument)); }, [selectedInstrument]);
+    useEffect(() => { localStorage.setItem('backtest_healthReport', JSON.stringify(healthReport)); }, [healthReport]);
+    useEffect(() => { localStorage.setItem('backtest_fullReportData', JSON.stringify(fullReportData)); }, [fullReportData]);
+    useEffect(() => { localStorage.setItem('backtest_dataStatus', JSON.stringify(dataStatus)); }, [dataStatus]);
+
+    // derive status ready if we have a cached report but the flag is idle
+    useEffect(() => {
+        if (dataStatus === 'IDLE' && fullReportData) {
+            setDataStatus('READY');
+        }
+    }, [dataStatus, fullReportData]);
 
     const value = {
         mode, setMode, segment, setSegment, symbol, setSymbol, symbolSearchQuery, setSymbolSearchQuery,
@@ -178,15 +187,16 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
         startDate, setStartDate, endDate, setEndDate, capital, setCapital, slippage, setSlippage,
         commission, setCommission, showAdvanced, setShowAdvanced, running, setRunning,
         dataStatus, setDataStatus, healthReport, setHealthReport, isDynamic, setIsDynamic,
-        wfoConfig, setWfoConfig, autoTuneConfig, setAutoTuneConfig, paramRanges, setParamRanges,
-        isAutoTuning, setIsAutoTuning, showRanges, setShowRanges, reproducible, setReproducible,
+        wfoConfig, setWfoConfig, paramRanges, setParamRanges,
+        showRanges, setShowRanges, reproducible, setReproducible,
         // persisted optimization results
         optResults, setOptResults,
         top5Trials, setTop5Trials, oosResults, setOosResults, isOosValidating, setIsOosValidating,
         stopLossPct, setStopLossPct, takeProfitPct, setTakeProfitPct, useTrailingStop, setUseTrailingStop,
         pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
         fullReportData, setFullReportData, isReportOpen, setIsReportOpen,
-        useLookback, setUseLookback, lookbackMonths, setLookbackMonths
+        useLookback, setUseLookback, lookbackMonths, setLookbackMonths,
+        isFetchingData, setIsFetchingData
     };
 
     return <BacktestContext.Provider value={value}>{children}</BacktestContext.Provider>;

@@ -474,7 +474,7 @@ const DebugConsole: React.FC = () => {
                         optunaTrials.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-full text-slate-600 space-y-2">
                                 <Sliders className="w-8 h-8 opacity-50" />
-                                <p>Run Optuna Auto-Tune to view trial rankings.</p>
+                                <p>Run an Optuna search (grid or WFO) to view trial rankings.</p>
                             </div>
                         ) : (
                             <div className="p-4 space-y-4">

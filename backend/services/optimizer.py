@@ -260,33 +260,8 @@ class OptimizationEngine:
         headers: dict,
         config: dict | None = None
     ) -> dict:
-        """Run a quick Optuna search on the lookback period before a given date.
-
-        Args:
-            symbol: Ticker symbol to optimise on.
-            strategy_id: Strategy identifier string.
-            ranges: Parameter search space.
-            timeframe: Data interval (e.g., '1d', '15m').
-            start_date_str: Backtest start date 'YYYY-MM-DD'. Optimisation
-                runs on the period immediately before this date.
-            lookback: Lookback window in months before start_date_str.
-            metric: Scoring metric ('sharpe', 'total_return', 'calmar', 'drawdown').
-            headers: Flask request headers for API key resolution.
-
-        Returns:
-            Dict with keys: bestParams, score, period, grid.
-            Returns {'status': 'error', 'message': str} on failure.
-        """
-        if config is None: config = {}
-        from datetime import datetime, timedelta
-        from dateutil.relativedelta import relativedelta
-
-        try:
-            start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
-            is_end = start_date - timedelta(days=1)
-            is_start = is_end - relativedelta(months=lookback)
-        except Exception as e:
-            return {"status": "error", "message": f"Invalid date parameters: {e}"}
+        """Deprecated stub. Auto-tune is no longer supported."""
+        raise NotImplementedError("Auto-tune has been removed from the application.")
 
         logger.info(
             f"--- AUTO-TUNE START ---"

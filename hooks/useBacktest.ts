@@ -20,13 +20,14 @@ export const useBacktest = () => {
         params, setParams, capital, setCapital, slippage, setSlippage,
         commission, setCommission, showAdvanced, setShowAdvanced, dataStatus, setDataStatus,
         healthReport, setHealthReport, isDynamic, setIsDynamic, wfoConfig, setWfoConfig,
-        autoTuneConfig, setAutoTuneConfig, paramRanges, setParamRanges, isAutoTuning, setIsAutoTuning,
+        paramRanges, setParamRanges,
         showRanges, setShowRanges, reproducible, setReproducible, top5Trials, setTop5Trials,
         oosResults, setOosResults, isOosValidating, setIsOosValidating,
         stopLossPct, setStopLossPct, takeProfitPct, setTakeProfitPct, useTrailingStop, setUseTrailingStop,
         pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
         fullReportData, setFullReportData, isReportOpen, setIsReportOpen,
-        useLookback, setUseLookback, lookbackMonths, setLookbackMonths
+        useLookback, setUseLookback, lookbackMonths, setLookbackMonths,
+        isFetchingData, setIsFetchingData
     } = useBacktestContext();
 
     // Auto-Calculate WFO Windows when dates change
@@ -116,21 +117,23 @@ export const useBacktest = () => {
     }, [debouncedSearchQuery, segment, mode]);
 
     const handleLoadData = async () => {
+        if (isFetchingData) {
+            console.log('handleLoadData called while already fetching; ignoring');
+            return;
+        }
+        setIsFetchingData(true);
         setDataStatus('LOADING');
         try {
             const target = mode === 'SINGLE' ? symbol : universe;
 
-            // Calculate extended from_date to cover BOTH:
-            //   1. Indicator warmup lookback (if toggle is ON)
-            //   2. Auto-Tune optimization lookback (always needed so auto-tune has data)
+            // Calculate extended from_date to cover indicator warmup lookback (if toggled)
             const indicatorLookback = useLookback ? lookbackMonths : 0;
-            const optimizationLookback = autoTuneConfig.lookbackMonths; // months needed before startDate for auto-tune
-            const totalLookbackMonths = Math.max(indicatorLookback, optimizationLookback);
+            const totalLookbackMonths = indicatorLookback;
 
             const fromDateObj = new Date(startDate);
             fromDateObj.setMonth(fromDateObj.getMonth() - totalLookbackMonths);
             const extendedFromDate = fromDateObj.toISOString().split('T')[0];
-            console.log(`Data fetch range: ${extendedFromDate} → ${endDate} (indicator: ${indicatorLookback}m, auto-tune: ${optimizationLookback}m)`);
+            console.log(`Data fetch range: ${extendedFromDate} → ${endDate} (indicator: ${indicatorLookback}m)`);
 
             logActiveRun({
                 type: 'DATA_LOADING',
@@ -167,85 +170,16 @@ export const useBacktest = () => {
             }]);
         } finally {
             logActiveRun(null);
+            setIsFetchingData(false);
         }
     };
 
-    const handleAutoTune = async () => {
-        if (!selectedInstrument) {
-            alert("Please select a symbol first.");
-            return;
-        }
-
-        if (dataStatus !== 'READY') {
-            alert("Optimization requires pre-loaded data. Please click 'Load Market Data' first to fetch the lookback range.");
-            return;
-        }
-
-        if (!showRanges) {
-            setShowRanges(true);
-            return;
-        }
-
-        setIsAutoTuning(true);
-        logActiveRun({
-            type: 'AUTO_TUNING',
-            strategyName: strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy',
-            symbol: selectedInstrument.symbol,
-            timeframe,
-            startDate,
-            endDate,
-            status: 'running'
-        });
-
-        const timeframeMap: Record<string, string> = {
-            [Timeframe.M1]: '1m', [Timeframe.M5]: '5m', [Timeframe.M15]: '15m',
-            [Timeframe.H1]: '1h', [Timeframe.D1]: '1d'
-        };
-
-        try {
-            const result = await fetchClient<{ bestParams: Record<string, number>, score: number, period: string, grid?: any[] }>('/optimization/auto-tune', {
-                method: 'POST',
-                body: JSON.stringify({
-                    symbol: selectedInstrument.symbol,
-                    strategyId: strategyId,
-                    ranges: paramRanges,
-                    timeframe: timeframeMap[timeframe] || '1d',
-                    startDate: startDate,
-                    lookbackMonths: autoTuneConfig.lookbackMonths,
-                    scoringMetric: autoTuneConfig.metric,
-                    reproducible: reproducible,
-                    config: {
-                        initial_capital: capital,
-                        slippage: slippage,
-                        commission: commission,
-                        stopLossPct,
-                        takeProfitPct,
-                        useTrailingStop,
-                        pyramiding,
-                        positionSizing,
-                        positionSizeValue
-                    }
-                })
-            });
-            if (result.bestParams) {
-                setParams(result.bestParams);
-                const sortedGrid = result.grid || [];
-                logOptunaResults(sortedGrid);
-                setTop5Trials(sortedGrid.slice(0, 5)); // Store top 5 for OOS validation
-                setOosResults([]); // Reset previous OOS results
-                logActiveRun(null);
-                setShowRanges(false);
-            }
-        } catch (e) {
-            console.error("Auto-tune failed", e);
-            alert("Auto-tune failed. Check logs.");
-        } finally {
-            setIsAutoTuning(false);
-            logActiveRun(null);
-        }
-    };
 
     const handleRun = async () => {
+        if (running) {
+            // already running, guard against double invocation
+            return;
+        }
         if (dataStatus !== 'READY') {
             alert("Please load and validate market data first.");
             return;
@@ -281,7 +215,7 @@ export const useBacktest = () => {
                             ...wfoConfig,
                             startDate,
                             endDate,
-                            scoringMetric: autoTuneConfig.metric,
+                            scoringMetric: 'sharpe',
                             initial_capital: capital
                         },
                         reproducible: reproducible,
@@ -364,7 +298,7 @@ export const useBacktest = () => {
 
     const handleOOSValidation = async () => {
         if (!selectedInstrument || top5Trials.length === 0) {
-            alert("Please run Auto-Tune first to generate Top 5 Parameters.");
+            alert("Please run an optimization first to generate Top 5 parameter sets.");
             return;
         }
 
@@ -404,7 +338,7 @@ export const useBacktest = () => {
             running, mode, segment, symbol, symbolSearchQuery, searchResults, selectedInstrument,
             isSearching, universe, timeframe, strategyId, customStrategies, startDate, endDate,
             params, capital, slippage, commission, showAdvanced, dataStatus, healthReport,
-            isDynamic, wfoConfig, autoTuneConfig, paramRanges, isAutoTuning, showRanges, reproducible,
+            isDynamic, wfoConfig, paramRanges, showRanges, reproducible,
             top5Trials, oosResults, isOosValidating,
             stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
             fullReportData, isReportOpen, useLookback, lookbackMonths
@@ -413,13 +347,13 @@ export const useBacktest = () => {
             setRunning, setMode, setSegment, setSymbol, setSymbolSearchQuery, setSearchResults,
             setSelectedInstrument, setIsSearching, setUniverse, setTimeframe, setStrategyId, setCustomStrategies,
             setStartDate, setEndDate, setParams, setCapital, setSlippage, setCommission,
-            setShowAdvanced, setDataStatus, setHealthReport, setIsDynamic, setWfoConfig, setAutoTuneConfig,
-            setParamRanges, setIsAutoTuning, setShowRanges, setReproducible, setTop5Trials, setOosResults, setIsOosValidating,
+            setShowAdvanced, setDataStatus, setHealthReport, setIsDynamic, setWfoConfig,
+            setParamRanges, setShowRanges, setReproducible, setTop5Trials, setOosResults, setIsOosValidating,
             setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
             setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths
         },
         handlers: {
-            handleLoadData, handleAutoTune, handleRun, handleOOSValidation
+            handleLoadData, handleRun, handleOOSValidation
         }
     };
 };

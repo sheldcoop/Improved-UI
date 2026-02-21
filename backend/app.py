@@ -116,6 +116,37 @@ def clear_logs():
     LOG_BUFFER.clear()
     return jsonify({"status": "cleared"})
 
+@app.route('/api/v1/debug/log', methods=['POST'])
+def receive_client_log():
+    """Endpoint for front-end to send telemetry/error events.
+
+    Expects JSON payload with at least 'message' and optional metadata.
+    """
+    data = request.get_json(silent=True) or {}
+    msg = data.get('message', '<no message>')
+    level = data.get('level', 'ERROR')
+    extra = {'meta': data.get('meta', {})}
+    logger.log(getattr(logging, level.upper(), logging.ERROR), msg, extra=extra)
+    return jsonify({'status':'ok'})
+
+# test helper route: triggers an exception to verify global error handler
+@app.route('/api/v1/debug/raise', methods=['GET'])
+def _raise_for_test():
+    raise RuntimeError('boom')
+
+# global error handler must be registered after routes
+@app.errorhandler(Exception)
+def handle_uncaught_exception(exc):
+    """Catch-all error handler that logs and returns JSON.
+
+    This centralises exception logging and ensures the client always gets a
+    well-formed JSON error response instead of an HTML traceback.
+    """
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    response = jsonify({"status": "error", "message": "Internal server error"})
+    response.status_code = 500
+    return response
+
 @app.route('/api/v1/validate-key', methods=['POST'])
 def validate_key():
     return jsonify({"status": "valid", "message": "Connection successful"})

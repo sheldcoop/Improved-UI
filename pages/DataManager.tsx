@@ -24,9 +24,13 @@ interface ExtendedMarketData {
 }
 
 const DataManager: React.FC = () => {
-   const [activeTab, setActiveTab] = useState<'EQUITY' | 'OPTIONS' | 'IMPORT'>('EQUITY');
+   const [activeTab, setActiveTab] = useState<'EQUITY' | 'OPTIONS' | 'IMPORT' | 'DOWNLOAD'>('EQUITY');
    const [searchTerm, setSearchTerm] = useState('');
    const [filterMode, setFilterMode] = useState<'ALL' | 'MISSING' | 'GAPS'>('ALL');
+   // download filters
+   const [downloadSymbol, setDownloadSymbol] = useState('');
+   const [downloadFrom, setDownloadFrom] = useState('');
+   const [downloadTo, setDownloadTo] = useState('');
 
    // Local State for enriched data
    const [marketData, setMarketData] = useState<ExtendedMarketData[]>([]);
@@ -198,6 +202,30 @@ const DataManager: React.FC = () => {
    };
 
    // --- RENDER HELPERS ---
+   const renderDownloadFilters = () => (
+      <div className="flex items-center space-x-4 mb-4">
+         <input
+            type="text"
+            placeholder="Symbol"
+            value={downloadSymbol}
+            onChange={e => setDownloadSymbol(e.target.value.toUpperCase())}
+            className="bg-slate-900 border border-slate-700 px-3 py-2 rounded w-32 text-sm"
+         />
+         <input
+            type="date"
+            value={downloadFrom}
+            onChange={e => setDownloadFrom(e.target.value)}
+            className="bg-slate-900 border border-slate-700 px-3 py-2 rounded w-40 text-sm"
+         />
+         <span>to</span>
+         <input
+            type="date"
+            value={downloadTo}
+            onChange={e => setDownloadTo(e.target.value)}
+            className="bg-slate-900 border border-slate-700 px-3 py-2 rounded w-40 text-sm"
+         />
+      </div>
+   );
 
    const getHealthBadge = (status: string) => {
       switch (status) {
@@ -215,6 +243,25 @@ const DataManager: React.FC = () => {
       return matchesSearch;
    });
 
+   // when showing download tab we expand timeframes into separate rows
+   const expandedForDownload = filteredData.flatMap(item => {
+      if (item.timeframes.length > 0) {
+         return item.timeframes.map(tf => ({ ...item, timeframes: [tf] }));
+      }
+      // keep missing-data rows as-is
+      return [{ ...item }];
+   });
+
+   // data actually shown in table, applying download-specific filters when appropriate
+   const displayData = activeTab === 'DOWNLOAD'
+      ? expandedForDownload.filter(r => {
+           if (downloadSymbol && !r.symbol.includes(downloadSymbol)) return false;
+           if (downloadFrom && r.startDate < downloadFrom) return false;
+           if (downloadTo && r.lastUpdated > downloadTo) return false;
+           return true;
+        })
+      : filteredData;
+
    return (
       <div className="space-y-6">
 
@@ -225,7 +272,7 @@ const DataManager: React.FC = () => {
                <p className="text-slate-400 text-sm">Manage historical data, import CSVs, and validate integrity.</p>
             </div>
             <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-800">
-               {['EQUITY', 'OPTIONS', 'IMPORT'].map((tab) => (
+               {['EQUITY', 'OPTIONS', 'IMPORT', 'DOWNLOAD'].map((tab) => (
                   <button
                      key={tab}
                      onClick={() => setActiveTab(tab as any)}
@@ -237,13 +284,15 @@ const DataManager: React.FC = () => {
                      {tab === 'EQUITY' && 'Equity & Spot'}
                      {tab === 'OPTIONS' && 'Options Chain'}
                      {tab === 'IMPORT' && 'Import CSV'}
+                     {tab === 'DOWNLOAD' && 'Download Data'}
                   </button>
                ))}
             </div>
          </div>
 
          {/* MAIN CONTENT AREA */}
-         {activeTab === 'EQUITY' && (
+         {/* show same table for EQUITY and DOWNLOAD tabs; add extra filters when downloading */}
+         {(activeTab === 'EQUITY' || activeTab === 'DOWNLOAD') && (
             <div className="space-y-4">
 
                {/* TOOLBAR */}
@@ -298,6 +347,9 @@ const DataManager: React.FC = () => {
                   </div>
                </div>
 
+               {/* extra download filters shown only when on DOWNLOAD tab */}
+               {activeTab === 'DOWNLOAD' && renderDownloadFilters()}
+
                {/* TABLE */}
                <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
                   <div className="overflow-x-auto">
@@ -318,8 +370,19 @@ const DataManager: React.FC = () => {
                            </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800">
-                           {filteredData.map((row) => (
-                              <tr key={row.symbol} className={`hover:bg-slate-800/50 transition-colors ${selectedItems.has(row.symbol) ? 'bg-emerald-900/10' : ''}`}>
+                           {displayData.length === 0 ? (
+                              <tr>
+                                 <td colSpan={7} className="py-8 text-center text-slate-500">
+                                    No symbols match the current filters.
+                                 </td>
+                              </tr>
+                           ) : displayData.map((row) => {
+                              const key = activeTab === 'DOWNLOAD' && row.timeframes.length === 1
+                                 ? `${row.symbol}-${row.timeframes[0]}`
+                                 : row.symbol;
+                              const isSelected = selectedItems.has(row.symbol); // selection still by symbol
+                              return (
+                                 <tr key={key} className={`hover:bg-slate-800/50 transition-colors ${isSelected ? 'bg-emerald-900/10' : ''}`}>
                                  <td className="px-6 py-4">
                                     <button onClick={() => toggleSelection(row.symbol)} className={`${selectedItems.has(row.symbol) ? 'text-emerald-500' : 'text-slate-600'}`}>
                                        {selectedItems.has(row.symbol) ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
@@ -375,10 +438,24 @@ const DataManager: React.FC = () => {
                                        >
                                           {activeDownloads.has(row.symbol) ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                                        </button>
+                                       {/* cache export link */}
+                                       {/* per-timeframe download buttons */}
+                                       {row.timeframes.map(tf => (
+                                          <a
+                                             key={tf}
+                                             href={`/api/v1/market/cache/download?symbol=${row.symbol}&tf=${tf}`}
+                                             className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+                                             download
+                                             title={`Download ${row.symbol} ${tf} data`}
+                                          >
+                                             <Download className="w-4 h-4" />
+                                          </a>
+                                       ))}
                                     </div>
                                  </td>
                               </tr>
-                           ))}
+                           );
+                           })}
                         </tbody>
                      </table>
                   </div>

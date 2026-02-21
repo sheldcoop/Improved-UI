@@ -25,25 +25,6 @@ export const runOptimization = async (
     });
 };
 
-export const runAutoTune = async (
-    symbol: string,
-    strategyId: string,
-    ranges: OptimizationRanges,
-    targetDate: string,
-    lookbackMonths: number,
-    metric: string = 'sharpe',
-    config?: any
-): Promise<{ period: string, bestParams: Record<string, number>, grid: OptimizationResult[] }> => {
-    const payload = { symbol, strategyId, ranges, timeframe: '1d', startDate: targetDate, lookbackMonths, scoringMetric: metric, ...config };
-    return executeWithFallback(`${API_ENDPOINTS.OPTIMIZATION.replace('/run', '')}/auto-tune`, { method: 'POST', body: JSON.stringify(payload) }, async () => {
-        await delay(1000);
-        return {
-            period: "2025-07-31 to 2026-01-31",
-            bestParams: { period: 10, lower: 25, upper: 75 },
-            grid: []
-        };
-    });
-};
 
 export const runWFO = async (symbol: string, strategyId: string, ranges: OptimizationRanges, wfoConfig: any, config?: any): Promise<any> => {
     return executeWithFallback(`${API_ENDPOINTS.OPTIMIZATION.replace('/run', '')}/wfo`, { method: 'POST', body: JSON.stringify({ symbol, strategyId, ranges, wfoConfig, ...config }) }, async () => {

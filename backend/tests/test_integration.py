@@ -305,7 +305,7 @@ class TestOptimizationEngine:
     def test_build_portfolio_tolerates_object_dtype(self):
         """_build_portfolio should accept object-dtype signal series without error.
 
-        This guards against numba typing failures seen during auto-tune trials.
+        This guards against numba typing failures seen during optimisation trials.
         """
         df = _make_oscillating_ohlcv(n=100)
         df.columns = [c.capitalize() for c in df.columns]
@@ -321,7 +321,7 @@ class TestOptimizationEngine:
     def test_find_best_params_with_object_signals(self):
         """Optimizer should survive when the strategy returns object-dtype signals.
 
-        This is a regression for the numba typing error seen during auto-tune trials.
+        This is a regression for the numba typing error seen during optimisation trials.
         """
         df = _make_oscillating_ohlcv(n=300)
         df.columns = [c.capitalize() for c in df.columns]
@@ -401,40 +401,96 @@ class TestOptimizationEngine:
 # HTTP-level tests for optimization routes
 # ---------------------------------------------------------------------------
 
-class TestAutoTuneRoute:
-    """Exercise the `/auto-tune` endpoint for error conditions."""
+class TestOptimizationValidation:
+    """Ensure optimisation endpoints reject bad input early."""
 
-    def test_missing_fields_returns_400(self, client):
-        resp = client.post("/api/v1/optimization/auto-tune", json={})
+    def test_run_missing_symbol(self, client):
+        resp = client.post("/api/v1/optimization/run", json={"strategyId": "1", "ranges": {}})
         assert resp.status_code == 400
-        data = resp.get_json()
-        assert data is not None
-        assert "Missing required fields" in data.get("message", "")
+        data = resp.get_json() or {}
+        assert "symbol is required" in data.get("message", "")
 
-    def test_insufficient_history_returns_error(self, client):
-        # simulate a cache that doesn't cover the requested lookback window
-        import pandas as pd
-        from unittest.mock import patch
-
-        df = pd.DataFrame({
-            "close": [1.0] * 10,
-        }, index=pd.date_range("2025-01-01", periods=10, freq="B"))
-
-        with patch("services.optimizer.DataFetcher") as MockFetcher:
-            MockFetcher.return_value.fetch_historical_data.return_value = df
-            payload = {
-                "symbol": "HDFCBANK",
-                "strategyId": "1",
-                "ranges": {"period": {"min": 7, "max": 21, "step": 1}},
-                "startDate": "2025-06-01",
-                "lookbackMonths": 12,
-            }
-            resp = client.post("/api/v1/optimization/auto-tune", json=payload)
-
+    def test_run_ranges_not_dict(self, client):
+        resp = client.post("/api/v1/optimization/run", json={"symbol": "A", "strategyId": "1", "ranges": "nope"})
         assert resp.status_code == 400
-        data = resp.get_json()
-        assert data is not None
-        assert "bars found" in data.get("message", ""), f"unexpected message: {data}"
+        data = resp.get_json() or {}
+        assert "ranges must be a dict" in data.get("message", "")
+
+    def test_run_bad_dates(self, client):
+        payload = {"symbol": "A", "strategyId": "1", "ranges": {}, "startDate": "20230101"}
+        resp = client.post("/api/v1/optimization/run", json=payload)
+        assert resp.status_code == 400
+        assert "startDate must be YYYY-MM-DD" in (resp.get_json() or {}).get("message", "")
+
+    def test_wfo_missing_strategy(self, client):
+        resp = client.post("/api/v1/optimization/wfo", json={"symbol": "A", "ranges": {}})
+        assert resp.status_code == 400
+        assert "strategyId is required" in (resp.get_json() or {}).get("message", "")
+
+    def test_wfo_ranges_not_dict(self, client):
+        resp = client.post("/api/v1/optimization/wfo", json={"symbol": "A", "strategyId": "1", "ranges": "nope"})
+        assert resp.status_code == 400
+        assert "ranges must be a dict" in (resp.get_json() or {}).get("message", "")
+
+
+class TestCacheVersioning:
+    """Ensure parquet cache writes metadata and invalidates mismatched versions."""
+
+
+class TestErrorLogging:
+    """Verify central error handler and client log endpoint work."""
+
+    def test_uncaught_exception_returns_json(self, client):
+        # use the pre-defined test route that raises an exception
+        resp = client.get('/api/v1/debug/raise')
+        assert resp.status_code == 500
+        data = resp.get_json() or {}
+        assert data.get('status') == 'error'
+        assert 'Internal server error' in data.get('message', '')
+        # check that buffer contains the error message
+        logs = client.get('/api/v1/debug/logs').get_json() or []
+        assert any('Unhandled exception' in entry['msg'] for entry in logs)
+
+    def test_client_log_endpoint(self, client):
+        payload = {'message': 'frontend failure', 'level': 'WARNING', 'meta': {'component': 'Backtest'}}
+        resp = client.post('/api/v1/debug/log', json=payload)
+        assert resp.status_code == 200
+        logs = client.get('/api/v1/debug/logs').get_json() or []
+        assert any('frontend failure' in entry['msg'] for entry in logs)
+
+    def test_metadata_written_and_readable(self, tmp_path):
+        from services.cache_service import CacheService, CACHE_DIR, CACHE_SCHEMA_VERSION
+        import pandas as pd, json
+
+        svc = CacheService()
+        # override directory for test
+        svc_dir = tmp_path / "cache_dir"
+        svc_dir.mkdir()
+        # monkey patch global
+        from services import cache_service
+        cache_service.CACHE_DIR = svc_dir
+
+        df = pd.DataFrame({"open": [1], "close": [1]}, index=pd.date_range("2023-01-01", periods=1))
+        svc.save("FOO_1d", df)
+        path = svc._cache_path("FOO_1d")
+        assert path.exists()
+        meta_path = path.with_suffix('.meta.json')
+        assert meta_path.exists()
+        meta = json.loads(meta_path.read_text())
+        assert meta.get("version") == CACHE_SCHEMA_VERSION
+        assert meta.get("schema") == ["open", "close"]
+
+        # reading through service should succeed
+        loaded = svc.get("FOO_1d")
+        assert loaded is not None
+
+        # now corrupt version
+        meta["version"] = 999
+        meta_path.write_text(json.dumps(meta))
+        assert svc.get("FOO_1d") is None
+        status = svc.get_status()
+        assert status and status[0]["health"] == "MISMATCH"
+
 
 
 
@@ -516,70 +572,52 @@ class TestMarketRoute:
         data = resp.get_json() or {}
         # paramSet should exactly match the strategy_logic we sent
         assert data.get("paramSet") == payload["parameters"]["strategy_logic"], \
-            "Returned paramSet must match submitted strategy_logic"            
+            "Returned paramSet must match submitted strategy_logic"
 
+    # ------------------------------------------------------------------
+    # New test cases for market data fetch endpoint
+    # ------------------------------------------------------------------
 
-class TestAutoTuneDateLogic:
-    """Verify auto-tune correctly computes the lookback window."""
+    def test_fetch_requires_symbol(self, client):
+        """POST /market/fetch must return 400 if symbol is missing."""
+        resp = client.post("/api/v1/market/fetch", json={})
+        assert resp.status_code == 400
+        data = resp.get_json() or {}
+        assert "symbol" in data.get("message", "")
 
-    def test_auto_tune_lookback_window_is_before_start_date(self):
-        """Data fetched by auto-tune must be entirely before startDate."""
-        df = _make_oscillating_ohlcv(n=300)  # covers 2022-01-03 ~ 2023-03-xx
+    def test_fetch_success_returns_health_and_sample(self, client, monkeypatch):
+        """A successful fetch returns 200 with health report and sample rows."""
+        import pandas as pd
+        from services.data_health import DataHealthService
 
-        class FakeHeaders:
-            def get(self, key, default=None): return default
+        # prepare deterministic df and health
+        df = pd.DataFrame({"open": [1], "close": [1]}, index=pd.date_range("2023-01-01", periods=1))
+        monkeypatch.setattr(
+            "services.data_fetcher.DataFetcher.fetch_historical_data",
+            lambda self, symbol, tf, f, t: df
+        )
+        monkeypatch.setattr(
+            DataHealthService,
+            "compute",
+            classmethod(lambda cls, s, tf, f, t: {
+                "score": 100,
+                "missingCandles": 0,
+                "zeroVolumeCandles": 0,
+                "totalCandles": 1,
+                "gaps": [],
+                "status": "EXCELLENT"
+            })
+        )
 
-        from unittest.mock import patch, call
-        # Instead of inspecting fetcher arguments (the engine always fetches
-        # the full cached dataframe), we patch the optimisation step itself and
-        # examine the DataFrame that _find_best_params receives.  This proves the
-        # lookback slice happens correctly.
-        from unittest.mock import patch
-        with patch("services.optimizer.DataFetcher") as MockFetcher, \
-             patch("services.optimizer.OptimizationEngine._find_best_params") as mock_find:
-            MockFetcher.return_value.fetch_historical_data.return_value = df
-            mock_find.return_value = ({}, [])
-            OptimizationEngine.run_auto_tune(
-                symbol="TEST", strategy_id="1",
-                ranges={"period": {"min": 5, "max": 20, "step": 1},
-                        "lower": {"min": 20, "max": 40, "step": 1},
-                        "upper": {"min": 60, "max": 80, "step": 1}},
-                timeframe="1d",
-                start_date_str="2023-01-01",
-                lookback=6,
-                metric="sharpe",
-                headers=FakeHeaders(),
-                config={}
-            )
-
-            called_df = mock_find.call_args[0][0]
-            assert called_df.index.max() < pd.Timestamp("2023-01-01"), (
-                "Lookback slice passed to optimizer must be strictly before start date"
-            )
-
-    def test_auto_tune_6m_lookback_covers_correct_period(self):
-        """6-month lookback before 2023-01-01 should fetch ~2022-07-01 to 2022-12-31."""
-        df = _make_oscillating_ohlcv(n=300)
-
-        class FakeHeaders:
-            def get(self, key, default=None): return default
-
-        from unittest.mock import patch
-        with patch("services.optimizer.DataFetcher") as MockFetcher:
-            MockFetcher.return_value.fetch_historical_data.return_value = df
-            result = OptimizationEngine.run_auto_tune(
-                symbol="TEST", strategy_id="1",
-                ranges={"period": {"min": 5, "max": 20, "step": 1},
-                        "lower": {"min": 20, "max": 40, "step": 1},
-                        "upper": {"min": 60, "max": 80, "step": 1}},
-                timeframe="1d",
-                start_date_str="2023-01-01",
-                lookback=6,
-                metric="sharpe",
-                headers=FakeHeaders(),
-                config={}
-            )
-            # period string should reference the lookback window
-            assert "2022" in result.get("period", ""), (
-                f"Expected 2022 in period string, got: {result.get('period')}"
-            )
+        payload = {
+            "symbol": "TEST",
+            "timeframe": "1d",
+            "from_date": "2023-01-01",
+            "to_date": "2023-01-01"
+        }
+        resp = client.post("/api/v1/market/fetch", json=payload)
+        assert resp.status_code == 200, f"got {resp.status_code}"
+        data = resp.get_json() or {}
+        assert data.get("status") == "success"
+        assert "health" in data and data["health"]["status"] == "EXCELLENT"
+        assert isinstance(data.get("sample"), list)

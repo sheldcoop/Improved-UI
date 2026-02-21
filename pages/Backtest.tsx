@@ -22,7 +22,7 @@ const Backtest: React.FC = () => {
     running, mode, segment, symbol, symbolSearchQuery, searchResults, selectedInstrument,
     isSearching, universe, timeframe, strategyId, customStrategies, startDate, endDate,
     params, capital, slippage, commission, showAdvanced, dataStatus, healthReport,
-    isDynamic, wfoConfig, autoTuneConfig, paramRanges, isAutoTuning, showRanges, reproducible,
+    isDynamic, wfoConfig, paramRanges, showRanges, reproducible,
     top5Trials, oosResults, isOosValidating,
     stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
     fullReportData, isReportOpen, useLookback, lookbackMonths
@@ -31,13 +31,13 @@ const Backtest: React.FC = () => {
     setMode, setSegment, setSymbolSearchQuery, setSymbol, setSearchResults, setSelectedInstrument,
     setIsSearching, setUniverse, setTimeframe, setStrategyId, setCustomStrategies, setParams,
     setStartDate, setEndDate, setCapital, setSlippage, setCommission, setShowAdvanced,
-    setDataStatus, setHealthReport, setRunning, setIsDynamic, setWfoConfig, setAutoTuneConfig,
-    setParamRanges, setIsAutoTuning, setShowRanges, setReproducible, setTop5Trials,
+    setDataStatus, setHealthReport, setRunning, setIsDynamic, setWfoConfig,
+    setParamRanges, setShowRanges, setReproducible, setTop5Trials,
     setOosResults, setIsOosValidating,
     setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
     setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths
   } = setters;
-  const { handleLoadData, handleAutoTune, handleRun, handleOOSValidation } = handlers;
+  const { handleLoadData, handleRun, handleOOSValidation } = handlers;
 
   // When the optimization page brings us here it may supply a parameter set
   // under ``appliedParams``.  In the old flow we also passed an ``autoRun``
@@ -50,10 +50,11 @@ const Backtest: React.FC = () => {
     const { appliedParams, autoRun } = location.state as any;
     if (appliedParams) {
       setParams(appliedParams);
-      // if data hasn't been loaded yet, fetch it automatically so the user
-      // can immediately hit "Start Simulation" without going back to the top
-      // of the page and clicking "Load Data" again.
-      if (dataStatus !== 'READY') {
+      // if we don't already have validated market data for this configuration,
+      // trigger a load.  previously we simply checked ``dataStatus`` but that
+      // would reset to IDLE after navigating away; now we also look for a
+      // cached report object which persists across page changes.
+      if (dataStatus !== 'READY' && !fullReportData) {
         handleLoadData();
       }
     }
@@ -64,7 +65,7 @@ const Backtest: React.FC = () => {
     if (appliedParams || autoRun) {
       navigate(location.pathname, { replace: true, state: {} as any });
     }
-  }, [navigate, location.pathname, location.state, setParams, dataStatus, handleLoadData]);
+  }, [navigate, location.pathname, location.state, setParams, dataStatus, fullReportData, handleLoadData]);
 
   // when an auto-run is requested we need to ensure market data is loaded
   // before calling handleRun.  The hook's handleRun already alerts if data
@@ -386,7 +387,7 @@ const Backtest: React.FC = () => {
                 </select>
               </div>
 
-              {/* In-Place Parameter Overrides & Auto-Tune */}
+              {/* In-Place Parameter Overrides & Optimization Helpers */}
               <div className={`md:col-span-2 space-y-4 ${dataStatus !== 'READY' ? 'opacity-50 pointer-events-none' : ''}`}>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {customStrategies.find((s: Strategy) => s.id === strategyId)?.params?.map((param: any) => (

@@ -4,7 +4,7 @@ All data fetching logic lives in services/data_fetcher.py.
 """
 from __future__ import annotations
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_file, abort
 import logging
 import os
 import pandas as pd
@@ -46,6 +46,34 @@ def get_cache_status():
     except Exception as exc:
         logger.error(f"Cache status error: {exc}", exc_info=True)
         return jsonify({"status": "error", "message": "Failed to get cache status"}), 500
+
+
+@market_bp.route("/cache/download", methods=["GET"])
+def download_cache():
+    """Send the raw parquet file for a cached symbol/timeframe.
+
+    Query parameters:
+        symbol (str): ticker (case-insensitive)
+        tf (str): timeframe string (e.g. "1h", "1d")
+
+    This is intentionally simple; authentication/authorization should be
+    layered by a blueprint or global middleware if required.
+    """
+    symbol = request.args.get("symbol", "").replace(" ", "_")
+    timeframe = request.args.get("tf", "")
+    if not symbol or not timeframe:
+        return abort(400, "symbol and tf query parameters are required")
+
+    # replicate CacheService key convention used in DataFetcher
+    from services.cache_service import CacheService
+    cache = CacheService()
+    key = f"{symbol}_{timeframe}_alphavantage"
+    path = cache._cache_path(key)
+    if not os.path.exists(path):
+        return abort(404, "Cache file not found")
+
+    # send the binary parquet file; browser will prompt to save it
+    return send_file(path, as_attachment=True, download_name=os.path.basename(path))
 
 
 @market_bp.route("/fetch", methods=["POST"])

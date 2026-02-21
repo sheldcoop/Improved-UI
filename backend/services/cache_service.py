@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent.parent
 CACHE_DIR = BASE_DIR / "cache_dir"
 CACHE_TTL_HOURS = 24
+# increment when the structure of cached DataFrames changes
+CACHE_SCHEMA_VERSION = 1
 
 
 class CacheService:
@@ -27,6 +29,29 @@ class CacheService:
         """Initialize CacheService and ensure cache directory exists."""
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
+    def _read_metadata(self, path: Path) -> Optional[dict]:
+        """Load the JSON metadata sidecar if present."""
+        meta_path = path.with_suffix('.meta.json')
+        if not meta_path.exists():
+            return None
+        try:
+            import json
+            with open(meta_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load metadata for {path.name}: {e}")
+            return None
+
+    def _write_metadata(self, path: Path, df: pd.DataFrame) -> None:
+        """Write schema/version information alongside the parquet file."""
+        import json
+        meta = {
+            "schema": list(df.columns),
+            "version": CACHE_SCHEMA_VERSION
+        }
+        with open(path.with_suffix('.meta.json'), 'w') as f:
+            json.dump(meta, f)
+
     def get(self, key: str) -> Optional[pd.DataFrame]:
         """Retrieve cached DataFrame if it exists and is within TTL.
 
@@ -34,7 +59,7 @@ class CacheService:
             key: Cache key (e.g., 'RELIANCE_1d').
 
         Returns:
-            Cached DataFrame or None if miss, stale, or corrupt.
+            Cached DataFrame or None if miss, stale, corrupt, or schema mismatch.
         """
         path = self._cache_path(key)
         if not path.exists():
@@ -45,6 +70,14 @@ class CacheService:
         if age_hours > CACHE_TTL_HOURS:
             logger.debug(f"Cache expired for {key} ({age_hours:.1f}h old)")
             return None
+
+        # Schema/version check
+        meta = self._read_metadata(path)
+        if meta:
+            if meta.get('version') != CACHE_SCHEMA_VERSION:
+                logger.warning(f"Cache schema version mismatch for {key}: {meta.get('version')} vs {CACHE_SCHEMA_VERSION}")
+                return None
+            # optionally could compare columns here too
 
         try:
             return pd.read_parquet(path)
@@ -68,6 +101,8 @@ class CacheService:
         path = self._cache_path(key)
         try:
             df.to_parquet(path, compression="snappy")
+            # write accompanying metadata so we can version the cache
+            self._write_metadata(path, df)
             logger.debug(f"💾 Cached {key} -> {path.name}")
             return True
         except Exception as e:
@@ -114,13 +149,23 @@ class CacheService:
                 end_date = str(df_meta.index.max().date()) if not df_meta.empty else "-"
                 size_mb = p.stat().st_size / (1024 * 1024)
                 
+                # determine health based on metadata version
+                health_status = "GOOD"
+                try:
+                    meta = self._read_metadata(p)
+                    if meta and meta.get("version") != CACHE_SCHEMA_VERSION:
+                        health_status = "MISMATCH"
+                except Exception:
+                    # if metadata can't be read treat as bad
+                    health_status = "MISMATCH"
+
                 results.append({
                     "symbol": symbol,
                     "timeframe": timeframe,
                     "startDate": start_date,
                     "lastUpdated": end_date,
                     "size": f"{size_mb:.1f} MB",
-                    "health": "GOOD",
+                    "health": health_status,
                     "dataAvailable": True
                 })
             except Exception as e:

@@ -4,7 +4,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Sliders, Play, GitBranch, Target, ArrowRight, CheckCircle2, AlertTriangle, Info } from 'lucide-react';
-import { runOptimization, runWFO, runAutoTune } from '../services/optimizationService';
+import { runOptimization, runWFO } from '../services/optimizationService';
 import { OptimizationResult, WFOResult } from '../types';
 import { useBacktestContext } from '../context/BacktestContext';
 import { ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip } from 'recharts';
@@ -29,15 +29,14 @@ const Optimization: React.FC = () => {
     const {
         symbol, strategyId, customStrategies, setParams: setGlobalParams, startDate, endDate,
         timeframe, paramRanges,
-        autoTuneConfig, setAutoTuneConfig,
         wfoConfig, setWfoConfig,
         capital, commission, slippage, pyramiding, positionSizing, positionSizeValue,
         stopLossPct, takeProfitPct, useTrailingStop,
         optResults, setOptResults
     } = useBacktestContext();
 
-    // Auto-Tune is the default — it's the only valid out-of-sample workflow
-    const [activeTab, setActiveTab] = useState<'AUTOTUNE' | 'WFO' | 'GRID'>('AUTOTUNE');
+    // Select workflow
+    const [activeTab, setActiveTab] = useState<'WFO' | 'GRID'>('GRID');
     // results are stored in context so they survive navigation away from this page
     const [running, setRunning] = useState(false);
     const [optunaMetric, setOptunaMetric] = useState('sharpe');
@@ -115,11 +114,7 @@ const Optimization: React.FC = () => {
                 };
                 const res = await runOptimization(symbol || 'NIFTY 50', strategyId || '1', ranges, optConfig);
                 setOptResults({ grid: res.grid, wfo: [], bestParams: res.bestParams });
-            } else if (activeTab === 'AUTOTUNE') {
-                const res = await runAutoTune(symbol || 'NIFTY 50', strategyId || '1', ranges, startDate || '2026-01-01', autoTuneConfig.lookbackMonths || 6, autoTuneConfig.metric || optunaMetric, { timeframe, ...configPayload });
-                setOptResults({ grid: res.grid, wfo: [], period: res.period, bestParams: res.bestParams });
-                setGlobalParams(res.bestParams);
-            } else {
+            } else if (activeTab === 'WFO') {
                 const wfoRes = await runWFO(symbol || 'NIFTY 50', strategyId || '1', ranges, wfoConfig, configPayload);
                 setOptResults({ grid: [], wfo: wfoRes });
             }
@@ -129,41 +124,6 @@ const Optimization: React.FC = () => {
         setRunning(false);
     };
 
-    // ── Right-panel content per tab ──────────────────────────────────────────
-
-    const RightPanelAutoTune = () => (
-        <div className="space-y-5">
-            <div>
-                <h3 className="text-base font-semibold text-slate-200 mb-1">How Auto-Tune works</h3>
-                <p className="text-xs text-slate-400">
-                    Optuna searches <span className="text-emerald-400 font-medium">{autoTuneConfig.lookbackMonths} months of data before your start date</span> — data your backtest will never touch. Parameters found here are genuinely out-of-sample.
-                </p>
-            </div>
-
-            {/* Timeline diagram */}
-            <div className="rounded-lg border border-slate-700 bg-slate-950 p-4">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Timeline</span>
-                <div className="flex h-8 rounded overflow-hidden text-[10px] font-bold">
-                    <div className="flex items-center justify-center bg-indigo-600/30 border border-indigo-600/50 text-indigo-300 flex-1 px-2">
-                        Lookback Window
-                    </div>
-                    <div className="w-px bg-slate-500" />
-                    <div className="flex items-center justify-center bg-emerald-600/20 border border-emerald-600/40 text-emerald-300 flex-1 px-2">
-                        Your Backtest Range
-                    </div>
-                </div>
-                <div className="flex text-[9px] text-slate-500 mt-1">
-                    <div className="flex-1 text-center">Params optimized here</div>
-                    <div className="flex-1 text-center">Tested here (never seen)</div>
-                </div>
-            </div>
-
-            <div className="flex items-start space-x-2 text-xs text-emerald-400 bg-emerald-900/10 border border-emerald-900/40 rounded p-3">
-                <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                <span>No lookahead bias. Parameters found on unseen data produce honest backtest results.</span>
-            </div>
-        </div>
-    );
 
     const RightPanelWFO = () => (
         <div className="space-y-5">
@@ -211,7 +171,7 @@ const Optimization: React.FC = () => {
                 <div>
                     <p className="text-xs font-semibold text-amber-300 mb-1">Overfitting Risk</p>
                     <p className="text-[11px] text-amber-400/80">
-                        This method optimizes on the <em>same data</em> your backtest uses. Results look great in-sample but may not generalize. Use <strong>Auto-Tune</strong> or <strong>Walk-Forward</strong> for unbiased results.
+                        This method optimizes on the <em>same data</em> your backtest uses. Results look great in-sample but may not generalize. Consider Walk-Forward validation for unbiased estimates.
                     </p>
                 </div>
             </div>
@@ -236,19 +196,9 @@ const Optimization: React.FC = () => {
                     </p>
                 </div>
 
-                {/* Tab bar — Auto-Tune first, Manual Optuna last */}
+                {/* Tab bar — Walk-Forward and Manual Optuna workflows */}
                 <div className="flex items-center space-x-1 bg-slate-900 border border-slate-800 p-1 rounded-lg shrink-0">
-                    <button
-                        onClick={() => setActiveTab('AUTOTUNE')}
-                        className={`flex items-center px-3 py-1.5 rounded text-xs font-semibold transition-colors ${activeTab === 'AUTOTUNE'
-                            ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-600/40'
-                            : 'text-slate-400 hover:text-slate-200'}`}
-                    >
-                        <Target className="w-3.5 h-3.5 mr-1.5" />
-                        Auto-Tune
-                        <span className="ml-1.5 text-[9px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1 py-0.5 rounded font-bold tracking-wide">REC</span>
-                    </button>
-
+    
                     <button
                         onClick={() => setActiveTab('WFO')}
                         className={`flex items-center px-3 py-1.5 rounded text-xs font-semibold transition-colors ${activeTab === 'WFO'
@@ -310,40 +260,21 @@ const Optimization: React.FC = () => {
 
                             {/* Tab-specific controls */}
                             <div className="pt-4 border-t border-slate-800 space-y-3">
-                                {(activeTab === 'AUTOTUNE' || activeTab === 'GRID') && (
-                                    <div>
-                                        <label className="text-xs text-slate-500 block mb-1">Scoring Metric</label>
-                                        <select
-                                            value={optunaMetric}
-                                            onChange={(e) => setOptunaMetric(e.target.value)}
-                                            className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 focus:border-emerald-500 outline-none"
-                                        >
-                                            <option value="sharpe">Maximize Sharpe Ratio</option>
-                                            <option value="calmar">Maximize Calmar Ratio</option>
-                                            <option value="total_return">Maximize Total Return</option>
-                                            <option value="drawdown">Minimize Max Drawdown</option>
-                                        </select>
-                                    </div>
-                                )}
+                                <div>
+                                    <label className="text-xs text-slate-500 block mb-1">Scoring Metric</label>
+                                    <select
+                                        value={optunaMetric}
+                                        onChange={(e) => setOptunaMetric(e.target.value)}
+                                        className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 focus:border-emerald-500 outline-none"
+                                    >
+                                        <option value="sharpe">Maximize Sharpe Ratio</option>
+                                        <option value="calmar">Maximize Calmar Ratio</option>
+                                        <option value="total_return">Maximize Total Return</option>
+                                        <option value="drawdown">Minimize Max Drawdown</option>
+                                    </select>
+                                </div>
 
-                                {activeTab === 'AUTOTUNE' && (
-                                    <div>
-                                        <label className="text-xs text-slate-500 block mb-1">Lookback Window (Months)</label>
-                                        <div className="flex items-center space-x-3">
-                                            <input
-                                                type="number"
-                                                min="3"
-                                                max="36"
-                                                className="w-24 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-200 focus:border-emerald-500 outline-none"
-                                                value={autoTuneConfig.lookbackMonths}
-                                                onChange={(e) => setAutoTuneConfig({ ...autoTuneConfig, lookbackMonths: parseInt(e.target.value) })}
-                                            />
-                                            <span className="text-xs text-slate-500">
-                                                months before <span className="text-slate-300">{formatDateDisplay(startDate)}</span>
-                                            </span>
-                                        </div>
-                                    </div>
-                                )}
+
 
                                 {activeTab === 'WFO' && (
                                     <div className="grid grid-cols-2 gap-4">
@@ -361,21 +292,18 @@ const Optimization: React.FC = () => {
 
                             <button
                                 onClick={handleRun}
-                                className={`w-full py-4 mt-2 rounded-xl font-bold text-white flex items-center justify-center transition-colors ${activeTab === 'AUTOTUNE'
-                                    ? 'bg-emerald-600 hover:bg-emerald-500'
-                                    : activeTab === 'WFO'
-                                        ? 'bg-indigo-600 hover:bg-indigo-500'
-                                        : 'bg-slate-700 hover:bg-slate-600'}`}
+                                className={`w-full py-4 mt-2 rounded-xl font-bold text-white flex items-center justify-center transition-colors ${activeTab === 'WFO'
+                                    ? 'bg-indigo-600 hover:bg-indigo-500'
+                                    : 'bg-slate-700 hover:bg-slate-600'}`}
                             >
                                 <Play className="w-5 h-5 mr-2" />
-                                {activeTab === 'AUTOTUNE' ? 'Run Auto-Tune' : activeTab === 'WFO' ? 'Start Walk-Forward Analysis' : 'Start Manual Optuna Study'}
+                                {activeTab === 'WFO' ? 'Start Walk-Forward Analysis' : 'Start Manual Optuna Study'}
                             </button>
                         </div>
                     </Card>
 
                     {/* Right: Contextual explanation */}
                     <div className="flex flex-col justify-center p-6 bg-slate-950/50 rounded-xl border border-slate-800">
-                        {activeTab === 'AUTOTUNE' && <RightPanelAutoTune />}
                         {activeTab === 'WFO' && <RightPanelWFO />}
                         {activeTab === 'GRID' && <RightPanelGrid />}
                     </div>
@@ -387,49 +315,15 @@ const Optimization: React.FC = () => {
                 <Card className="flex flex-col items-center justify-center py-20">
                     <div className="w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin mb-6"></div>
                     <h3 className="text-lg font-medium text-slate-200">
-                        {activeTab === 'AUTOTUNE' ? 'Finding optimal parameters on unseen data...' : activeTab === 'WFO' ? 'Processing rolling WFO windows...' : 'Running Optuna trials...'}
+                        {activeTab === 'WFO' ? 'Processing rolling WFO windows...' : 'Running Optuna trials...'}
                     </h3>
                     <p className="text-slate-400 text-sm mt-1">
-                        {activeTab === 'AUTOTUNE' ? `Searching ${autoTuneConfig.lookbackMonths}-month lookback window` : activeTab === 'WFO' ? 'Train → Test across all windows' : 'Maximizing objective across 30 trials'}
+                        {activeTab === 'WFO' ? 'Train → Test across all windows' : 'Maximizing objective across 30 trials'}
                     </p>
                 </Card>
             )}
 
-            {/* AUTO-TUNE RESULTS */}
-            {optResults && activeTab === 'AUTOTUNE' && (
-                <div className="max-w-xl mx-auto space-y-4">
-                    <Card className="text-center py-12 border-emerald-500 border">
-                        <CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
-                        <h3 className="text-2xl font-bold text-slate-100 mb-1">Auto-Tuned Successfully</h3>
-                        {optResults?.period && (
-                            <p className="text-xs text-slate-500 mb-4">
-                                Optimized on: <span className="text-slate-300">{optResults?.period}</span>
-                            </p>
-                        )}
-                        <p className="text-slate-400 mb-6">Found optimal parameters on out-of-sample data. Your Backtest settings have been pre-filled.</p>
 
-                        <div className="flex justify-center flex-wrap gap-2 mb-8">
-                            {Object.entries(optResults?.bestParams || {}).map(([k, v]) => (
-                                <div key={k} className="bg-slate-900 border border-slate-700 px-4 py-2 rounded">
-                                    <span className="text-xs text-slate-500 block uppercase tracking-wider">{k}</span>
-                                    <span className="text-lg font-mono text-emerald-400">{v as React.ReactNode}</span>
-                                </div>
-                            ))}
-                        </div>
-
-                        <div className="flex justify-center space-x-4">
-                            <Button variant="secondary" onClick={() => setOptResults(null)}>Tune Again</Button>
-                            <Button
-                                variant="primary"
-                                onClick={() => navigate('/backtest', { state: { autoRun: true } })}
-                                icon={<Play className="w-4 h-4" />}
-                            >
-                                Run Complete Backtest
-                            </Button>
-                        </div>
-                    </Card>
-                </div>
-            )}
 
             {/* GRID RESULTS */}
             {optResults && activeTab === 'GRID' && (

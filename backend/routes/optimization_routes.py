@@ -13,6 +13,36 @@ optimization_bp = Blueprint("optimization", __name__)
 logger = logging.getLogger(__name__)
 
 
+# helper validator for optimisation payloads
+
+def _validate_optimization_payload(data: dict) -> None:
+    """Raise ValueError if payload is missing required fields or types.
+
+    This keeps the route handlers lean and ensures consistent error
+    messages early in the request lifecycle.
+    """
+    if not data.get("symbol"):
+        raise ValueError("symbol is required")
+    if not data.get("strategyId"):
+        raise ValueError("strategyId is required")
+    ranges = data.get("ranges")
+    if ranges is None:
+        raise ValueError("ranges is required")
+    if not isinstance(ranges, dict):
+        raise ValueError("ranges must be a dict")
+
+    # optional but type checked
+    if "startDate" in data and data["startDate"] is not None:
+        # simple YYYY-MM-DD check
+        import re
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", data["startDate"]):
+            raise ValueError("startDate must be YYYY-MM-DD")
+    if "endDate" in data and data["endDate"] is not None:
+        import re
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", data["endDate"]):
+            raise ValueError("endDate must be YYYY-MM-DD")
+
+
 @optimization_bp.route("/run", methods=["POST"])
 def run_optimization():
     """Run Optuna hyperparameter optimisation for a strategy.
@@ -30,6 +60,13 @@ def run_optimization():
     try:
         data = request.json or {}
         logger.info(f"DEBUG: run_optimization payload: {data}")
+
+        # perform schema validation, failing fast
+        try:
+            _validate_optimization_payload(data)
+        except ValueError as ve:
+            return jsonify({"status": "error", "message": str(ve)}), 400
+
         symbol = data.get("symbol", "NIFTY 50")
         strategy_id = data.get("strategyId", "1")
         ranges = data.get("ranges", {})
@@ -41,9 +78,6 @@ def run_optimization():
         scoring_metric = data.get("scoringMetric", "sharpe")
         reproducible = data.get("reproducible", False)
         config = data.get("config", {})
-
-        if not isinstance(ranges, dict):
-            return jsonify({"status": "error", "message": "ranges must be a dict"}), 400
 
         logger.info(f"Running Optuna Optimisation for {symbol} | Metric: {scoring_metric} | Timeframe: {timeframe} | Reproducible: {reproducible}")
         results = OptimizationEngine.run_optuna(
@@ -72,6 +106,14 @@ def run_wfo():
     """
     try:
         data = request.json or {}
+        # basic validation
+        if not data.get("symbol"):
+            return jsonify({"status": "error", "message": "symbol is required"}), 400
+        if not data.get("strategyId"):
+            return jsonify({"status": "error", "message": "strategyId is required"}), 400
+        if not isinstance(data.get("ranges", {}), dict):
+            return jsonify({"status": "error", "message": "ranges must be a dict"}), 400
+
         symbol = data.get("symbol", "NIFTY 50")
         strategy_id = data.get("strategyId", "1")
         ranges = data.get("ranges", {})
@@ -85,7 +127,6 @@ def run_wfo():
 
         train_m = int(wfo_config.get("trainWindow", 6))
         test_m = int(wfo_config.get("testWindow", 2))
-
         # Validation: Minimum window sizes
         if train_m < 1:
             return jsonify({
@@ -114,50 +155,6 @@ def run_wfo():
         logger.error(f"WFO Error: {exc}", exc_info=True)
         return jsonify({"status": "error", "message": "WFO failed"}), 500
 
-@optimization_bp.route("/auto-tune", methods=["POST"])
-def auto_tune():
-    """Run a quick Optuna search on the lookback period before a given date.
-
-    Request JSON keys:
-        symbol (str): Ticker symbol.
-        strategyId (str): Strategy identifier.
-        ranges (dict): Parameter search space.
-        startDate (str): Backtest start date 'YYYY-MM-DD'.
-        lookbackMonths (int): Months to look back for optimisation. Default 12.
-        scoringMetric (str): Optimisation metric. Default 'sharpe'.
-
-    Returns:
-        JSON with bestParams, score, period, grid.
-    """
-    try:
-        data = request.json or {}
-        symbol = data.get("symbol")
-        strategy_id = data.get("strategyId")
-        ranges = data.get("ranges", {})
-        timeframe = data.get("timeframe", "1d")
-        start_date_str = data.get("startDate")
-        lookback = int(data.get("lookbackMonths", 12))
-        metric = data.get("scoringMetric") or data.get("metric") or "sharpe"
-        ranges["reproducible"] = data.get("reproducible", False)
-        config = data.get("config", {})
-
-        if not symbol or not strategy_id or not start_date_str:
-            return jsonify({"status": "error", "message": "Missing required fields (symbol, strategyId, startDate)"}), 400
-
-        result = OptimizationEngine.run_auto_tune(
-            symbol, strategy_id, ranges, timeframe, start_date_str, lookback, metric, request.headers, config=config
-        )
-
-        # Log the error dict so the server log contains the reason for a 400
-        if result.get("status") == "error":
-            logger.info(f"Auto-Tune error response: {result}")
-            return jsonify(result), 400
-
-        return jsonify(result), 200
-
-    except Exception as exc:
-        logger.error(f"Auto-Tune Error: {exc}", exc_info=True)
-        return jsonify({"status": "error", "message": f"Auto-tune failed: {str(exc)}"}), 500
 
 
 @optimization_bp.route("/oos-validate", methods=["POST"])

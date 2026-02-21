@@ -73,7 +73,7 @@ export async function executeWithFallback<T>(
       usingMockFallback = true;
       console.error(`[Backend Error] ${endpoint} failed. Falling back to mock data — results are NOT real.`, error);
       // Re-throw for critical endpoints so callers can show a proper error instead of silently using fake data
-      const criticalEndpoints = ['/market/backtest/run', '/optimization/run', '/optimization/auto-tune', '/optimization/wfo'];
+      const criticalEndpoints = ['/market/backtest/run', '/optimization/run', '/optimization/wfo'];
       if (criticalEndpoints.some(e => endpoint.includes(e))) {
         throw error; // rethrow the original error which has the real backend message
       }

@@ -85,6 +85,7 @@ const Results: React.FC = () => {
   // Zoom State
   const [zoomLeft, setZoomLeft] = useState<string | null>(null);
   const [zoomRight, setZoomRight] = useState<string | null>(null);
+  const [curveType, setCurveType] = useState<'EQUITY' | 'DRAWDOWN'>('EQUITY');
 
   // Safely load data on mount
   useEffect(() => {
@@ -283,21 +284,36 @@ const Results: React.FC = () => {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <Card
-              title="Equity Curve & Drawdown"
+              title={curveType === 'EQUITY' ? "Equity Curve" : "Drawdown"}
               className="lg:col-span-2 h-[450px] flex flex-col"
-              action={zoomLeft && <Button size="sm" variant="secondary" onClick={resetZoom} icon={<ZoomOut className="w-3 h-3" />}>Reset Zoom</Button>}
+              action={
+                <div className="flex items-center space-x-2">
+                  <select
+                    className="bg-slate-800 text-slate-200 text-xs rounded px-2 py-1 outline-none"
+                    value={curveType}
+                    onChange={(e) => setCurveType(e.target.value as any)}
+                  >
+                    <option value="EQUITY">Equity</option>
+                    <option value="DRAWDOWN">Drawdown</option>
+                  </select>
+                  {zoomLeft && (
+                    <Button size="sm" variant="secondary" onClick={resetZoom} icon={<ZoomOut className="w-3 h-3" />}>Reset Zoom</Button>
+                  )}
+                </div>
+              }
             >
               {result.equityCurve && result.equityCurve.length > 0 ? (
                 <div className="flex-1 w-full min-h-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={isOOSArray ? (
-                      // Combine OOS equity curves into a single dataset
+                      // Combine OOS equity/drawdown curves into a single dataset
                       result.equityCurve.map((point: any, index: number) => {
-                        const mergedPoint = { date: point.date, value: point.value }; // Active result is the baseline "value"
+                        const mainKey = curveType === 'EQUITY' ? 'value' : 'drawdown';
+                        const mergedPoint: any = { date: point.date, [mainKey]: point[mainKey] };
                         oosResults.forEach((res, idx) => {
                           if (idx !== activeOosIndex && res.equityCurve && res.equityCurve[index]) {
                             // @ts-ignore dynamic keys for extra lines
-                            mergedPoint[`line_${idx}`] = res.equityCurve[index].value;
+                            mergedPoint[`line_${idx}`] = res.equityCurve[index][mainKey];
                           }
                         });
                         return mergedPoint;
@@ -305,8 +321,8 @@ const Results: React.FC = () => {
                     ) : result.equityCurve}>
                       <defs>
                         <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={CONFIG.COLORS.PROFIT} stopOpacity={0.3} />
-                          <stop offset="95%" stopColor={CONFIG.COLORS.PROFIT} stopOpacity={0} />
+                          <stop offset="5%" stopColor={curveType === 'EQUITY' ? CONFIG.COLORS.PROFIT : CONFIG.COLORS.LOSS} stopOpacity={0.3} />
+                          <stop offset="95%" stopColor={curveType === 'EQUITY' ? CONFIG.COLORS.PROFIT : CONFIG.COLORS.LOSS} stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke={CONFIG.COLORS.GRID} vertical={false} />
@@ -320,7 +336,10 @@ const Results: React.FC = () => {
                         domain={zoomLeft && zoomRight ? [zoomLeft, zoomRight] : ['auto', 'auto']}
                         tickFormatter={(val) => formatDateDisplay(val)}
                       />
-                      <YAxis yAxisId="left" stroke={CONFIG.COLORS.TEXT} fontSize={12} tickLine={false} axisLine={false} domain={['auto', 'auto']} tickFormatter={(val) => `₹${(val / 1000).toFixed(0)}k`} />
+                      <YAxis yAxisId="left" stroke={CONFIG.COLORS.TEXT} fontSize={12} tickLine={false} axisLine={false} domain={['auto', 'auto']} tickFormatter={(val) => {
+                          if (curveType === 'EQUITY') return `₹${(val / 1000).toFixed(0)}k`;
+                          return `${val.toFixed(1)}%`;
+                      }} />
                       <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9' }} />
 
                       {/* Render extra background curves if in OOS multi-run mode */}
@@ -331,7 +350,7 @@ const Results: React.FC = () => {
                       ))}
 
                       {/* Primary active curve always on top */}
-                      <Area yAxisId="left" type="monotone" dataKey="value" name={isOOSArray ? `Rank ${activeOosIndex + 1} (Active)` : "Equity"} stroke={CONFIG.COLORS.PROFIT} strokeWidth={2} fillOpacity={1} fill="url(#colorValue)" animationDuration={500} />
+                      <Area yAxisId="left" type="monotone" dataKey={curveType === 'EQUITY' ? 'value' : 'drawdown'} name={isOOSArray ? `Rank ${activeOosIndex + 1} (Active)` : curveType === 'EQUITY' ? "Equity" : "Drawdown"} stroke={curveType === 'EQUITY' ? CONFIG.COLORS.PROFIT : CONFIG.COLORS.LOSS} strokeWidth={2} fillOpacity={1} fill="url(#colorValue)" animationDuration={500} />
 
                       {zoomLeft && zoomRight && (
                         <ReferenceArea
