@@ -50,6 +50,12 @@ const Backtest: React.FC = () => {
     const { appliedParams, autoRun } = location.state as any;
     if (appliedParams) {
       setParams(appliedParams);
+      // if data hasn't been loaded yet, fetch it automatically so the user
+      // can immediately hit "Start Simulation" without going back to the top
+      // of the page and clicking "Load Data" again.
+      if (dataStatus !== 'READY') {
+        handleLoadData();
+      }
     }
     if (autoRun) {
       setAutoRunRequested(true);
@@ -58,7 +64,7 @@ const Backtest: React.FC = () => {
     if (appliedParams || autoRun) {
       navigate(location.pathname, { replace: true, state: {} as any });
     }
-  }, [navigate, location.pathname, location.state, setParams]);
+  }, [navigate, location.pathname, location.state, setParams, dataStatus, handleLoadData]);
 
   // when an auto-run is requested we need to ensure market data is loaded
   // before calling handleRun.  The hook's handleRun already alerts if data
