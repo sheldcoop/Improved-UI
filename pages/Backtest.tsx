@@ -29,15 +29,17 @@ const Backtest: React.FC = () => {
     isDynamic, wfoConfig, autoTuneConfig, paramRanges, isAutoTuning, showRanges, reproducible,
     top5Trials, oosResults, isOosValidating,
     stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
-    fullReportData, isReportOpen, useLookback
+    fullReportData, isReportOpen, useLookback, lookbackMonths
   } = state;
   const {
     setMode, setSegment, setSymbolSearchQuery, setSymbol, setSearchResults, setSelectedInstrument,
-    setUniverse, setTimeframe, setStrategyId, setStartDate, setEndDate, setParams,
-    setCapital, setSlippage, setCommission, setShowAdvanced, setIsDynamic, setWfoConfig,
-    setAutoTuneConfig, setParamRanges, setReproducible,
+    setIsSearching, setUniverse, setTimeframe, setStrategyId, setCustomStrategies, setParams,
+    setStartDate, setEndDate, setCapital, setSlippage, setCommission, setShowAdvanced,
+    setDataStatus, setHealthReport, setRunning, setIsDynamic, setWfoConfig, setAutoTuneConfig,
+    setParamRanges, setIsAutoTuning, setShowRanges, setReproducible, setTop5Trials,
+    setOosResults, setIsOosValidating,
     setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
-    setIsReportOpen, setUseLookback
+    setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths
   } = setters;
   const { handleLoadData, handleAutoTune, handleRun, handleOOSValidation } = handlers;
 
@@ -247,17 +249,38 @@ const Backtest: React.FC = () => {
                 </Button>
 
                 {/* Lookback Toggle moved here for visibility */}
-                <div className="flex items-center justify-between mt-4 p-2 bg-slate-900/50 rounded-lg border border-slate-800">
-                  <div className="flex items-center">
-                    <Clock className="w-4 h-4 mr-2 text-indigo-400" />
-                    <span className="text-xs text-slate-300">Indicator Lookback (12m)</span>
+                <div className="mt-4 p-3 bg-slate-900/50 rounded-lg border border-slate-800">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center">
+                      <Clock className="w-4 h-4 mr-2 text-indigo-400" />
+                      <span className="text-sm font-medium text-slate-300">Indicator Lookback</span>
+                    </div>
+                    <button
+                      onClick={() => setUseLookback(!useLookback)}
+                      className={`w-10 h-5 rounded-full p-1 transition-colors ${useLookback ? 'bg-emerald-600' : 'bg-slate-700'}`}
+                    >
+                      <div className={`w-3 h-3 rounded-full bg-white transition-transform ${useLookback ? 'translate-x-5' : ''}`} />
+                    </button>
                   </div>
-                  <button
-                    onClick={() => setUseLookback(!useLookback)}
-                    className={`w-8 h-4 rounded-full p-0.5 transition-colors ${useLookback ? 'bg-emerald-600' : 'bg-slate-700'}`}
-                  >
-                    <div className={`w-3 h-3 rounded-full bg-white transition-transform ${useLookback ? 'translate-x-4' : ''}`} />
-                  </button>
+
+                  {useLookback ? (
+                    <div className="flex items-center space-x-3 mt-2 animate-in fade-in slide-in-from-top-1">
+                      <span className="text-xs text-slate-500 whitespace-nowrap">Duration (months):</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="36"
+                        value={lookbackMonths}
+                        onChange={(e) => setLookbackMonths(parseInt(e.target.value) || 1)}
+                        className="w-16 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 text-center focus:ring-1 focus:ring-emerald-500 outline-none"
+                      />
+                      <span className="text-[10px] text-slate-500 italic">Recommended: 12m</span>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-slate-500 italic">
+                      Strategy starts exactly on your start date (stabilization not guaranteed).
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -417,25 +440,6 @@ const Backtest: React.FC = () => {
                   </button>
                 </div>
 
-                {/* Indicator Lookback Toggle */}
-                <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                  <div>
-                    <h4 className="text-slate-200 font-bold flex items-center">
-                      <Clock className="w-4 h-4 mr-2 text-indigo-400" />
-                      Indicator Lookback (12m)
-                    </h4>
-                    <p className="text-xs text-slate-500">
-                      ON = Fetches 12mo extra data for indicator stabilization (recommended)<br />
-                      OFF = No lookback data. Strategy starts exactly on start date.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setUseLookback(!useLookback)}
-                    className={`w-12 h-6 rounded-full p-1 transition-colors ${useLookback ? 'bg-emerald-600' : 'bg-slate-700'}`}
-                  >
-                    <div className={`w-4 h-4 rounded-full bg-white transition-transform ${useLookback ? 'translate-x-6' : ''}`} />
-                  </button>
-                </div>
 
                 {/* Risk Management & Execution */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-4 border-b border-slate-800">

@@ -153,7 +153,7 @@ export const useBacktest = () => {
         stopLossPct, setStopLossPct, takeProfitPct, setTakeProfitPct, useTrailingStop, setUseTrailingStop,
         pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
         fullReportData, setFullReportData, isReportOpen, setIsReportOpen,
-        useLookback, setUseLookback
+        useLookback, setUseLookback, lookbackMonths, setLookbackMonths
     } = useBacktestContext();
 
     // Auto-Calculate WFO Windows when dates change
@@ -252,9 +252,9 @@ export const useBacktest = () => {
             let extendedFromDate = startDate;
 
             if (useLookback) {
-                fromDateObj.setFullYear(fromDateObj.getFullYear() - 1);
+                fromDateObj.setMonth(fromDateObj.getMonth() - lookbackMonths);
                 extendedFromDate = fromDateObj.toISOString().split('T')[0];
-                console.log(`Applying 12-month indicator lookback: ${startDate} -> ${extendedFromDate}`);
+                console.log(`Applying ${lookbackMonths}-month indicator lookback: ${startDate} -> ${extendedFromDate}`);
             } else {
                 // Strictly NO lookback if toggle is OFF
                 extendedFromDate = startDate;
@@ -556,16 +556,16 @@ export const useBacktest = () => {
             isDynamic, wfoConfig, autoTuneConfig, paramRanges, isAutoTuning, showRanges, reproducible,
             top5Trials, oosResults, isOosValidating,
             stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
-            fullReportData, isReportOpen, useLookback
+            fullReportData, isReportOpen, useLookback, lookbackMonths
         },
         setters: {
             setRunning, setMode, setSegment, setSymbol, setSymbolSearchQuery, setSearchResults,
             setSelectedInstrument, setIsSearching, setUniverse, setTimeframe, setStrategyId, setCustomStrategies,
             setStartDate, setEndDate, setParams, setCapital, setSlippage, setCommission,
             setShowAdvanced, setDataStatus, setHealthReport, setIsDynamic, setWfoConfig, setAutoTuneConfig,
-            setParamRanges, setIsAutoTuning, setShowRanges, setReproducible, setTop5Trials, setOosResults,
+            setParamRanges, setIsAutoTuning, setShowRanges, setReproducible, setTop5Trials, setOosResults, setIsOosValidating,
             setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
-            setFullReportData, setIsReportOpen, setUseLookback
+            setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths
         },
         handlers: {
             handleLoadData, handleAutoTune, handleRun, handleOOSValidation

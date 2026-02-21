@@ -97,6 +97,8 @@ interface BacktestContextType {
     setIsReportOpen: (val: boolean) => void;
     useLookback: boolean;
     setUseLookback: (val: boolean) => void;
+    lookbackMonths: number;
+    setLookbackMonths: (val: number) => void;
 }
 
 const BacktestContext = createContext<BacktestContextType | undefined>(undefined);
@@ -152,6 +154,7 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
     const [fullReportData, setFullReportData] = useState<any | null>(null);
     const [isReportOpen, setIsReportOpen] = useState(false);
     const [useLookback, setUseLookback] = useState(false);
+    const [lookbackMonths, setLookbackMonths] = useState(12);
     // Save to localStorage effects
     useEffect(() => { localStorage.setItem('backtest_segment', JSON.stringify(segment)); }, [segment]);
     useEffect(() => { localStorage.setItem('backtest_symbol', JSON.stringify(symbol)); }, [symbol]);
@@ -176,7 +179,7 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
         stopLossPct, setStopLossPct, takeProfitPct, setTakeProfitPct, useTrailingStop, setUseTrailingStop,
         pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
         fullReportData, setFullReportData, isReportOpen, setIsReportOpen,
-        useLookback, setUseLookback
+        useLookback, setUseLookback, lookbackMonths, setLookbackMonths
     };
 
     return <BacktestContext.Provider value={value}>{children}</BacktestContext.Provider>;
