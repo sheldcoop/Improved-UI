@@ -44,49 +44,11 @@ export const getPaperPositions = async (): Promise<PaperPosition[]> => {
 };
 
 export const validateMarketData = async (symbol: string, timeframe: string, start: string, end: string): Promise<DataHealthReport> => {
-    // Issue #18: Wire to real backend endpoint.
-    // Falls back to mock calculation if backend is unreachable.
-    try {
-        const data = await fetchClient<DataHealthReport>(API_ENDPOINTS.MARKET_VALIDATE, {
-            method: 'POST',
-            body: JSON.stringify({ symbol, timeframe, from_date: start, to_date: end }),
-        });
-        return data;
-    } catch {
-        // Fallback: compute locally so the UI never breaks during development
-        await delay(600);
-
-        const startDt = new Date(start);
-        const endDt = new Date(end);
-        const diffDays = Math.ceil(Math.abs(endDt.getTime() - startDt.getTime()) / (1000 * 60 * 60 * 24));
-
-        const isPoor = symbol === 'HDFCBANK';
-        const missing = isPoor ? Math.floor(diffDays * 0.15) : Math.floor(Math.random() * 5);
-        const zeroVol = isPoor ? Math.floor(diffDays * 0.05) : Math.floor(Math.random() * 2);
-        const total = diffDays * (timeframe === '1d' ? 1 : 375);
-
-        const rawScore = 100 - ((missing * 2) + (zeroVol * 1));
-        const score = Math.max(0, Math.min(100, rawScore));
-
-        let status: 'EXCELLENT' | 'GOOD' | 'POOR' | 'CRITICAL' = 'EXCELLENT';
-        if (score < 98) status = 'GOOD';
-        if (score < 85) status = 'POOR';
-        if (score < 60) status = 'CRITICAL';
-
-        const gaps: string[] = [];
-        if (missing > 0) {
-            const gapDate = new Date(startDt);
-            gapDate.setDate(gapDate.getDate() + Math.floor(diffDays / 2));
-            gaps.push(gapDate.toISOString().split('T')[0]);
-        }
-
-        return {
-            score: parseFloat(score.toFixed(1)),
-            missingCandles: missing,
-            zeroVolumeCandles: zeroVol,
-            totalCandles: total,
-            gaps,
-            status,
-        };
-    }
+    // Issue #18: Wire to real backend endpoint without any fallback.
+    // If the request fails we propagate the error so caller can handle it.
+    const data = await fetchClient<DataHealthReport>(API_ENDPOINTS.MARKET_VALIDATE, {
+        method: 'POST',
+        body: JSON.stringify({ symbol, timeframe, from_date: start, to_date: end }),
+    });
+    return data;
 };

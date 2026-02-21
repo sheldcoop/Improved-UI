@@ -367,7 +367,7 @@ const Results: React.FC = () => {
 
             <Card title="Monthly Returns" className="h-[450px] flex flex-col">
               <div className="grid grid-cols-4 gap-2 flex-1 content-start overflow-y-auto">
-                {result.monthlyReturns?.map((m, idx) => {
+                {(result.monthlyReturns || []).map((m, idx) => {
                   let colorClass = "bg-slate-800 text-slate-500";
                   if (m.returnPct > 0) {
                     if (m.returnPct > 5) colorClass = "bg-emerald-500 text-white font-bold";
@@ -391,7 +391,7 @@ const Results: React.FC = () => {
 
           <div className="mt-6">
             <Card title="Recent Trades" action={<Button variant="ghost" size="sm" onClick={() => setActiveTab('TRADES')}>View All</Button>}>
-              <TradeTable trades={result.trades.slice(0, 5)} onRowClick={handleTradeClick} />
+              <TradeTable trades={result.trades?.slice(0, 5) || []} onRowClick={handleTradeClick} />
             </Card>
           </div>
         </>

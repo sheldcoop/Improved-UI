@@ -2,9 +2,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UNIVERSES } from '../constants';
 import { validateMarketData, DataHealthReport, fetchStrategies, runBacktest } from '../services/api';
+import { delay } from '../services/http';
 import { Timeframe, Strategy } from '../types';
 import { fetchClient } from '../services/http';
 import { logActiveRun, logDataHealth, logOptunaResults, logWFOBreakdown, logAlert } from '../components/DebugConsole';
+import { useBacktestContext } from '../context/BacktestContext';
 
 // Debounce helper
 const useDebounce = (value: string, delay: number) => {
@@ -21,7 +23,9 @@ const searchInstruments = async (segment: string, query: string) => {
     return fetchClient<Array<{ symbol: string; display_name: string; security_id: string; instrument_type: string }>>(`/market/instruments?segment=${segment}&q=${encodeURIComponent(query)}`);
 };
 
-// Run backtest with Dhan API
+// Run backtest with Dhan API; include graceful fallback so the UI still works
+// even if the backend is unreachable.  This mirrors the logic used in
+// services/backtestService.runBacktest which uses executeWithFallback.
 const runBacktestWithDhan = async (payload: {
     instrument_details: {
         security_id: string;
@@ -40,7 +44,27 @@ const runBacktestWithDhan = async (payload: {
         };
     };
 }) => {
-    return fetchClient<{
+    // reuse executeWithFallback from http.ts; we import it inline here to avoid
+    // circular dependency with services/api (which also imports http).  Since
+    // this file already imports fetchClient, we can copy the helper code.
+
+    const executeWithFallback = async <T>(
+        endpoint: string,
+        options: RequestInit | undefined,
+        mockFn: () => Promise<T>
+    ): Promise<T> => {
+        const { CONFIG } = await import('../config');
+        if (!CONFIG.USE_MOCK_DATA) {
+            try {
+                return await fetchClient<T>(endpoint, options);
+            } catch (error) {
+                console.warn(`[Auto-Fallback] Backend ${endpoint} unreachable. Using Mock Data.`);
+            }
+        }
+        return mockFn();
+    };
+
+    return executeWithFallback<{
         status: string;
         data_summary?: {
             total_candles: number;
@@ -58,13 +82,59 @@ const runBacktestWithDhan = async (payload: {
             timeframe: string;
         };
         note?: string;
-    }>('/market/backtest/run', {
-        method: 'POST',
-        body: JSON.stringify(payload)
-    });
-};
+    }>(
+        '/market/backtest/run',
+        { method: 'POST', body: JSON.stringify(payload) },
+        async () => {
+            // comprehensive mock fallback adhering to BacktestResult interface
+            await delay(1500);
+            console.warn('Mock fallback for runBacktestWithDhan');
 
-import { useBacktestContext } from '../context/BacktestContext';
+            const now = new Date();
+            const startDt = new Date(payload.parameters.start_date);
+            const endDt = new Date(payload.parameters.end_date);
+
+            // simple equity curve with a flat line
+            const equityCurve = [] as Array<{ date: string; value: number; drawdown: number }>;
+            let iter = new Date(startDt);
+            while (iter <= endDt) {
+                equityCurve.push({ date: iter.toISOString().split('T')[0], value: 100000, drawdown: 0 });
+                iter.setDate(iter.getDate() + 1);
+            }
+
+            const backtestResult: any = {
+                id: `mock_${Math.random().toString(36).substr(2, 6)}`,
+                strategyName: payload.parameters.strategy_logic?.name || 'Mock Strategy',
+                symbol: payload.instrument_details.symbol,
+                timeframe: payload.parameters.timeframe,
+                startDate: payload.parameters.start_date,
+                endDate: payload.parameters.end_date,
+                metrics: {
+                    totalReturnPct: 0,
+                    cagr: 0,
+                    sharpeRatio: 0,
+                    sortinoRatio: 0,
+                    calmarRatio: 0,
+                    maxDrawdownPct: 0,
+                    avgDrawdownDuration: '0d',
+                    winRate: 0,
+                    profitFactor: 0,
+                    kellyCriterion: 0,
+                    totalTrades: 0,
+                    consecutiveLosses: 0,
+                    alpha: 0,
+                    beta: 0,
+                    volatility: 0,
+                    expectancy: 0
+                },
+                monthlyReturns: [],
+                equityCurve,
+                trades: [],
+                status: 'completed'
+            };
+            return backtestResult;
+        });
+};
 
 export const useBacktest = () => {
     const navigate = useNavigate();

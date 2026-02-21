@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
-import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Database, Sliders, AlertCircle, CheckCircle, Split, Info, AlertTriangle, CheckSquare, Clock, Shield, Activity } from 'lucide-react';
+import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Database, Sliders, AlertCircle, CheckCircle, Split, Info, AlertTriangle, CheckSquare, Clock, Shield, Activity, FileQuestionMark } from 'lucide-react';
 import { MOCK_SYMBOLS, UNIVERSES } from '../constants';
 import { runBacktest, validateMarketData, DataHealthReport, fetchStrategies } from '../services/api';
 import { Timeframe, Strategy } from '../types';
@@ -61,13 +61,15 @@ const Backtest: React.FC = () => {
     }
   }, [autoRunRequested, dataStatus, handleLoadData, handleRun]);
 
-  const renderHealthBadge = (status: string) => {
+  const renderHealthBadge = (status: string | undefined) => {
     switch (status) {
       case 'EXCELLENT': return <Badge variant="success" className="flex items-center"><CheckCircle className="w-3 h-3 mr-1" /> Excellent Quality</Badge>;
       case 'GOOD': return <Badge variant="info" className="flex items-center"><CheckSquare className="w-3 h-3 mr-1" /> Good Quality</Badge>;
       case 'POOR': return <Badge variant="warning" className="flex items-center"><AlertTriangle className="w-3 h-3 mr-1" /> Poor Quality</Badge>;
       case 'CRITICAL': return <Badge variant="danger" className="flex items-center"><AlertCircle className="w-3 h-3 mr-1" /> Critical Issues</Badge>;
-      default: return null;
+      default:
+        // unknown/empty report – render a placeholder so user knows something went wrong
+        return <Badge variant="neutral" className="flex items-center"><FileQuestionMark className="w-3 h-3 mr-1" /> Unknown</Badge>;
     }
   };
 
@@ -270,6 +272,11 @@ const Backtest: React.FC = () => {
                   {healthReport.gaps.length > 0 && (
                     <div className="mt-2 pt-2 border-t border-slate-800">
                       <p className="text-xs text-red-400 flex items-center"><AlertTriangle className="w-3 h-3 mr-1" /> Gap detected near {healthReport.gaps[0]}</p>
+                    </div>
+                  )}
+                  {healthReport.note && (
+                    <div className="mt-2 pt-2 border-t border-slate-800">
+                      <p className="text-xs text-yellow-400">{healthReport.note}</p>
                     </div>
                   )}
                 </div>
