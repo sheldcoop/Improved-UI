@@ -25,8 +25,7 @@ const Backtest: React.FC = () => {
     isDynamic, wfoConfig, paramRanges, showRanges, reproducible,
     top5Trials, oosResults, isOosValidating,
     stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
-    fullReportData, isReportOpen, useLookback, lookbackMonths,
-    statsFreq, statsWindow
+    fullReportData, isReportOpen, useLookback, lookbackMonths
   } = state;
   const {
     setMode, setSegment, setSymbolSearchQuery, setSymbol, setSearchResults, setSelectedInstrument,
@@ -36,8 +35,7 @@ const Backtest: React.FC = () => {
     setParamRanges, setShowRanges, setReproducible, setTop5Trials,
     setOosResults, setIsOosValidating,
     setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
-    setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths,
-    setStatsFreq, setStatsWindow
+    setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths
   } = setters;
   const { handleLoadData, handleRun, handleOOSValidation } = handlers;
 
@@ -300,37 +298,6 @@ const Backtest: React.FC = () => {
                   )}
                 </div>
 
-                {/* Stats parameters */}
-                <div className="mt-4 p-3 bg-slate-900/50 rounded-lg border border-slate-800">
-                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Statistics Options</h4>
-                  <div className="flex flex-col space-y-3">
-                    <div className="flex items-center space-x-2">
-                      <label className="text-xs text-slate-300">Freq</label>
-                      <select
-                        value={statsFreq || ''}
-                        onChange={(e) => setStatsFreq(e.target.value || null)}
-                        className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 focus:ring-1 focus:ring-indigo-500 outline-none"
-                      >
-                        <option value="">Auto</option>
-                        <option value="1D">Daily</option>
-                        <option value="1W">Weekly</option>
-                        <option value="1M">Monthly</option>
-                      </select>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <label className="text-xs text-slate-300">Window</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={statsWindow || ''}
-                        onChange={(e) => setStatsWindow(e.target.value ? parseInt(e.target.value) : null)}
-                        placeholder="none"
-                        className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 focus:ring-1 focus:ring-indigo-500 outline-none"
-                      />
-                      <span className="text-[10px] text-slate-500 italic">rolling window</span>
-                    </div>
-                  </div>
-                </div>
               </div>
 
               {/* Improvement 2: Data Health Report Card */}
@@ -443,7 +410,7 @@ const Backtest: React.FC = () => {
                   <div>
                     <label className="text-xs text-slate-500 block mb-1">Stop Loss %</label>
                     <input
-                      type="number"
+                        type="number" min="0"
                       step="0.1"
                       value={stopLossPct}
                       onChange={(e) => setStopLossPct(parseFloat(e.target.value))}
@@ -453,7 +420,7 @@ const Backtest: React.FC = () => {
                   <div>
                     <label className="text-xs text-slate-500 block mb-1">Take Profit %</label>
                     <input
-                      type="number"
+                      type="number" min="0"
                       step="0.1"
                       value={takeProfitPct}
                       onChange={(e) => setTakeProfitPct(parseFloat(e.target.value))}

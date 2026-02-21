@@ -120,3 +120,23 @@ def test_risk_search_honours_fixed_params(monkeypatch):
     # part of risk ranges.
     assert any('stopLossPct' in p for p in captured), "risk trials occurred"
     assert any('period' in p and 'lower' in p and 'upper' in p for p in captured), "primary params were merged"
+
+    # --- extra checks: each risk parameter can operate independently ---
+    for single in ['stopLossPct', 'takeProfitPct']:
+        limited_risk = {single: {'min': 0, 'max': 1, 'step': 1}}
+        res2 = OptimizationEngine.run_optuna(
+            symbol='TEST', strategy_id='1', ranges=ranges, headers={}, n_trials=2, risk_ranges=limited_risk
+        )
+        # when only one risk param is specified, riskGrid should still be returned
+        if 'riskGrid' in res2:
+            # grid entries should only include the one parameter name
+            for row in res2['riskGrid']:
+                assert single in row['paramSet']
+                other = 'takeProfitPct' if single == 'stopLossPct' else 'stopLossPct'
+                assert other not in row['paramSet']
+        # combinedParams, if present, must contain the primary keys and the
+        # single risk parameter
+        if 'combinedParams' in res2:
+            assert single in res2['combinedParams']
+            for key in ('period', 'lower', 'upper'):
+                assert key in res2['combinedParams']

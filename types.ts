@@ -225,6 +225,10 @@ export interface BacktestResult {
   // we echo the values here so the UI can display them to the user.
   // This mirrors the behaviour of the optimisation endpoints.
   paramSet?: Record<string, number>;
+  // additional statistics produced when the user specifies
+  // `statsFreq`/`statsWindow` via the integration payloads.
+  returnsStats?: Record<string, any>;
+  statsParams?: { freq?: string; window?: number };
 }
 export interface MarketData {
   symbol: string;

@@ -202,11 +202,11 @@ const StrategyBuilder: React.FC = () => {
                         <div className="grid grid-cols-2 gap-2 mb-2">
                             <div>
                                 <label className="text-xs text-slate-500 block mb-1">Stop Loss %</label>
-                                <input type="number" value={strategy.stopLossPct} onChange={e => setStrategy({ ...strategy, stopLossPct: parseFloat(e.target.value) })} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
+                                <input type="number" min="0" value={strategy.stopLossPct} onChange={e => setStrategy({ ...strategy, stopLossPct: parseFloat(e.target.value) })} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
                             </div>
                             <div>
                                 <label className="text-xs text-slate-500 block mb-1">Take Profit %</label>
-                                <input type="number" value={strategy.takeProfitPct} onChange={e => setStrategy({ ...strategy, takeProfitPct: parseFloat(e.target.value) })} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
+                                <input type="number" min="0" value={strategy.takeProfitPct} onChange={e => setStrategy({ ...strategy, takeProfitPct: parseFloat(e.target.value) })} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
                             </div>
                         </div>
                         <label className="flex items-center space-x-2 text-xs text-slate-400 cursor-pointer">

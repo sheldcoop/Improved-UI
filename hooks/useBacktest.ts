@@ -27,7 +27,7 @@ export const useBacktest = () => {
         pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
         fullReportData, setFullReportData, isReportOpen, setIsReportOpen,
         useLookback, setUseLookback, lookbackMonths, setLookbackMonths,
-        isFetchingData, setIsFetchingData, statsFreq, setStatsFreq, statsWindow, setStatsWindow
+        isFetchingData, setIsFetchingData
     } = useBacktestContext();
 
     // Auto-Calculate WFO Windows when dates change
@@ -268,8 +268,7 @@ export const useBacktest = () => {
                             positionSizeValue,
                             ...params
                         },
-                        statsFreq: statsFreq,
-                        statsWindow: statsWindow
+                        // statsFreq and statsWindow are no longer tracked in context
                     }
                 });
 
@@ -287,9 +286,7 @@ export const useBacktest = () => {
                 }
 
                 const extendedConfig = {
-                    ...config,
-                    statsFreq,
-                    statsWindow
+                    ...config
                 };
                 const result = await runBacktest(strategyId, mode === 'SINGLE' ? symbol : universe, extendedConfig);
                 if (result) result.timeframe = timeframe;
@@ -348,8 +345,7 @@ export const useBacktest = () => {
             isDynamic, wfoConfig, paramRanges, showRanges, reproducible,
             top5Trials, oosResults, isOosValidating,
             stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
-            fullReportData, isReportOpen, useLookback, lookbackMonths,
-            statsFreq, statsWindow
+            fullReportData, isReportOpen, useLookback, lookbackMonths
         },
         setters: {
             setRunning, setMode, setSegment, setSymbol, setSymbolSearchQuery, setSearchResults,
@@ -358,8 +354,7 @@ export const useBacktest = () => {
             setShowAdvanced, setDataStatus, setHealthReport, setIsDynamic, setWfoConfig,
             setParamRanges, setShowRanges, setReproducible, setTop5Trials, setOosResults, setIsOosValidating,
             setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
-            setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths,
-            setStatsFreq, setStatsWindow
+            setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths
         },
         handlers: {
             handleLoadData, handleRun, handleOOSValidation

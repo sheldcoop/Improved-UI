@@ -348,6 +348,28 @@ class TestOptimizationEngine:
         assert isinstance(res.get('monthlyReturns'), list)
         assert len(res['monthlyReturns']) >= 2
 
+    def test_backtest_route_validates_stoploss_takeprofit(self, client):
+        """The /backtest/run endpoint must reject negative SL/TP values."""
+        payload = {
+            "symbol": "TEST",
+            "timeframe": "1d",
+            "strategyId": "1",
+            "slippage": 0.1,
+            "commission": 10,
+            "initial_capital": 1000,
+            "stopLossPct": -1,
+            "takeProfitPct": 2
+        }
+        resp = client.post("/api/v1/backtest/run", json=payload)
+        assert resp.status_code == 400
+        assert "stopLossPct" in (resp.get_json() or {}).get("message", "")
+        # also test take-profit negative
+        payload["stopLossPct"] = 1
+        payload["takeProfitPct"] = -5
+        resp2 = client.post("/api/v1/backtest/run", json=payload)
+        assert resp2.status_code == 400
+        assert "takeProfitPct" in (resp2.get_json() or {}).get("message", "")
+
     def test_backtest_returns_stats_params(self, client):
         """When statsFreq/window provided, response includes statsParams and returnsStats."""
         import pandas as pd

@@ -60,6 +60,17 @@ def run_backtest():
         except (TypeError, ValueError):
             return jsonify({"status": "error", "message": "slippage, commission, and initial_capital must be numbers"}), 400
 
+        # Validate stop-loss / take-profit percentages
+        sl_pct_raw = data.get("stopLossPct", 0)
+        tp_pct_raw = data.get("takeProfitPct", 0)
+        try:
+            if float(sl_pct_raw) < 0:
+                return jsonify({"status": "error", "message": "stopLossPct must be >= 0"}), 400
+            if float(tp_pct_raw) < 0:
+                return jsonify({"status": "error", "message": "takeProfitPct must be >= 0"}), 400
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "message": "stopLossPct and takeProfitPct must be numbers"}), 400
+
         universe = data.get("universe")
         target = universe if universe else symbol
         strategy_id = data.get("strategyId")

@@ -308,15 +308,15 @@ const Optimization: React.FC = () => {
                                                 <div className="col-span-8 grid grid-cols-3 gap-3">
                                                     <div className="flex flex-col">
                                                         <span className="text-[10px] text-slate-500 mb-1">Min</span>
-                                                        <input type="number" step={param.step} value={param.min} onChange={(e) => setRiskParams(riskParams.map(r => r.id === param.id ? {...r, min: parseFloat(e.target.value)} : r))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 focus:border-emerald-500 outline-none" />
+                                                        <input type="number" min="0" step={param.step} value={param.min} onChange={(e) => setRiskParams(riskParams.map(r => r.id === param.id ? {...r, min: parseFloat(e.target.value)} : r))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 focus:border-emerald-500 outline-none" />
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className="text-[10px] text-slate-500 mb-1">Max</span>
-                                                        <input type="number" step={param.step} value={param.max} onChange={(e) => setRiskParams(riskParams.map(r => r.id === param.id ? {...r, max: parseFloat(e.target.value)} : r))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 focus:border-emerald-500 outline-none" />
+                                                        <input type="number" min="0" step={param.step} value={param.max} onChange={(e) => setRiskParams(riskParams.map(r => r.id === param.id ? {...r, max: parseFloat(e.target.value)} : r))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 focus:border-emerald-500 outline-none" />
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className="text-[10px] text-slate-500 mb-1">Step</span>
-                                                        <input type="number" step={param.step} value={param.step} onChange={(e) => setRiskParams(riskParams.map(r => r.id === param.id ? {...r, step: parseFloat(e.target.value)} : r))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 focus:border-emerald-500 outline-none" />
+                                                        <input type="number" min="0" step={param.step} value={param.step} onChange={(e) => setRiskParams(riskParams.map(r => r.id === param.id ? {...r, step: parseFloat(e.target.value)} : r))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 focus:border-emerald-500 outline-none" />
                                                     </div>
                                                 </div>
                                             </div>
