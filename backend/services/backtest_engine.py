@@ -173,25 +173,41 @@ class BacktestEngine:
 
             # optional detailed returns statistics
             if config is not None:
+                # ensure key exists even if computation fails or is skipped
+                results["returnsStats"] = {}
                 freq = config.get("statsFreq")
-                window = config.get("statsWindow")
-                # We echo both freq/window via statsParams but VectorBT's
-                # returns_stats only understands ``freq``; ``window`` would
-                # be forwarded to ``stats`` which rejects it, hence we drop it.
+                # Keep original value for statsParams display
+                original_freq = freq
+                # normalize freq for vectorbt if necessary (vectorbt dislikes 'M'/'Y')
+                if isinstance(freq, str) and freq.endswith('M'):
+                    # convert months to 30-day periods; e.g. "1M" -> "30D"
+                    try:
+                        n = int(freq[:-1])
+                        freq = f"{n * 30}D"
+                    except Exception:
+                        # fall back to None and let vectorbt choose auto
+                        freq = None
+                if isinstance(freq, str) and freq.endswith('Y'):
+                    try:
+                        n = int(freq[:-1])
+                        freq = f"{n * 365}D"
+                    except Exception:
+                        freq = None
+                # window stored for display; VectorBT ignores it
+                # compute only when freq truthy and method available
                 if hasattr(pf, "returns_stats") and freq:
                     try:
                         rs = pf.returns_stats(freq=freq or None)
-                        # pandas Series or DataFrame
                         if hasattr(rs, "to_dict"):
                             if hasattr(rs, "columns"):
                                 results["returnsStats"] = rs.to_dict(orient="index")
                             else:
                                 results["returnsStats"] = rs.to_dict()
                         else:
-                            # fallback to string conversion
                             results["returnsStats"] = str(rs)
                     except Exception as e:
                         logger.warning(f"Failed to compute returns_stats: {e}")
+                        # leave empty dict so frontend shows "no stats"
 
             return clean_float_values(results)
         except Exception as exc:

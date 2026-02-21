@@ -312,7 +312,7 @@ class TestOptimizationEngine:
         assert isinstance(res.get('monthlyReturns'), list)
         assert len(res['monthlyReturns']) >= 2
 
-    def test_backtest_returns_stats_params(self):
+    def test_backtest_returns_stats_params(self, client):
         """When statsFreq/window provided, response includes statsParams and returnsStats."""
         import pandas as pd
         from unittest.mock import patch
@@ -345,6 +345,13 @@ class TestOptimizationEngine:
         assert data.get("statsParams") == {"freq": "D", "window": 1}
         assert "returnsStats" in data
         assert isinstance(data["returnsStats"], dict)
+        # ensure when using monthly alias it still returns something (normalisation)
+        payload["parameters"]["statsFreq"] = "1M"
+        resp2 = client.post("/api/v1/market/backtest/run", json=payload)
+        assert resp2.status_code == 200
+        data2 = resp2.get_json() or {}
+        assert "returnsStats" in data2
+        assert data2["returnsStats"], "monthly stats should not be empty"
 
     def test_build_portfolio_tolerates_object_dtype(self):
         """_build_portfolio should accept object-dtype signal series without error.

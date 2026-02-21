@@ -158,6 +158,13 @@ class TestStatsParams:
         assert result.get("statsParams") == {"freq": "W", "window": 3}
         # engine should add the key regardless of its contents
         assert "returnsStats" in result
+        
+        # make sure normalization works: using 1M should still compute stats
+        df2 = _make_ohlcv(n=100)
+        res2 = BacktestEngine.run(df2, "1", {"statsFreq": "1M"})
+        assert "returnsStats" in res2
+        # should not be empty after 100 bars (approx 20 trading days)
+        assert res2["returnsStats"], "expected some metrics for 1M freq"
 
 
 # ---------------------------------------------------------------------------

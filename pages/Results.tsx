@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, ReferenceArea } from 'recharts';
 import { BacktestResult, Trade } from '../types';
 import { AlertTriangle, List, Activity, BarChart as BarChartIcon, ArrowLeft, ZoomOut, Split } from 'lucide-react';
+import ReturnsStatsTable from '../components/ReturnsStatsTable';
 import { MONTH_NAMES } from '../constants';
 import { CONFIG } from '../config';
 import { Card } from '../components/ui/Card';
@@ -294,6 +295,7 @@ const Results: React.FC = () => {
             <Card
               title={curveType === 'EQUITY' ? "Equity Curve" : "Drawdown"}
               className="lg:col-span-2 h-[450px] flex flex-col"
+              bodyClassName="flex-1 flex flex-col"
               action={
                 <div className="flex items-center space-x-2">
                   <select
@@ -453,9 +455,7 @@ const Results: React.FC = () => {
       {activeTab === 'STATS' && (
         <Card title="Return Statistics">
           {result.returnsStats ? (
-            <div className="overflow-x-auto">
-              <pre className="text-xs whitespace-pre-wrap">{JSON.stringify(result.returnsStats, null, 2)}</pre>
-            </div>
+            <ReturnsStatsTable stats={result.returnsStats} />
           ) : (
             <div className="text-slate-500 italic">No detailed stats available.</div>
           )}
