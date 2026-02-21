@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import pandas as pd
-from dhanhq import dhanhq
+from dhanhq import dhanhq, DhanContext
 from dotenv import load_dotenv
 
 from services.data_cleaner import DataCleaner
@@ -48,7 +48,7 @@ class DhanHistoricalService:
             logger.error("DHAN_CLIENT_ID or DHAN_ACCESS_TOKEN missing in environment")
             raise ValueError("Dhan credentials not configured")
             
-        self.dhan = dhanhq(client_id, access_token)
+        self.dhan = dhanhq(DhanContext(client_id, access_token))
 
     def fetch_ohlcv(
         self,
@@ -108,12 +108,15 @@ class DhanHistoricalService:
             
             logger.debug(f"Fetching intraday chunk: {current_start.date()} to {current_end.date()}")
             
+            interval_mins = TIMEFRAME_MAP.get(timeframe, 1)
+            
             data = self.dhan.intraday_minute_data(
                 security_id=security_id,
                 exchange_segment=exchange_segment,
                 instrument_type=instrument_type,
                 from_date=current_start.strftime("%Y-%m-%d"),
-                to_date=current_end.strftime("%Y-%m-%d")
+                to_date=current_end.strftime("%Y-%m-%d"),
+                interval=interval_mins
             )
             
             df_chunk = self._process_response(data, security_id, is_intraday=True)
@@ -134,6 +137,8 @@ class DhanHistoricalService:
             return pd.DataFrame()
             
         df = pd.DataFrame(response["data"])
+        # Standardize column names to lowercase immediately
+        df.columns = [c.lower() for c in df.columns]
         
         # Handle Timestamps
         if "timestamp" in df.columns:

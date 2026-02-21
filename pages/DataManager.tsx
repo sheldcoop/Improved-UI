@@ -9,6 +9,7 @@ import {
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { DataReportModal } from '../components/DataReportModal';
 
 // Extended interface for local state to support new features
 interface ExtendedMarketData {
@@ -33,6 +34,8 @@ const DataManager: React.FC = () => {
    const [isScanning, setIsScanning] = useState(false);
    const [isLoading, setIsLoading] = useState(false);
    const [activeDownloads, setActiveDownloads] = useState<Set<string>>(new Set());
+   const [reportData, setReportData] = useState<any>(null);
+   const [isReportOpen, setIsReportOpen] = useState(false);
 
    // Fetch real cache status from backend
    const fetchCacheStatus = async () => {
@@ -138,6 +141,9 @@ const DataManager: React.FC = () => {
             body: JSON.stringify({ symbol, timeframe: '1d' })
          });
          if (res.ok) {
+            const data = await res.json();
+            setReportData(data);
+            setIsReportOpen(true);
             await fetchCacheStatus(); // Refresh status
          } else {
             alert(`Failed to download ${symbol}`);
@@ -452,6 +458,13 @@ const DataManager: React.FC = () => {
                </Card>
             </div>
          )}
+
+         {/* DATA REPORT MODAL */}
+         <DataReportModal
+            isOpen={isReportOpen}
+            onClose={() => setIsReportOpen(false)}
+            report={reportData}
+         />
 
       </div>
    );

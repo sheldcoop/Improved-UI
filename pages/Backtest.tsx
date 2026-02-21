@@ -13,6 +13,7 @@ import { fetchClient } from '../services/http';
 import { logActiveRun, logDataHealth, logOptunaResults, logWFOBreakdown, logAlert } from '../components/DebugConsole';
 
 import { useBacktest } from '../hooks/useBacktest';
+import { DataReportModal } from '../components/DataReportModal';
 
 const Backtest: React.FC = () => {
   const navigate = useNavigate();
@@ -27,14 +28,16 @@ const Backtest: React.FC = () => {
     params, capital, slippage, commission, showAdvanced, dataStatus, healthReport,
     isDynamic, wfoConfig, autoTuneConfig, paramRanges, isAutoTuning, showRanges, reproducible,
     top5Trials, oosResults, isOosValidating,
-    stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue
+    stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
+    fullReportData, isReportOpen
   } = state;
   const {
     setMode, setSegment, setSymbolSearchQuery, setSymbol, setSearchResults, setSelectedInstrument,
     setUniverse, setTimeframe, setStrategyId, setStartDate, setEndDate, setParams,
     setCapital, setSlippage, setCommission, setShowAdvanced, setIsDynamic, setWfoConfig,
     setAutoTuneConfig, setParamRanges, setReproducible,
-    setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue
+    setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
+    setIsReportOpen
   } = setters;
   const { handleLoadData, handleAutoTune, handleRun, handleOOSValidation } = handlers;
 
@@ -469,6 +472,12 @@ const Backtest: React.FC = () => {
           </div>
         </div>
       </Card>
+
+      <DataReportModal
+        isOpen={isReportOpen}
+        onClose={() => setIsReportOpen(false)}
+        report={fullReportData}
+      />
     </div>
   );
 };

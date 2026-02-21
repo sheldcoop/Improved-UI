@@ -57,6 +57,9 @@ class DataCleaner:
             
         original_len = len(df)
         
+        # 0. Normalize Column Names (Case-Insensitive)
+        df.columns = [c.lower() for c in df.columns]
+        
         # 1. Temporal Normalization
         df = DataCleaner.fix_timezone(df)
         df = DataCleaner.sort_chronological(df)

@@ -91,6 +91,10 @@ interface BacktestContextType {
     setOosResults: (val: any[]) => void;
     isOosValidating: boolean;
     setIsOosValidating: (val: boolean) => void;
+    fullReportData: any | null;
+    setFullReportData: (val: any | null) => void;
+    isReportOpen: boolean;
+    setIsReportOpen: (val: boolean) => void;
 }
 
 const BacktestContext = createContext<BacktestContextType | undefined>(undefined);
@@ -143,6 +147,8 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
     const [top5Trials, setTop5Trials] = useState<any[]>([]);
     const [oosResults, setOosResults] = useState<any[]>([]);
     const [isOosValidating, setIsOosValidating] = useState(false);
+    const [fullReportData, setFullReportData] = useState<any | null>(null);
+    const [isReportOpen, setIsReportOpen] = useState(false);
 
     // Save to localStorage effects
     useEffect(() => { localStorage.setItem('backtest_segment', JSON.stringify(segment)); }, [segment]);
@@ -166,7 +172,8 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
         isAutoTuning, setIsAutoTuning, showRanges, setShowRanges, reproducible, setReproducible,
         top5Trials, setTop5Trials, oosResults, setOosResults, isOosValidating, setIsOosValidating,
         stopLossPct, setStopLossPct, takeProfitPct, setTakeProfitPct, useTrailingStop, setUseTrailingStop,
-        pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue
+        pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
+        fullReportData, setFullReportData, isReportOpen, setIsReportOpen
     };
 
     return <BacktestContext.Provider value={value}>{children}</BacktestContext.Provider>;

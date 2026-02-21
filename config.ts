@@ -32,6 +32,7 @@ export const API_ENDPOINTS = {
   BACKTEST: '/backtest/run',
   OPTION_CHAIN: '/market/option-chain',
   MARKET_VALIDATE: '/market/validate',
+  MARKET_FETCH: '/market/fetch',
   OPTIMIZATION: '/optimization/run',
   MONTE_CARLO: '/optimization/monte-carlo',
   PAPER_TRADING: '/paper-trading/positions',

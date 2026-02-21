@@ -66,7 +66,27 @@ def fetch_data():
         if df is None or df.empty:
             return jsonify({"status": "error", "message": "Failed to fetch data"}), 404
 
-        return jsonify({"status": "success", "rows": len(df)}), 200
+        # New: Get health report and sample
+        # Ensure we use valid dates for health compute (fetcher might have used defaults)
+        val_from = from_date or (pd.Timestamp.now() - pd.Timedelta(days=365)).strftime("%Y-%m-%d")
+        val_to = to_date or pd.Timestamp.now().strftime("%Y-%m-%d")
+        
+        health_report = DataHealthService.compute(symbol, timeframe, val_from, val_to)
+        
+        # Get last 5 rows as sample, formatted for frontend
+        sample_data = df.tail(5).reset_index()
+        sample_data['timestamp'] = sample_data['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
+        sample_list = sample_data.to_dict(orient='records')
+
+        return jsonify({
+            "status": "success", 
+            "rows": len(df),
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "range": {"from": val_from, "to": val_to},
+            "health": health_report,
+            "sample": sample_list
+        }), 200
     except Exception as exc:
         logger.error(f"Fetch data error: {exc}", exc_info=True)
         return jsonify({"status": "error", "message": "Fetch failed"}), 500

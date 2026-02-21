@@ -40,6 +40,8 @@ class DataHealthService:
 
         try:
             df = pd.read_parquet(parquet_path)
+            # Standardize columns to lowercase
+            df.columns = [c.lower() for c in df.columns]
             df = df[(df.index >= start_dt) & (df.index <= end_dt)]
         except Exception as e:
             logger.warning(f"Failed to read cache for health check: {e}")

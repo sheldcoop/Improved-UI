@@ -51,33 +51,33 @@ class SuperOrder:
             raise ValueError(f"Invalid leg_name: {leg_name}. Must be one of ENTRY_LEG, TARGET_LEG, STOP_LOSS_LEG.")
 
         payload = None
-        match str(leg_name).upper():
-            case "ENTRY_LEG":
-                payload = {
-                    "orderId": str(order_id),
-                    "orderType": order_type,
-                    "legName": "ENTRY_LEG",
-                    "quantity": int(quantity),
-                    "price": float(price),
-                    "targetPrice": float(targetPrice),
-                    "stopLossPrice": float(stopLossPrice),
-                    "trailingJump": float(trailingJump)
-                }
-            case "TARGET_LEG":
-                payload = {
-                    "orderId": str(order_id),
-                    "legName": "TARGET_LEG",
-                    "targetPrice": float(targetPrice)
-                }
-            case "STOP_LOSS_LEG":
-                payload = {
-                    "orderId": str(order_id),
-                    "legName": "STOP_LOSS_LEG",
-                    "stopLossPrice": float(stopLossPrice),
-                    "trailingJump": float(trailingJump)
-                }
-            case _:
-                raise ValueError(f"Invalid leg_name: {leg_name}. Expected: ENTRY_LEG, TARGET_LEG, or STOP_LOSS_LEG")
+        target_leg = str(leg_name).upper()
+        if target_leg == "ENTRY_LEG":
+            payload = {
+                "orderId": str(order_id),
+                "orderType": order_type,
+                "legName": "ENTRY_LEG",
+                "quantity": int(quantity),
+                "price": float(price),
+                "targetPrice": float(targetPrice),
+                "stopLossPrice": float(stopLossPrice),
+                "trailingJump": float(trailingJump)
+            }
+        elif target_leg == "TARGET_LEG":
+            payload = {
+                "orderId": str(order_id),
+                "legName": "TARGET_LEG",
+                "targetPrice": float(targetPrice)
+            }
+        elif target_leg == "STOP_LOSS_LEG":
+            payload = {
+                "orderId": str(order_id),
+                "legName": "STOP_LOSS_LEG",
+                "stopLossPrice": float(stopLossPrice),
+                "trailingJump": float(trailingJump)
+            }
+        else:
+            raise ValueError(f"Invalid leg_name: {leg_name}. Expected: ENTRY_LEG, TARGET_LEG, or STOP_LOSS_LEG")
 
         return self.dhan_http.put(f'/super/orders/{order_id}', payload)
 

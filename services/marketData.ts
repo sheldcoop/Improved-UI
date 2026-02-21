@@ -52,3 +52,11 @@ export const validateMarketData = async (symbol: string, timeframe: string, star
     });
     return data;
 };
+
+export const fetchAndValidateMarketData = async (symbol: string, timeframe: string, start: string, end: string): Promise<any> => {
+    const data = await fetchClient<any>(API_ENDPOINTS.MARKET_FETCH, {
+        method: 'POST',
+        body: JSON.stringify({ symbol, timeframe, from_date: start, to_date: end }),
+    });
+    return data;
+};

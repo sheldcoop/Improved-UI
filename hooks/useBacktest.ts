@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UNIVERSES } from '../constants';
-import { validateMarketData, DataHealthReport, fetchStrategies, runBacktest } from '../services/api';
+import { validateMarketData, fetchAndValidateMarketData, DataHealthReport, fetchStrategies, runBacktest } from '../services/api';
 import { delay } from '../services/http';
 import { Timeframe, Strategy } from '../types';
 import { fetchClient } from '../services/http';
@@ -151,7 +151,8 @@ export const useBacktest = () => {
         showRanges, setShowRanges, reproducible, setReproducible, top5Trials, setTop5Trials,
         oosResults, setOosResults, isOosValidating, setIsOosValidating,
         stopLossPct, setStopLossPct, takeProfitPct, setTakeProfitPct, useTrailingStop, setUseTrailingStop,
-        pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue
+        pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
+        fullReportData, setFullReportData, isReportOpen, setIsReportOpen
     } = useBacktestContext();
 
     // Auto-Calculate WFO Windows when dates change
@@ -264,14 +265,16 @@ export const useBacktest = () => {
                 status: 'running'
             });
 
-            const report = await validateMarketData(target, timeframe, extendedFromDate, endDate);
-            setHealthReport(report);
-            logDataHealth(report);
+            const fullReport = await fetchAndValidateMarketData(target, timeframe, extendedFromDate, endDate);
+            setHealthReport(fullReport.health);
+            setFullReportData(fullReport);
+            setIsReportOpen(true);
+            logDataHealth(fullReport.health);
 
-            if (report.status === 'POOR' || report.status === 'CRITICAL') {
+            if (fullReport.health.status === 'POOR' || fullReport.health.status === 'CRITICAL') {
                 logAlert([{
                     type: 'warning',
-                    msg: `Data health is ${report.status} for ${target}. ${report.missingCandles} candles missing.`,
+                    msg: `Data health is ${fullReport.health.status} for ${target}. ${fullReport.health.missingCandles} candles missing.`,
                     timestamp: new Date().toLocaleTimeString()
                 }]);
             }
@@ -546,7 +549,8 @@ export const useBacktest = () => {
             params, capital, slippage, commission, showAdvanced, dataStatus, healthReport,
             isDynamic, wfoConfig, autoTuneConfig, paramRanges, isAutoTuning, showRanges, reproducible,
             top5Trials, oosResults, isOosValidating,
-            stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue
+            stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
+            fullReportData, isReportOpen
         },
         setters: {
             setRunning, setMode, setSegment, setSymbol, setSymbolSearchQuery, setSearchResults,
@@ -554,7 +558,8 @@ export const useBacktest = () => {
             setStartDate, setEndDate, setParams, setCapital, setSlippage, setCommission,
             setShowAdvanced, setDataStatus, setHealthReport, setIsDynamic, setWfoConfig, setAutoTuneConfig,
             setParamRanges, setIsAutoTuning, setShowRanges, setReproducible, setTop5Trials, setOosResults,
-            setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue
+            setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
+            setFullReportData, setIsReportOpen
         },
         handlers: {
             handleLoadData, handleAutoTune, handleRun, handleOOSValidation
