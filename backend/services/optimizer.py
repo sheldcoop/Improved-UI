@@ -72,18 +72,20 @@ class OptimizationEngine:
         n_trials: int = 30,
         scoring_metric: str = "sharpe",
         reproducible: bool = False,
-        config: dict | None = None
+        config: dict | None = None,
+        timeframe: str = "1d"
     ) -> dict:
         """Run Optuna hyperparameter optimisation for a strategy."""
         if config is None: config = {}
         fetcher = DataFetcher(headers)
         from_date = ranges.get("startDate")
         to_date = ranges.get("endDate")
-        
-        logger.info(f"Fetching data for Optimization: symbol={symbol}, from_date={from_date}, to_date={to_date}")
-        
+
+        logger.info(f"Fetching data for Optimization: symbol={symbol}, timeframe={timeframe}, from_date={from_date}, to_date={to_date}")
+
         df = fetcher.fetch_historical_data(
             symbol,
+            timeframe=timeframe,
             from_date=from_date,
             to_date=to_date
         )

@@ -36,6 +36,7 @@ def run_optimization():
         # Critical Fix: Pass root-level dates to Optuna ranges for fetcher
         ranges["startDate"] = data.get("startDate")
         ranges["endDate"] = data.get("endDate")
+        timeframe = data.get("timeframe", "1d")
         n_trials = int(data.get("n_trials", 30))
         scoring_metric = data.get("scoringMetric", "sharpe")
         reproducible = data.get("reproducible", False)
@@ -44,9 +45,9 @@ def run_optimization():
         if not isinstance(ranges, dict):
             return jsonify({"status": "error", "message": "ranges must be a dict"}), 400
 
-        logger.info(f"Running Optuna Optimisation for {symbol} | Metric: {scoring_metric} | Reproducible: {reproducible}")
+        logger.info(f"Running Optuna Optimisation for {symbol} | Metric: {scoring_metric} | Timeframe: {timeframe} | Reproducible: {reproducible}")
         results = OptimizationEngine.run_optuna(
-            symbol, strategy_id, ranges, request.headers, n_trials, scoring_metric, reproducible, config=config
+            symbol, strategy_id, ranges, request.headers, n_trials, scoring_metric, reproducible, config=config, timeframe=timeframe
         )
         return jsonify(results), 200
 

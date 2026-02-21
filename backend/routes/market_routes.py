@@ -75,6 +75,8 @@ def fetch_data():
         
         # Get last 5 rows as sample, formatted for frontend
         sample_data = df.tail(5).reset_index()
+        # Index column name may vary (e.g. 'date', 'time'); normalize to 'timestamp'
+        sample_data = sample_data.rename(columns={sample_data.columns[0]: 'timestamp'})
         sample_data['timestamp'] = sample_data['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
         sample_list = sample_data.to_dict(orient='records')
 
