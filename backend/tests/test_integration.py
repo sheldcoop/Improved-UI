@@ -302,6 +302,50 @@ class TestOptimizationEngine:
         assert bt_data.get("paramSet") == top["paramSet"], "Server must echo same paramSet"
         assert bt_data.get("metrics") is not None
 
+    def test_backtest_engine_monthly_returns(self):
+        """BacktestEngine should emit at least one monthly return without error."""
+        import pandas as pd
+        from services.backtest_engine import BacktestEngine
+        idx = pd.date_range('2023-01-01','2023-03-01', freq='B')
+        df = pd.DataFrame({'Open':1,'High':1,'Low':1,'Close':1,'Volume':1}, index=idx)
+        res = BacktestEngine.run(df, '1', {})
+        assert isinstance(res.get('monthlyReturns'), list)
+        assert len(res['monthlyReturns']) >= 2
+
+    def test_backtest_returns_stats_params(self):
+        """When statsFreq/window provided, response includes statsParams and returnsStats."""
+        import pandas as pd
+        from unittest.mock import patch
+
+        df = pd.DataFrame({"Open": [100, 101], "High": [101, 102],
+                           "Low": [99, 100], "Close": [100, 101],
+                           "Volume": [1000, 1000]},
+                          index=pd.bdate_range("2023-01-01", periods=2, freq="B"))
+        with patch("services.data_fetcher.DataFetcher.fetch_historical_data", return_value=df):
+            payload = {
+                "instrument_details": {
+                    "security_id": "1",
+                    "symbol": "TEST",
+                    "exchange_segment": "NSE_EQ",
+                    "instrument_type": "EQ",
+                },
+                "parameters": {
+                    "timeframe": "1d",
+                    "start_date": "2023-01-01",
+                    "end_date": "2023-01-02",
+                    "initial_capital": 50000,
+                    "strategy_logic": {"id": "1"},
+                    "statsFreq": "D",
+                    "statsWindow": 1
+                },
+            }
+            resp = client.post("/api/v1/market/backtest/run", json=payload)
+        assert resp.status_code == 200
+        data = resp.get_json() or {}
+        assert data.get("statsParams") == {"freq": "D", "window": 1}
+        assert "returnsStats" in data
+        assert isinstance(data["returnsStats"], dict)
+
     def test_build_portfolio_tolerates_object_dtype(self):
         """_build_portfolio should accept object-dtype signal series without error.
 
@@ -621,3 +665,72 @@ class TestMarketRoute:
         assert data.get("status") == "success"
         assert "health" in data and data["health"]["status"] == "EXCELLENT"
         assert isinstance(data.get("sample"), list)
+
+    def test_backtest_route_accepts_dhan_payload(self, client):
+        """Posting a Dhan-style payload should produce a valid backtest result."""
+        import pandas as pd
+        from unittest.mock import patch
+
+        df = pd.DataFrame({
+            "Open": [100, 101],
+            "High": [101, 102],
+            "Low": [99, 100],
+            "Close": [100, 101],
+            "Volume": [1000, 1000],
+        }, index=pd.bdate_range("2023-01-01", periods=2, freq="B"))
+
+        with patch("services.data_fetcher.DataFetcher.fetch_historical_data", return_value=df):
+            dh_payload = {
+                "instrument_details": {
+                    "security_id": "123",
+                    "symbol": "FOO",
+                    "exchange_segment": "NSE_EQ",
+                    "instrument_type": "EQ",
+                },
+                "parameters": {
+                    "timeframe": "1d",
+                    "start_date": "2023-01-01",
+                    "end_date": "2023-01-02",
+                    "initial_capital": 50000,
+                    "strategy_logic": {"id": "1", "period": 10}
+                }
+            }
+            resp = client.post("/api/v1/market/backtest/run", json=dh_payload)
+
+        assert resp.status_code == 200, f"expected 200, got {resp.status_code}"
+        data = resp.get_json() or {}
+        assert data.get("symbol") == "FOO"
+        assert isinstance(data.get("equityCurve"), list)
+        assert len(data.get("equityCurve")) > 0
+        assert isinstance(data.get("monthlyReturns"), list)
+        assert len(data.get("monthlyReturns")) >= 0
+
+    def test_backtest_route_accepts_flat_payload(self, client):
+        """The flattened payload (no instrument_details) must also work."""
+        import pandas as pd
+        from unittest.mock import patch
+
+        df = pd.DataFrame({
+            "Open": [100, 101],
+            "High": [101, 102],
+            "Low": [99, 100],
+            "Close": [100, 101],
+            "Volume": [1000, 1000],
+        }, index=pd.bdate_range("2023-01-01", periods=2, freq="B"))
+
+        with patch("services.data_fetcher.DataFetcher.fetch_historical_data", return_value=df):
+            flat = {
+                "symbol": "BAR",
+                "timeframe": "1d",
+                "startDate": "2023-01-01",
+                "endDate": "2023-01-02",
+                "initial_capital": 75000,
+                "strategy_logic": {"id": "1", "period": 5}
+            }
+            resp = client.post("/api/v1/market/backtest/run", json=flat)
+
+        assert resp.status_code == 200
+        data = resp.get_json() or {}
+        assert data.get("symbol") == "BAR"
+        assert isinstance(data.get("equityCurve"), list)
+        assert len(data.get("equityCurve")) > 0

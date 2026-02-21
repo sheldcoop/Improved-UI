@@ -27,7 +27,7 @@ export const useBacktest = () => {
         pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
         fullReportData, setFullReportData, isReportOpen, setIsReportOpen,
         useLookback, setUseLookback, lookbackMonths, setLookbackMonths,
-        isFetchingData, setIsFetchingData
+        isFetchingData, setIsFetchingData, statsFreq, setStatsFreq, statsWindow, setStatsWindow
     } = useBacktestContext();
 
     // Auto-Calculate WFO Windows when dates change
@@ -267,7 +267,9 @@ export const useBacktest = () => {
                             positionSizing,
                             positionSizeValue,
                             ...params
-                        }
+                        },
+                        statsFreq: statsFreq,
+                        statsWindow: statsWindow
                     }
                 });
 
@@ -284,7 +286,12 @@ export const useBacktest = () => {
                     config.universe = universe;
                 }
 
-                const result = await runBacktest(strategyId, mode === 'SINGLE' ? symbol : universe, config);
+                const extendedConfig = {
+                    ...config,
+                    statsFreq,
+                    statsWindow
+                };
+                const result = await runBacktest(strategyId, mode === 'SINGLE' ? symbol : universe, extendedConfig);
                 if (result) result.timeframe = timeframe;
                 navigate('/results', { state: { result } });
             }
@@ -341,7 +348,8 @@ export const useBacktest = () => {
             isDynamic, wfoConfig, paramRanges, showRanges, reproducible,
             top5Trials, oosResults, isOosValidating,
             stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
-            fullReportData, isReportOpen, useLookback, lookbackMonths
+            fullReportData, isReportOpen, useLookback, lookbackMonths,
+            statsFreq, statsWindow
         },
         setters: {
             setRunning, setMode, setSegment, setSymbol, setSymbolSearchQuery, setSearchResults,
@@ -350,7 +358,8 @@ export const useBacktest = () => {
             setShowAdvanced, setDataStatus, setHealthReport, setIsDynamic, setWfoConfig,
             setParamRanges, setShowRanges, setReproducible, setTop5Trials, setOosResults, setIsOosValidating,
             setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
-            setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths
+            setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths,
+            setStatsFreq, setStatsWindow
         },
         handlers: {
             handleLoadData, handleRun, handleOOSValidation

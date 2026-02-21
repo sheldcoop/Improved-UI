@@ -263,11 +263,39 @@ def run_backtest():
     """
     try:
         data = request.json or {}
-        
+        # Accept two shapes: original Dhan-style with instrument_details/parameters,
+        # or the flattened format produced by runBacktestWithDhan patching earlier.
+        if "instrument_details" not in data:
+            # convert flat to dhantype
+            data = {
+                "instrument_details": {
+                    "security_id": data.get("security_id", ""),
+                    "symbol": data.get("symbol", ""),
+                    "exchange_segment": data.get("exchange_segment", "NSE_EQ"),
+                    "instrument_type": data.get("instrument_type", "EQ"),
+                },
+                "parameters": {
+                    "timeframe": data.get("timeframe"),
+                    "start_date": data.get("startDate") or data.get("start_date"),
+                    "end_date": data.get("endDate") or data.get("end_date"),
+                    "initial_capital": data.get("initial_capital") or data.get("initialCapital"),
+                    "strategy_logic": data.get("strategy_logic") or data.get("strategyLogic") or {},
+                }
+            }
+
         # Validate required fields
         inst_details = data.get("instrument_details", {})
+        # if the client didn't supply a security_id (flat payload), try to
+        # resolve it from the symbol so we can still call DataFetcher.
+        if not inst_details.get("security_id") and inst_details.get("symbol"):
+            from services.scrip_master import get_instrument_by_symbol
+            inst = get_instrument_by_symbol(inst_details["symbol"])
+            if inst and inst.get("security_id"):
+                inst_details["security_id"] = inst["security_id"]
+
         if not inst_details.get("security_id"):
-            return jsonify({"status": "error", "message": "security_id is required"}), 400
+            # not fatal; DataFetcher will perform its own lookup by symbol
+            logger.info("security_id not supplied in payload, proceeding with symbol lookup")
         if not inst_details.get("exchange_segment"):
             return jsonify({"status": "error", "message": "exchange_segment is required"}), 400
         if not inst_details.get("instrument_type"):
@@ -331,6 +359,10 @@ def run_backtest():
         if bt_results.get("status") == "failed":
             return jsonify(bt_results), 400
 
+        # the engine now handles optional return‑stats calculation, so
+        # nothing needed here; the results dict from BacktestEngine.run may
+        # already include ``returnsStats`` if the caller requested them.
+
         # Combine into Final Response that matches BacktestResult interface
         response = {
             "id": f"bk-{pd.Timestamp.now().strftime('%M%S')}",
@@ -340,6 +372,12 @@ def run_backtest():
             "status": "completed",
             **bt_results
         }
+        # debug: log first few points of equity curve to assist UI troubleshooting
+        try:
+            if bt_results.get("equityCurve"):
+                logger.debug("Equity curve first points: %s", bt_results["equityCurve"][:5])
+        except Exception:
+            pass
         # Echo back the exact parameters used in the simulation so the frontend
         # can display them on the results/analytics page.  This matches the
         # behaviour of the optimisation endpoints which already include

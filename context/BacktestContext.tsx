@@ -159,6 +159,8 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
     const [useLookback, setUseLookback] = useState(false);
     const [lookbackMonths, setLookbackMonths] = useState(12);
     const [isFetchingData, setIsFetchingData] = useState(false);
+    const [statsFreq, setStatsFreq] = useState<string | null>(() => load('statsFreq', null));
+    const [statsWindow, setStatsWindow] = useState<number | null>(() => load('statsWindow', null));
     // Save to localStorage effects
     useEffect(() => { localStorage.setItem('backtest_segment', JSON.stringify(segment)); }, [segment]);
     useEffect(() => { localStorage.setItem('backtest_symbol', JSON.stringify(symbol)); }, [symbol]);
@@ -171,6 +173,8 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
     useEffect(() => { localStorage.setItem('backtest_healthReport', JSON.stringify(healthReport)); }, [healthReport]);
     useEffect(() => { localStorage.setItem('backtest_fullReportData', JSON.stringify(fullReportData)); }, [fullReportData]);
     useEffect(() => { localStorage.setItem('backtest_dataStatus', JSON.stringify(dataStatus)); }, [dataStatus]);
+    useEffect(() => { localStorage.setItem('backtest_statsFreq', JSON.stringify(statsFreq)); }, [statsFreq]);
+    useEffect(() => { localStorage.setItem('backtest_statsWindow', JSON.stringify(statsWindow)); }, [statsWindow]);
 
     // derive status ready if we have a cached report but the flag is idle
     useEffect(() => {
@@ -196,7 +200,7 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
         pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
         fullReportData, setFullReportData, isReportOpen, setIsReportOpen,
         useLookback, setUseLookback, lookbackMonths, setLookbackMonths,
-        isFetchingData, setIsFetchingData
+        isFetchingData, setIsFetchingData, statsFreq, setStatsFreq, statsWindow, setStatsWindow
     };
 
     return <BacktestContext.Provider value={value}>{children}</BacktestContext.Provider>;

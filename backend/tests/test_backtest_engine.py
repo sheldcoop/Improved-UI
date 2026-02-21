@@ -126,6 +126,40 @@ class TestRealDates:
         assert result["endDate"] != "2024-01-01"
 
 
+class TestStatsParams:
+    def test_stats_params_propagated(self):
+        """When config contains statsFreq/window, they should appear in results."""
+        df = _make_ohlcv(n=10)
+        cfg = {"statsFreq": "W", "statsWindow": 3}
+
+        with patch("services.backtest_engine.vbt") as mock_vbt, \
+             patch("services.backtest_engine.StrategyFactory") as mock_sf:
+            mock_sf.get_strategy.return_value.generate_signals.return_value = (
+                pd.Series(False, index=df.index),
+                pd.Series(False, index=df.index),
+            )
+            mock_pf = MagicMock()
+            mock_pf.value.return_value = pd.Series(100_000.0, index=df.index)
+            mock_pf.wrapper.columns = pd.Index(["A"])
+            mock_pf.sharpe_ratio.return_value = pd.Series([0.0])
+            mock_pf.max_drawdown.return_value = pd.Series([0.0])
+            mock_pf.win_rate.return_value = pd.Series([0.0])
+            mock_pf.profit_factor.return_value = pd.Series([0.0])
+            mock_pf.trades.count.return_value = pd.Series([0])
+            mock_pf.trades.records_readable = pd.DataFrame({"PnL": []})
+            mock_pf.drawdown.return_value = pd.Series(0.0, index=df.index)
+            mock_pf.stats.return_value = {}
+            mock_pf.total_return.return_value = 0.0
+            mock_vbt.Portfolio.from_signals.return_value = mock_pf
+
+            result = BacktestEngine.run(df, "1", cfg)
+
+        assert result is not None
+        assert result.get("statsParams") == {"freq": "W", "window": 3}
+        # engine should add the key regardless of its contents
+        assert "returnsStats" in result
+
+
 # ---------------------------------------------------------------------------
 # Issue #22 — Advanced metrics (both branches)
 # ---------------------------------------------------------------------------

@@ -168,7 +168,31 @@ class BacktestEngine:
             pf_kwargs["sl_trail"] = True
         try:
             pf = vbt.Portfolio.from_signals(close_price, entries, exits, **pf_kwargs)
-            results = BacktestEngine._extract_results(pf, df)
+            # extract basic results (metrics, curves, trades etc.)
+            results = BacktestEngine._extract_results(pf, df, config)
+
+            # optional detailed returns statistics
+            if config is not None:
+                freq = config.get("statsFreq")
+                window = config.get("statsWindow")
+                # We echo both freq/window via statsParams but VectorBT's
+                # returns_stats only understands ``freq``; ``window`` would
+                # be forwarded to ``stats`` which rejects it, hence we drop it.
+                if hasattr(pf, "returns_stats") and freq:
+                    try:
+                        rs = pf.returns_stats(freq=freq or None)
+                        # pandas Series or DataFrame
+                        if hasattr(rs, "to_dict"):
+                            if hasattr(rs, "columns"):
+                                results["returnsStats"] = rs.to_dict(orient="index")
+                            else:
+                                results["returnsStats"] = rs.to_dict()
+                        else:
+                            # fallback to string conversion
+                            results["returnsStats"] = str(rs)
+                    except Exception as e:
+                        logger.warning(f"Failed to compute returns_stats: {e}")
+
             return clean_float_values(results)
         except Exception as exc:
             logger.error(f"VBT Execution Error: {exc}")
@@ -246,6 +270,7 @@ class BacktestEngine:
     def _extract_results(
         pf: vbt.Portfolio,
         df: pd.DataFrame | dict,
+        config: dict | None = None,
     ) -> dict:
         """Extract structured results from a VectorBT Portfolio object.
 
@@ -357,9 +382,16 @@ class BacktestEngine:
 
             try:
                 # Use returns_series calculated above
-                monthly_resampled = returns_series.resample("M").apply(
-                    lambda x: (1 + x).prod() - 1
-                )
+                # Pandas 2.0 removed the bare "M" alias; use month-end "ME"
+                try:
+                    monthly_resampled = returns_series.resample("ME").apply(
+                        lambda x: (1 + x).prod() - 1
+                    )
+                except ValueError:
+                    # older pandas may still support "M"; fall back if necessary
+                    monthly_resampled = returns_series.resample("M").apply(
+                        lambda x: (1 + x).prod() - 1
+                    )
                 for date, ret in monthly_resampled.items():
                     monthly_returns_data.append({
                         "year": date.year,
@@ -369,7 +401,8 @@ class BacktestEngine:
             except Exception as exc:
                 logger.warning(f"Failed to calculate monthly returns: {exc}")
 
-        return {
+        # If config omitted just omit statsParams silently
+        results: dict = {
             "metrics": metrics,
             "equityCurve": equity_curve,
             "trades": trades[::-1],
@@ -377,6 +410,9 @@ class BacktestEngine:
             "startDate": start_date,
             "endDate": end_date,
         }
+        if config is not None:
+            results["statsParams"] = {"freq": config.get("statsFreq"), "window": config.get("statsWindow")}
+        return results
 
     @staticmethod
     def _compute_advanced_metrics(pf: vbt.Portfolio, universe: bool = False) -> dict:

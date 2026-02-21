@@ -96,3 +96,8 @@ pytest.main(['-q','tests/test_integration.py::TestMarketRoute::test_fetch_requir
             'tests/test_integration.py::TestMarketRoute::test_fetch_success_returns_health_and_sample'])
 PYTHON
  npx tsc --noEmit
+ cd /Users/prince/Desktop/Improved-UI/backend && python - <<'PYTHON'
+import pytest
+pytest.main(['-q','tests/test_integration.py::TestMarketRoute::test_backtest_route_accepts_dhan_payload','-q'])
+PYTHON
+ cd /Users/prince/Desktop/Improved-UI/backend && pytest -q

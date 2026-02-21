@@ -79,7 +79,7 @@ const Results: React.FC = () => {
   const [activeOosIndex, setActiveOosIndex] = useState(0);
   const [isOOSArray, setIsOOSArray] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'TRADES' | 'DISTRIBUTION'>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'TRADES' | 'DISTRIBUTION' | 'STATS'>('OVERVIEW');
   const [distributionData, setDistributionData] = useState<any[]>([]);
 
   // Zoom State
@@ -171,6 +171,13 @@ const Results: React.FC = () => {
     logActiveRun(null);
   }, [result?.id]);
 
+  // DEBUG: print equity curve to browser console
+  useEffect(() => {
+    if (result?.equityCurve) {
+      console.debug('equityCurve payload', result.equityCurve);
+    }
+  }, [result?.equityCurve]);
+
   if (!result) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -242,6 +249,7 @@ const Results: React.FC = () => {
           <Button variant={activeTab === 'OVERVIEW' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('OVERVIEW')} icon={<Activity className="w-4 h-4" />}>Overview</Button>
           <Button variant={activeTab === 'TRADES' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('TRADES')} icon={<List className="w-4 h-4" />}>Trades</Button>
           <Button variant={activeTab === 'DISTRIBUTION' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('DISTRIBUTION')} icon={<BarChartIcon className="w-4 h-4" />}>Distribution</Button>
+          <Button variant={activeTab === 'STATS' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('STATS')} icon={<Activity className="w-4 h-4" />}>Stats</Button>
         </div>
       </div>
 
@@ -397,8 +405,14 @@ const Results: React.FC = () => {
             )}
 
             <Card title="Monthly Returns" className="h-[450px] flex flex-col">
-              <div className="grid grid-cols-4 gap-2 flex-1 content-start overflow-y-auto">
-                {(result.monthlyReturns || []).map((m, idx) => {
+              <div className="flex-1 overflow-y-auto">
+                {(result.monthlyReturns || []).length === 0 ? (
+                  <div className="flex items-center justify-center h-full text-slate-500 italic">
+                    No monthly returns available.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2 content-start">
+                    {(result.monthlyReturns || []).map((m, idx) => {
                   let colorClass = "bg-slate-800 text-slate-500";
                   if (m.returnPct > 0) {
                     if (m.returnPct > 5) colorClass = "bg-emerald-500 text-white font-bold";
@@ -416,6 +430,8 @@ const Results: React.FC = () => {
                     </div>
                   );
                 })}
+                  </div>
+                )}
               </div>
             </Card>
           </div>
@@ -431,6 +447,23 @@ const Results: React.FC = () => {
       {activeTab === 'TRADES' && (
         <Card title="Trade Log (Click to Zoom)">
           <TradeTable trades={result.trades || []} onRowClick={handleTradeClick} />
+        </Card>
+      )}
+
+      {activeTab === 'STATS' && (
+        <Card title="Return Statistics">
+          {result.returnsStats ? (
+            <div className="overflow-x-auto">
+              <pre className="text-xs whitespace-pre-wrap">{JSON.stringify(result.returnsStats, null, 2)}</pre>
+            </div>
+          ) : (
+            <div className="text-slate-500 italic">No detailed stats available.</div>
+          )}
+          {result.statsParams && (
+            <div className="text-slate-400 text-xs mt-2">
+              Calculated with freq={result.statsParams.freq || 'auto'} window={result.statsParams.window || 'auto'}
+            </div>
+          )}
         </Card>
       )}
 

@@ -53,10 +53,12 @@ export const runBacktestWithDhan = async (payload: {
         initial_capital: number;
         strategy_logic: {
             name: string;
+            id?: string;
             [key: string]: any;
         };
     };
 }) => {
-    // Use fetchClient directly — no mock fallback for real backtest runs.
+    // simply forward the original Dhan-style payload to the backend; the
+    // server now normalises either format to its internal representation.
     return fetchClient<any>('/market/backtest/run', { method: 'POST', body: JSON.stringify(payload) });
 };

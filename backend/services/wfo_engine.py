@@ -282,7 +282,7 @@ class WFOEngine:
             freq=vbt_freq,
         )
 
-        results = BacktestEngine._extract_results(pf, oos_df)
+        results = BacktestEngine._extract_results(pf, oos_df, wfo_config)
         results["paramHistory"] = param_history
         results["wfo"] = param_history
         results["isDynamic"] = True
