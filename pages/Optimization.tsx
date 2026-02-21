@@ -81,7 +81,10 @@ const Optimization: React.FC = () => {
         setParams(params.map(p => p.id === id ? { ...p, [field]: value } : p));
 
     const applyParamsAndRun = (paramSet: Record<string, number>) => {
+        // copy parameters into the shared context
         setGlobalParams(paramSet);
+        // immediately transition to the backtest page and trigger an auto-run
+        navigate('/backtest', { state: { autoRun: true } });
     };
 
     const handleRun = async () => {
