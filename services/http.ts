@@ -47,7 +47,12 @@ export async function fetchClient<T>(endpoint: string, options?: RequestInit): P
   }
 }
 
-// Smart execution wrapper
+// Global flag — set to true whenever a fallback fires so the UI can warn the user
+export let usingMockFallback = false;
+
+// Smart execution wrapper — throws on failure instead of silently using mock data
+// for critical endpoints (backtest, optimization). Mock data is only used in
+// USE_MOCK_DATA=true dev mode.
 export async function executeWithFallback<T>(
   endpoint: string,
   options: RequestInit | undefined,
@@ -55,9 +60,17 @@ export async function executeWithFallback<T>(
 ): Promise<T> {
   if (!CONFIG.USE_MOCK_DATA) {
     try {
-      return await fetchClient<T>(endpoint, options);
+      const result = await fetchClient<T>(endpoint, options);
+      usingMockFallback = false;
+      return result;
     } catch (error) {
-      console.warn(`[Auto-Fallback] Backend ${endpoint} unreachable. Using Mock Data.`);
+      usingMockFallback = true;
+      console.error(`[Backend Error] ${endpoint} failed. Falling back to mock data — results are NOT real.`, error);
+      // Re-throw for critical endpoints so callers can show a proper error instead of silently using fake data
+      const criticalEndpoints = ['/market/backtest/run', '/optimization/run', '/optimization/auto-tune', '/optimization/wfo'];
+      if (criticalEndpoints.some(e => endpoint.includes(e))) {
+        throw new Error(`Backend unreachable: ${endpoint}. Please ensure the backend server is running.`);
+      }
     }
   }
   return mockFn();

@@ -1,6 +1,6 @@
 
 import { fetchClient } from './http';
-import { generateMockBacktestResult, generateMockInstruments } from './mockData';
+import { generateMockInstruments } from './mockData';
 
 /**
  * Search instruments via backend API.
@@ -57,34 +57,6 @@ export const runBacktestWithDhan = async (payload: {
         };
     };
 }) => {
-    const executeWithFallback = async <T>(
-        endpoint: string,
-        options: RequestInit | undefined,
-        mockFn: () => Promise<T>
-    ): Promise<T> => {
-        const { CONFIG } = await import('../config');
-        if (!CONFIG.USE_MOCK_DATA) {
-            try {
-                return await fetchClient<T>(endpoint, options);
-            } catch (error) {
-                console.warn(`[Auto-Fallback] Backend ${endpoint} unreachable. Using Mock Data.`);
-            }
-        }
-        return mockFn();
-    };
-
-    return executeWithFallback<any>(
-        '/market/backtest/run',
-        { method: 'POST', body: JSON.stringify(payload) },
-        () => generateMockBacktestResult(
-            payload.instrument_details.symbol,
-            payload.parameters.strategy_logic?.name,
-            {
-                capital: payload.parameters.initial_capital,
-                start_date: payload.parameters.start_date,
-                end_date: payload.parameters.end_date,
-                timeframe: payload.parameters.timeframe
-            }
-        )
-    );
+    // Use fetchClient directly — no mock fallback for real backtest runs.
+    return fetchClient<any>('/market/backtest/run', { method: 'POST', body: JSON.stringify(payload) });
 };
