@@ -302,7 +302,7 @@ class OptimizationEngine:
         df = fetcher.fetch_historical_data(symbol, timeframe=timeframe, from_date=str(is_start.date()), to_date=str(is_end.date()))
 
         if df is None or (isinstance(df, pd.DataFrame) and df.empty):
-            return {"status": "error", "message": f"No data found for {symbol} ({is_start.date()} to {is_end.date()})"}
+            return {"status": "error", "message": f"No cached data for {symbol}. Please click 'Load Data' first."}
 
         # Normalize columns consistency (Issue #Alignment)
         if isinstance(df, pd.DataFrame):
@@ -315,10 +315,25 @@ class OptimizationEngine:
             return {"status": "error", "message": f"Data processing error: {e}"}
 
         if len(is_df) < 20:
+            # Look at the full cached data (no date filter) to give an accurate suggestion
+            full_df = fetcher.fetch_historical_data(symbol, timeframe=timeframe)
+            if full_df is not None and not full_df.empty:
+                cache_start = full_df.index.min().strftime("%Y-%m-%d")
+                cache_end = full_df.index.max().strftime("%Y-%m-%d")
+                suggested_start = (full_df.index.min() + relativedelta(months=lookback)).strftime("%Y-%m-%d")
+                return {
+                    "status": "error",
+                    "message": (
+                        f"No {timeframe} data before {start_date_str} for Auto-Tune. "
+                        f"Your loaded cache covers {cache_start} \u2192 {cache_end}. "
+                        f"Set your backtest Start Date to '{suggested_start}' or later, then Load Data."
+                    ),
+                }
             return {
                 "status": "error",
                 "message": (
-                    f"Insufficient data points ({len(is_df)}) for {lookback}m lookback before {start_date_str}."
+                    f"No {timeframe} data before {start_date_str}. "
+                    f"Click 'Load Data' to fetch {lookback} months of data before your backtest start date."
                 ),
             }
 

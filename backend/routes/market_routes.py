@@ -80,7 +80,14 @@ def fetch_data():
         sample_data = sample_data.rename(columns={sample_data.columns[0]: 'timestamp'})
         sample_data = sample_data.loc[:, ~sample_data.columns.duplicated()]
         sample_data['timestamp'] = sample_data['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
-        sample_list = clean_float_values(sample_data.to_dict(orient='records'))
+        # Replace NaN with None so JSON serializes as null (not NaN/0)
+        # Must cast to object dtype first — float columns convert None back to NaN otherwise
+        import math
+        raw_list = sample_data.to_dict(orient='records')
+        sample_list = [
+            {k: (None if isinstance(v, float) and math.isnan(v) else v) for k, v in row.items()}
+            for row in raw_list
+        ]
 
         return jsonify({
             "status": "success", 
