@@ -95,6 +95,8 @@ interface BacktestContextType {
     setFullReportData: (val: any | null) => void;
     isReportOpen: boolean;
     setIsReportOpen: (val: boolean) => void;
+    useLookback: boolean;
+    setUseLookback: (val: boolean) => void;
 }
 
 const BacktestContext = createContext<BacktestContextType | undefined>(undefined);
@@ -149,7 +151,7 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
     const [isOosValidating, setIsOosValidating] = useState(false);
     const [fullReportData, setFullReportData] = useState<any | null>(null);
     const [isReportOpen, setIsReportOpen] = useState(false);
-
+    const [useLookback, setUseLookback] = useState(false);
     // Save to localStorage effects
     useEffect(() => { localStorage.setItem('backtest_segment', JSON.stringify(segment)); }, [segment]);
     useEffect(() => { localStorage.setItem('backtest_symbol', JSON.stringify(symbol)); }, [symbol]);
@@ -173,7 +175,8 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
         top5Trials, setTop5Trials, oosResults, setOosResults, isOosValidating, setIsOosValidating,
         stopLossPct, setStopLossPct, takeProfitPct, setTakeProfitPct, useTrailingStop, setUseTrailingStop,
         pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
-        fullReportData, setFullReportData, isReportOpen, setIsReportOpen
+        fullReportData, setFullReportData, isReportOpen, setIsReportOpen,
+        useLookback, setUseLookback
     };
 
     return <BacktestContext.Provider value={value}>{children}</BacktestContext.Provider>;

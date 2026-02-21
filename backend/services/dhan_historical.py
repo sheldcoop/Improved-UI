@@ -10,7 +10,11 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import pandas as pd
-from dhanhq import dhanhq, DhanContext
+try:
+    from dhanhq import dhanhq, DhanContext
+except ImportError:
+    from dhanhq import dhanhq
+    DhanContext = None
 from dotenv import load_dotenv
 
 from services.data_cleaner import DataCleaner
@@ -48,7 +52,11 @@ class DhanHistoricalService:
             logger.error("DHAN_CLIENT_ID or DHAN_ACCESS_TOKEN missing in environment")
             raise ValueError("Dhan credentials not configured")
             
-        self.dhan = dhanhq(DhanContext(client_id, access_token))
+        if DhanContext:
+            self.dhan = dhanhq(DhanContext(client_id, access_token))
+        else:
+            # Fallback for older/standard versions of dhanhq library
+            self.dhan = dhanhq(client_id, access_token)
 
     def fetch_ohlcv(
         self,
@@ -137,9 +145,10 @@ class DhanHistoricalService:
             return pd.DataFrame()
             
         df = pd.DataFrame(response["data"])
-        # Standardize column names to lowercase immediately
+        # Standardize column names to lowercase and deduplicate
         df.columns = [c.lower() for c in df.columns]
-        
+        df = df.loc[:, ~df.columns.duplicated()]
+       
         # Handle Timestamps
         if "timestamp" in df.columns:
             # Standardize timestamp to DatetimeIndex

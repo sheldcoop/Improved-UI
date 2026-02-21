@@ -152,7 +152,8 @@ export const useBacktest = () => {
         oosResults, setOosResults, isOosValidating, setIsOosValidating,
         stopLossPct, setStopLossPct, takeProfitPct, setTakeProfitPct, useTrailingStop, setUseTrailingStop,
         pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
-        fullReportData, setFullReportData, isReportOpen, setIsReportOpen
+        fullReportData, setFullReportData, isReportOpen, setIsReportOpen,
+        useLookback, setUseLookback
     } = useBacktestContext();
 
     // Auto-Calculate WFO Windows when dates change
@@ -247,13 +248,18 @@ export const useBacktest = () => {
             const target = mode === 'SINGLE' ? symbol : universe;
 
             // Calculate extended from_date (Lookback + Backtest)
-            const lookbackMonths = autoTuneConfig.lookbackMonths;
-            const startDt = new Date(startDate);
-            const extendedDt = new Date(startDt);
-            extendedDt.setMonth(startDt.getMonth() - lookbackMonths);
-            const extendedFromDate = extendedDt.toISOString().split('T')[0];
+            const fromDateObj = new Date(startDate);
+            let extendedFromDate = startDate;
 
-            console.log(`[Unified Load] Fetching ${lookbackMonths}m lookback + backtest range: ${extendedFromDate} to ${endDate}`);
+            if (useLookback) {
+                fromDateObj.setFullYear(fromDateObj.getFullYear() - 1);
+                extendedFromDate = fromDateObj.toISOString().split('T')[0];
+                console.log(`Applying 12-month indicator lookback: ${startDate} -> ${extendedFromDate}`);
+            } else {
+                // Strictly NO lookback if toggle is OFF
+                extendedFromDate = startDate;
+                console.log(`Lookback DISABLED: Fetching exactly from ${startDate}`);
+            }
 
             logActiveRun({
                 type: 'DATA_LOADING',
@@ -503,7 +509,7 @@ export const useBacktest = () => {
                 body: JSON.stringify({
                     symbol: selectedInstrument.symbol,
                     strategyId: strategyId,
-                    paramSets: top5Trials.map(t => t.paramSet),
+                    paramSets: top5Trials.map((t: any) => t.paramSet),
                     timeframe: timeframeMap[timeframe] || '1d',
                     startDate,
                     endDate,
@@ -550,7 +556,7 @@ export const useBacktest = () => {
             isDynamic, wfoConfig, autoTuneConfig, paramRanges, isAutoTuning, showRanges, reproducible,
             top5Trials, oosResults, isOosValidating,
             stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
-            fullReportData, isReportOpen
+            fullReportData, isReportOpen, useLookback
         },
         setters: {
             setRunning, setMode, setSegment, setSymbol, setSymbolSearchQuery, setSearchResults,
@@ -559,7 +565,7 @@ export const useBacktest = () => {
             setShowAdvanced, setDataStatus, setHealthReport, setIsDynamic, setWfoConfig, setAutoTuneConfig,
             setParamRanges, setIsAutoTuning, setShowRanges, setReproducible, setTop5Trials, setOosResults,
             setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
-            setFullReportData, setIsReportOpen
+            setFullReportData, setIsReportOpen, setUseLookback
         },
         handlers: {
             handleLoadData, handleAutoTune, handleRun, handleOOSValidation

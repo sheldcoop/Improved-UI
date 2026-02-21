@@ -29,7 +29,7 @@ const Backtest: React.FC = () => {
     isDynamic, wfoConfig, autoTuneConfig, paramRanges, isAutoTuning, showRanges, reproducible,
     top5Trials, oosResults, isOosValidating,
     stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
-    fullReportData, isReportOpen
+    fullReportData, isReportOpen, useLookback
   } = state;
   const {
     setMode, setSegment, setSymbolSearchQuery, setSymbol, setSearchResults, setSelectedInstrument,
@@ -37,7 +37,7 @@ const Backtest: React.FC = () => {
     setCapital, setSlippage, setCommission, setShowAdvanced, setIsDynamic, setWfoConfig,
     setAutoTuneConfig, setParamRanges, setReproducible,
     setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
-    setIsReportOpen
+    setIsReportOpen, setUseLookback
   } = setters;
   const { handleLoadData, handleAutoTune, handleRun, handleOOSValidation } = handlers;
 
@@ -105,7 +105,7 @@ const Backtest: React.FC = () => {
                     <label className="block text-sm font-medium text-slate-400 mb-2">Market Segment</label>
                     <select
                       value={segment}
-                      onChange={(e) => {
+                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
                         setSegment(e.target.value as 'NSE_EQ' | 'NSE_SME');
                         setSelectedInstrument(null);
                         setSymbol('');
@@ -137,7 +137,7 @@ const Backtest: React.FC = () => {
                       <input
                         type="text"
                         value={symbolSearchQuery}
-                        onChange={(e) => {
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                           setSymbolSearchQuery(e.target.value);
                           if (selectedInstrument) {
                             // Clear selection when user starts typing again
@@ -194,7 +194,7 @@ const Backtest: React.FC = () => {
                   </label>
                   <select
                     value={universe}
-                    onChange={(e) => setUniverse(e.target.value)}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setUniverse(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-indigo-500 outline-none"
                   >
                     {UNIVERSES && UNIVERSES.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -228,9 +228,9 @@ const Backtest: React.FC = () => {
                   {dataStatus === 'READY' && <span className="text-xs text-emerald-400 font-mono">DATA LOCKED</span>}
                 </label>
                 <div className="flex space-x-2 mb-3">
-                  <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200" />
+                  <input type="date" value={startDate} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStartDate(e.target.value)} className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200" />
                   <span className="text-slate-600 self-center">-</span>
-                  <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200" />
+                  <input type="date" value={endDate} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEndDate(e.target.value)} className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200" />
                 </div>
 
                 {/* Improvement 1: Load Market Data Button */}
@@ -245,6 +245,20 @@ const Backtest: React.FC = () => {
                     dataStatus === 'READY' ? 'Data Loaded & Validated' :
                       (mode === 'SINGLE' && !symbol) ? 'Select a Symbol First' : 'Load Market Data'}
                 </Button>
+
+                {/* Lookback Toggle moved here for visibility */}
+                <div className="flex items-center justify-between mt-4 p-2 bg-slate-900/50 rounded-lg border border-slate-800">
+                  <div className="flex items-center">
+                    <Clock className="w-4 h-4 mr-2 text-indigo-400" />
+                    <span className="text-xs text-slate-300">Indicator Lookback (12m)</span>
+                  </div>
+                  <button
+                    onClick={() => setUseLookback(!useLookback)}
+                    className={`w-8 h-4 rounded-full p-0.5 transition-colors ${useLookback ? 'bg-emerald-600' : 'bg-slate-700'}`}
+                  >
+                    <div className={`w-3 h-3 rounded-full bg-white transition-transform ${useLookback ? 'translate-x-4' : ''}`} />
+                  </button>
+                </div>
               </div>
 
               {/* Improvement 2: Data Health Report Card */}
@@ -292,7 +306,7 @@ const Backtest: React.FC = () => {
                 <input
                   type="number"
                   value={capital}
-                  onChange={(e) => setCapital(parseFloat(e.target.value))}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCapital(Number(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-emerald-500 outline-none"
                 />
               </div>
@@ -317,7 +331,7 @@ const Backtest: React.FC = () => {
               <div className="md:col-span-2">
                 <select
                   value={strategyId}
-                  onChange={(e) => setStrategyId(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setStrategyId(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:ring-1 focus:ring-emerald-500 outline-none"
                   disabled={dataStatus !== 'READY'}
                 >
@@ -327,7 +341,7 @@ const Backtest: React.FC = () => {
                   </optgroup>
                   {customStrategies.length > 0 && (
                     <optgroup label="My Custom Strategies">
-                      {customStrategies.map(s => (
+                      {customStrategies.map((s: Strategy) => (
                         <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </optgroup>
@@ -399,7 +413,27 @@ const Backtest: React.FC = () => {
                     onClick={() => setReproducible(!reproducible)}
                     className={`w-12 h-6 rounded-full p-1 transition-colors ${reproducible ? 'bg-indigo-600' : 'bg-slate-700'}`}
                   >
-                    <div className={`w-4 h-4 rounded-full bg-white transition-transform ${reproducible ? 'translate-x-6' : 'translate-x-0'}`} />
+                    <div className={`w-4 h-4 rounded-full bg-white transition-transform ${reproducible ? 'translate-x-6' : ''}`} />
+                  </button>
+                </div>
+
+                {/* Indicator Lookback Toggle */}
+                <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+                  <div>
+                    <h4 className="text-slate-200 font-bold flex items-center">
+                      <Clock className="w-4 h-4 mr-2 text-indigo-400" />
+                      Indicator Lookback (12m)
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      ON = Fetches 12mo extra data for indicator stabilization (recommended)<br />
+                      OFF = No lookback data. Strategy starts exactly on start date.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setUseLookback(!useLookback)}
+                    className={`w-12 h-6 rounded-full p-1 transition-colors ${useLookback ? 'bg-emerald-600' : 'bg-slate-700'}`}
+                  >
+                    <div className={`w-4 h-4 rounded-full bg-white transition-transform ${useLookback ? 'translate-x-6' : ''}`} />
                   </button>
                 </div>
 

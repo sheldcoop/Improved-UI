@@ -10,6 +10,7 @@ export interface DataHealthReport {
     totalCandles: number;
     gaps: string[];
     status: 'EXCELLENT' | 'GOOD' | 'POOR' | 'CRITICAL';
+    note?: string;
 }
 
 export const getOptionChain = async (symbol: string, expiry: string): Promise<OptionChainItem[]> => {

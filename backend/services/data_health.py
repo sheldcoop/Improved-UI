@@ -40,8 +40,9 @@ class DataHealthService:
 
         try:
             df = pd.read_parquet(parquet_path)
-            # Standardize columns to lowercase
+            # Standardize columns to lowercase and deduplicate
             df.columns = [c.lower() for c in df.columns]
+            df = df.loc[:, ~df.columns.duplicated()]
             df = df[(df.index >= start_dt) & (df.index <= end_dt)]
         except Exception as e:
             logger.warning(f"Failed to read cache for health check: {e}")
@@ -52,9 +53,12 @@ class DataHealthService:
             return DataHealthService._build_empty_report("No data in the requested date range.")
 
         # Zero-volume candles
-        vol_col = "Volume" if "Volume" in df.columns else "volume"
-        zero_vol = int((df[vol_col] == 0).sum()) if vol_col in df.columns else 0
-
+        vol_col = "volume"
+        if vol_col in df.columns:
+            # sum() on a boolean mask returns a scalar if column is unique
+            zero_vol = int((df[vol_col] == 0).sum())
+        else:
+            zero_vol = 0
         # Detect gaps
         missing, gaps = DataHealthService._detect_gaps(df, timeframe, start_dt, end_dt)
         
@@ -90,8 +94,15 @@ class DataHealthService:
             return len(missing_days), [str(d.date()) for d in missing_days[:10]]
             
         try:
-            interval_mins = int(timeframe[:-1]) if timeframe[-1] == 'm' else 60
-            candles_per_day = 375 // interval_mins
+            if timeframe == "15m":
+                candles_per_day = 25
+            elif timeframe == "1h":
+                # 9:15 -> 10:15, 11:15, 12:15, 13:15, 14:15, 15:15, 15:30 (total 7)
+                candles_per_day = 7
+            else:
+                interval_mins = int(timeframe[:-1]) if timeframe[-1] == 'm' else 60
+                candles_per_day = 375 // interval_mins
+            
             expected_trading_days = get_nse_trading_days(start_dt.date(), end_dt.date())
             expected_total = len(expected_trading_days) * candles_per_day
             

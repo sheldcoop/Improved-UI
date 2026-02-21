@@ -217,6 +217,12 @@ class DataQualityAnalyst:
         for tf, df in self.data_frames.items():
             if tf == "1d":
                 expected = num_days
+            elif tf == "15m":
+                # 9:15 - 15:30 = 6 hours 15 mins = 375 mins. 375 / 15 = 25 candles.
+                expected = num_days * 25
+            elif tf == "1h":
+                # 9:15 -> 10:15 (1), 11:15 (2), 12:15 (3), 13:15 (4), 14:15 (5), 15:15 (6), 15:30 (7, partial)
+                expected = num_days * 7
             else:
                 try:
                     interval = int(tf[:-1])

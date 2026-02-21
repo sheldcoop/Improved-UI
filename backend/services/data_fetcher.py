@@ -109,7 +109,7 @@ class DataFetcher:
             )
             
             if df is not None and not df.empty:
-                df.columns = [c.capitalize() for c in df.columns]
+                df.columns = [c.lower() for c in df.columns]
                 return df
             return None
         except Exception as e:
@@ -133,7 +133,7 @@ class DataFetcher:
             return df
             
         # Ensure column casing
-        df.columns = [c.capitalize() for c in df.columns]
+        df.columns = [c.lower() for c in df.columns]
         
         res = df
         if start:
