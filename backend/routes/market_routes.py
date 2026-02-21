@@ -294,11 +294,14 @@ def run_backtest():
         # Run actual backtest simulation
         bt_results = BacktestEngine.run(df, strategy_id, {**params, **strategy_logic})
         
-        if not bt_results or bt_results.get("status") == "failed":
+        if not bt_results:
+            # engine returned None due to a VBT error
             return jsonify({
-                "status": "failed", 
-                "message": bt_results.get("error", "Simulated execution failed.")
+                "status": "failed",
+                "message": "Simulated execution failed."
             }), 400
+        if bt_results.get("status") == "failed":
+            return jsonify(bt_results), 400
 
         # Combine into Final Response that matches BacktestResult interface
         response = {

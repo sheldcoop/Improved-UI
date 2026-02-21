@@ -148,7 +148,9 @@ def auto_tune():
             symbol, strategy_id, ranges, timeframe, start_date_str, lookback, metric, request.headers, config=config
         )
 
+        # Log the error dict so the server log contains the reason for a 400
         if result.get("status") == "error":
+            logger.info(f"Auto-Tune error response: {result}")
             return jsonify(result), 400
 
         return jsonify(result), 200

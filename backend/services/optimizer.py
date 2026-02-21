@@ -461,6 +461,25 @@ class OptimizationEngine:
         sl_pct = float(config.get("stopLossPct", 0)) / 100.0
         tp_pct = float(config.get("takeProfitPct", 0)) / 100.0
 
+        # --- sanitize signals ---
+        # VectorBT/numba expects simple boolean/numeric arrays.  If the
+        # strategy returned object-dtype Series (which can happen when Optuna
+        # mutates parameters or Pandas infers mixed types) we convert them here.
+        def _boolify(x):
+            if isinstance(x, pd.Series) or isinstance(x, pd.DataFrame):
+                # fill NaN with False then cast
+                try:
+                    return x.fillna(False).astype(bool)
+                except Exception:
+                    return x.astype(bool)
+            else:
+                # numpy array or list
+                import numpy as _np
+                return _np.asarray(x, dtype=bool)
+
+        entries = _boolify(entries)
+        exits = _boolify(exits)
+
         pf_kwargs = {
             "freq": vbt_freq, 
             "fees": bt_fees, 

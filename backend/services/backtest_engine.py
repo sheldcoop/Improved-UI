@@ -102,6 +102,20 @@ class BacktestEngine:
         strategy = StrategyFactory.get_strategy(strategy_id, config)
         entries, exits = strategy.generate_signals(df)
 
+        # --- SANITISE SIGNALS (fix numba failures when dtype==object) ---
+        def _boolify(sig):
+            if isinstance(sig, pd.Series) or isinstance(sig, pd.DataFrame):
+                try:
+                    return sig.fillna(False).astype(bool)
+                except Exception:
+                    return sig.astype(bool)
+            else:
+                import numpy as _np
+                return _np.asarray(sig, dtype=bool)
+
+        entries = _boolify(entries)
+        exits = _boolify(exits)
+
         close_price = df["Close"] if isinstance(df, pd.DataFrame) else df["Close"]
         
         # Diagnostic logging for data range

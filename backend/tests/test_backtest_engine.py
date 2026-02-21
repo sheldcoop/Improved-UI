@@ -107,6 +107,9 @@ class TestRealDates:
             mock_pf.trades.count.return_value = pd.Series([0])
             mock_pf.trades.records_readable = pd.DataFrame({"PnL": []})
             mock_pf.drawdown.return_value = pd.Series(0.0, index=df.index)
+            # ensure metrics used in _extract_results are numeric, not MagicMocks
+            mock_pf.stats.return_value = {}
+            mock_pf.total_return.return_value = 0.0
             mock_vbt.Portfolio.from_signals.return_value = mock_pf
 
             result = BacktestEngine.run(df, "1")

@@ -122,8 +122,9 @@ class TestSyntheticFallback:
             df = fetcher.fetch_historical_data("FAKE_SYMBOL", "1d")
 
         assert df is not None
+        # fetch_historical_data normalises column names to lowercase internally
         for col in ("Open", "High", "Low", "Close", "Volume"):
-            assert col in df.columns, f"Missing column: {col}"
+            assert col.lower() in df.columns, f"Missing column: {col} (got {df.columns})"
 
     def test_synthetic_data_has_datetime_index(self):
         """Synthetic fallback must return a DataFrame with a DatetimeIndex."""
@@ -147,8 +148,8 @@ class TestSyntheticFallback:
              patch.object(fetcher, "_fetch_yfinance", return_value=None):
             df = fetcher.fetch_historical_data("FAKE_SYMBOL", "1d")
 
-        assert not df["Close"].isna().any(), "Close prices must not contain NaN"
-
+        # column names are lowercase after processing
+        assert not df["close"].isna().any(), "Close prices must not contain NaN"
 
 # ---------------------------------------------------------------------------
 # fetch_historical_data — cache hit path

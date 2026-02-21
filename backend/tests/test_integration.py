@@ -15,6 +15,17 @@ import pytest
 from services.backtest_engine import BacktestEngine
 from services.optimizer import OptimizationEngine
 
+# Flask test client for route-level tests
+from app import app as flask_app
+
+
+@pytest.fixture
+
+def client():
+    """Flask test client using the real application factory."""
+    with flask_app.test_client() as c:
+        yield c
+
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -236,6 +247,49 @@ class TestOptimizationEngine:
         assert self.RANGES["lower"]["min"] <= best["lower"] <= self.RANGES["lower"]["max"]
         assert self.RANGES["upper"]["min"] <= best["upper"] <= self.RANGES["upper"]["max"]
 
+    def test_build_portfolio_tolerates_object_dtype(self):
+        """_build_portfolio should accept object-dtype signal series without error.
+
+        This guards against numba typing failures seen during auto-tune trials.
+        """
+        df = _make_oscillating_ohlcv(n=100)
+        df.columns = [c.capitalize() for c in df.columns]
+        # alternating True/False with dtype object
+        entries = pd.Series([True, False] * 50, index=df.index).astype(object)
+        exits = pd.Series([False, True] * 50, index=df.index).astype(object)
+        pf = OptimizationEngine._build_portfolio(df["Close"], entries, exits, {}, "1d")
+        assert pf is not None
+        # the portfolio should be constructed without error; casting the
+        # trade count should succeed.
+        assert int(pf.trades.count()) >= 0
+
+    def test_find_best_params_with_object_signals(self):
+        """Optimizer should survive when the strategy returns object-dtype signals.
+
+        This is a regression for the numba typing error seen during auto-tune trials.
+        """
+        df = _make_oscillating_ohlcv(n=300)
+        df.columns = [c.capitalize() for c in df.columns]
+
+        class FakeStrategy:
+            def generate_signals(self, df_):
+                arr = pd.Series([True, False] * (len(df_) // 2), index=df_.index).astype(object)
+                return arr, arr
+
+        from unittest.mock import patch
+        with patch("strategies.StrategyFactory.get_strategy", return_value=FakeStrategy()):
+            try:
+                best, grid = OptimizationEngine._find_best_params(
+                    df, "1", {**self.RANGES}, "sharpe",
+                    return_trials=True, n_trials=3
+                )
+                assert isinstance(best, dict)
+                assert isinstance(grid, list)
+            except ValueError as e:
+                # acceptable if optimizer found no valid parameter sets; the
+                # failure mode should still be descriptive and not a numba crash.
+                assert "No valid parameter sets" in str(e)
+
     def test_run_optuna_full_response_structure(self):
         """run_optuna must return grid, wfo, and bestParams keys."""
         df = _make_oscillating_ohlcv(n=300)
@@ -289,8 +343,148 @@ class TestOptimizationEngine:
 
 
 # ---------------------------------------------------------------------------
+# HTTP-level tests for optimization routes
+# ---------------------------------------------------------------------------
+
+class TestAutoTuneRoute:
+    """Exercise the `/auto-tune` endpoint for error conditions."""
+
+    def test_missing_fields_returns_400(self, client):
+        resp = client.post("/api/v1/optimization/auto-tune", json={})
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data is not None
+        assert "Missing required fields" in data.get("message", "")
+
+    def test_insufficient_history_returns_error(self, client):
+        # simulate a cache that doesn't cover the requested lookback window
+        import pandas as pd
+        from unittest.mock import patch
+
+        df = pd.DataFrame({
+            "close": [1.0] * 10,
+        }, index=pd.date_range("2025-01-01", periods=10, freq="B"))
+
+        with patch("services.optimizer.DataFetcher") as MockFetcher:
+            MockFetcher.return_value.fetch_historical_data.return_value = df
+            payload = {
+                "symbol": "HDFCBANK",
+                "strategyId": "1",
+                "ranges": {"period": {"min": 7, "max": 21, "step": 1}},
+                "startDate": "2025-06-01",
+                "lookbackMonths": 12,
+            }
+            resp = client.post("/api/v1/optimization/auto-tune", json=payload)
+
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data is not None
+        assert "bars found" in data.get("message", ""), f"unexpected message: {data}"
+
+
+
+# ---------------------------------------------------------------------------
 # Auto-tune — date window logic
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Market route tests
+# ---------------------------------------------------------------------------
+
+class TestMarketRoute:
+    """HTTP-level tests for /market/backtest/run endpoint."""
+
+    def test_backtest_route_tolerates_object_signals(self, client):
+        """Route should not crash even when the strategy yields object-type signals.
+
+        We patch the strategy to force such output, then verify the response is
+        a graceful 400 or 200 rather than a server error.
+        """
+        import pandas as pd
+        from unittest.mock import patch
+
+        # minimal data frame
+        df = pd.DataFrame({
+            "Open": [100, 101],
+            "High": [101, 102],
+            "Low": [99, 100],
+            "Close": [100, 101],
+            "Volume": [1000, 1000],
+        }, index=pd.bdate_range("2023-01-01", periods=2, freq="B"))
+
+        # patch fetcher to return our df, and strategy to produce object signals
+        with patch("services.data_fetcher.DataFetcher.fetch_historical_data", return_value=df), \
+             patch("strategies.StrategyFactory.get_strategy") as mock_sf:
+            arr = pd.Series([True, False], index=df.index).astype(object)
+            mock_sf.return_value.generate_signals.return_value = (arr, arr)
+
+            payload = {
+                "instrument_details": {
+                    "security_id": "1",
+                    "symbol": "TEST",
+                    "exchange_segment": "NSE_EQ",
+                    "instrument_type": "EQ",
+                },
+                "parameters": {
+                    "timeframe": "1d",
+                    "start_date": "2023-01-01",
+                    "end_date": "2023-01-10",
+                },
+            }
+            resp = client.post("/api/v1/market/backtest/run", json=payload)
+
+        assert resp.status_code in (200, 400), f"Unexpected status {resp.status_code}"
+
+
+# ---------------------------------------------------------------------------
+# Market route tests
+# ---------------------------------------------------------------------------
+
+class TestMarketRoute:
+    """HTTP-level tests for /market/backtest/run endpoint."""
+
+    def test_backtest_route_tolerates_object_signals(self, client):
+        """Route should not crash even when the strategy yields object-type signals.
+
+        We patch the strategy to force such output, then verify the response is
+        a graceful 400 or 200 rather than a server error.
+        """
+        import pandas as pd
+        from unittest.mock import patch
+
+        # minimal data frame
+        df = pd.DataFrame({
+            "Open": [100, 101],
+            "High": [101, 102],
+            "Low": [99, 100],
+            "Close": [100, 101],
+            "Volume": [1000, 1000],
+        }, index=pd.bdate_range("2023-01-01", periods=2, freq="B"))
+
+        # patch fetcher to return our df, and strategy to produce object signals
+        with patch("services.data_fetcher.DataFetcher.fetch_historical_data", return_value=df), \
+             patch("strategies.StrategyFactory.get_strategy") as mock_sf:
+            arr = pd.Series([True, False], index=df.index).astype(object)
+            mock_sf.return_value.generate_signals.return_value = (arr, arr)
+
+            payload = {
+                "instrument_details": {
+                    "security_id": "1",
+                    "symbol": "TEST",
+                    "exchange_segment": "NSE_EQ",
+                    "instrument_type": "EQ",
+                },
+                "parameters": {
+                    "timeframe": "1d",
+                    "start_date": "2023-01-01",
+                    "end_date": "2023-01-10",
+                },
+            }
+            resp = client.post("/api/v1/market/backtest/run", json=payload)
+
+        assert resp.status_code in (200, 400), f"Unexpected status {resp.status_code}"
+
 
 class TestAutoTuneDateLogic:
     """Verify auto-tune correctly computes the lookback window."""
@@ -303,8 +497,15 @@ class TestAutoTuneDateLogic:
             def get(self, key, default=None): return default
 
         from unittest.mock import patch, call
-        with patch("services.optimizer.DataFetcher") as MockFetcher:
+        # Instead of inspecting fetcher arguments (the engine always fetches
+        # the full cached dataframe), we patch the optimisation step itself and
+        # examine the DataFrame that _find_best_params receives.  This proves the
+        # lookback slice happens correctly.
+        from unittest.mock import patch
+        with patch("services.optimizer.DataFetcher") as MockFetcher, \
+             patch("services.optimizer.OptimizationEngine._find_best_params") as mock_find:
             MockFetcher.return_value.fetch_historical_data.return_value = df
+            mock_find.return_value = ({}, [])
             OptimizationEngine.run_auto_tune(
                 symbol="TEST", strategy_id="1",
                 ranges={"period": {"min": 5, "max": 20, "step": 1},
@@ -317,12 +518,11 @@ class TestAutoTuneDateLogic:
                 headers=FakeHeaders(),
                 config={}
             )
-            # Verify fetch was called with dates BEFORE 2023-01-01
-            fetch_call = MockFetcher.return_value.fetch_historical_data.call_args
-            from_date = fetch_call[1].get("from_date") or fetch_call[0][2]
-            to_date = fetch_call[1].get("to_date") or fetch_call[0][3]
-            assert from_date < "2023-01-01", f"Lookback from_date {from_date} should be before 2023-01-01"
-            assert to_date < "2023-01-01", f"Lookback to_date {to_date} should be before 2023-01-01"
+
+            called_df = mock_find.call_args[0][0]
+            assert called_df.index.max() < pd.Timestamp("2023-01-01"), (
+                "Lookback slice passed to optimizer must be strictly before start date"
+            )
 
     def test_auto_tune_6m_lookback_covers_correct_period(self):
         """6-month lookback before 2023-01-01 should fetch ~2022-07-01 to 2022-12-31."""
