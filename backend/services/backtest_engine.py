@@ -89,17 +89,18 @@ class BacktestEngine:
         pyramiding = int(config.get("pyramiding", 1))
         accumulate = pyramiding > 1
 
-        # --- 2. GENERATE SIGNALS ---
-        strategy = StrategyFactory.get_strategy(strategy_id, config)
-        entries, exits = strategy.generate_signals(df)
-
-        # Normalize columns to Title Case for engine consistency
+        # Normalize columns to Title Case before signal generation so strategies
+        # can reliably access df['Close'], df['Open'], etc.
         if isinstance(df, pd.DataFrame):
             df.columns = [c.capitalize() for c in df.columns]
         elif isinstance(df, dict):
             for k in df:
                 if isinstance(df[k], pd.DataFrame):
                     df[k].columns = [c.capitalize() for c in df[k].columns]
+
+        # --- 2. GENERATE SIGNALS ---
+        strategy = StrategyFactory.get_strategy(strategy_id, config)
+        entries, exits = strategy.generate_signals(df)
 
         close_price = df["Close"] if isinstance(df, pd.DataFrame) else df["Close"]
         

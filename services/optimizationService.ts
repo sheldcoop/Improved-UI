@@ -34,7 +34,7 @@ export const runAutoTune = async (
     metric: string = 'sharpe',
     config?: any
 ): Promise<{ period: string, bestParams: Record<string, number>, grid: OptimizationResult[] }> => {
-    const payload = { symbol, strategyId, ranges, timeframe: '1d', start_date: targetDate, lookback: lookbackMonths, metric, ...config };
+    const payload = { symbol, strategyId, ranges, timeframe: '1d', startDate: targetDate, lookbackMonths, scoringMetric: metric, ...config };
     return executeWithFallback(`${API_ENDPOINTS.OPTIMIZATION.replace('/run', '')}/auto-tune`, { method: 'POST', body: JSON.stringify(payload) }, async () => {
         await delay(1000);
         return {
