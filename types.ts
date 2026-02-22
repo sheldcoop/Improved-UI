@@ -269,6 +269,7 @@ export interface OptimizationResponse {
   riskGrid?: OptimizationResult[];
   bestRiskParams?: Record<string, number>;
   combinedParams?: Record<string, number>;
+  splitRatio?: number; // echoed back when phase2_split_ratio was active
 }
 
 export interface WFOResult {

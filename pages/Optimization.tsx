@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
-import { Sliders, Play, GitBranch, Target, ArrowRight, CheckCircle2, AlertTriangle, Info } from 'lucide-react';
+import { Sliders, Play, GitBranch, Target, ArrowRight, CheckCircle2, AlertTriangle, Info, Split } from 'lucide-react';
 import { runOptimization, runWFO } from '../services/optimizationService';
 import { OptimizationResult, WFOResult } from '../types';
 import { useBacktestContext } from '../context/BacktestContext';
@@ -34,7 +34,9 @@ const Optimization: React.FC = () => {
         stopLossPct, takeProfitPct, useTrailingStop,
         // setters we'll need when applying parameters
         setStopLossPct, setTakeProfitPct, setUseTrailingStop,
-        optResults, setOptResults
+        optResults, setOptResults,
+        // data status for guard
+        dataStatus,
     } = useBacktestContext();
 
     // Select workflow
@@ -45,12 +47,18 @@ const Optimization: React.FC = () => {
 
     const [params, setParams] = useState<ParamConfig[]>([]);
     const [enableRiskSearch, setEnableRiskSearch] = useState(false);
+    // Change 5: useTrailingStop added as Phase 2 risk param (0=off, 1=on)
     const [riskParams, setRiskParams] = useState<ParamConfig[]>([
-        { id: 'r0', name: 'stopLossPct', min: 0, max: 5, step: 1 },
-        { id: 'r1', name: 'takeProfitPct', min: 0, max: 5, step: 1 }
+        { id: 'r0', name: 'stopLossPct',     min: 0, max: 5, step: 1 },
+        { id: 'r1', name: 'takeProfitPct',   min: 0, max: 5, step: 1 },
+        { id: 'r2', name: 'useTrailingStop', min: 0, max: 1, step: 1 },
     ]);
     // when user wants to perform secondary optimisation after picking a primary
     const [selectedParams, setSelectedParams] = useState<Record<string, number> | null>(null);
+
+    // Change 4: data split toggle + slider
+    const [enableDataSplit, setEnableDataSplit] = useState(false);
+    const [splitRatio, setSplitRatio] = useState(70); // % of data for Phase 1
 
     const strategyName =
         customStrategies.find(s => s.id === strategyId)?.name ??
@@ -61,13 +69,16 @@ const Optimization: React.FC = () => {
     React.useEffect(() => {
         const strategy = customStrategies.find(s => s.id === strategyId);
         if (strategy && strategy.params) {
-            const initialParams = strategy.params.map((p, idx) => ({
-                id: idx.toString(),
-                name: p.name,
-                min: p.type === 'float' ? p.default / 2 : Math.max(1, Math.floor(p.default / 2)),
-                max: p.type === 'float' ? p.default * 1.5 : Math.ceil(p.default * 1.5),
-                step: p.type === 'float' ? 0.1 : 1
-            }));
+            // Change 7: clamp auto-generated ranges to valid RSI bounds
+            const initialParams = strategy.params.map((p, idx) => {
+                const v = p.default || 1;
+                let min = p.type === 'float' ? v / 2 : Math.max(1, Math.floor(v / 2));
+                let max = p.type === 'float' ? v * 1.5 : Math.ceil(v * 1.5);
+                if (p.name === 'upper')  max = Math.min(99, max);
+                if (p.name === 'lower')  max = Math.min(49, max);
+                if (p.name === 'period') { min = Math.max(2, min); max = Math.min(100, max); }
+                return { id: idx.toString(), name: p.name, min, max, step: p.type === 'float' ? 0.1 : 1 };
+            });
             setParams(initialParams);
         } else {
             const builtinRanges: Record<string, Record<string, { min: number; max: number; step: number }>> = {
@@ -111,6 +122,17 @@ const Optimization: React.FC = () => {
         navigate('/backtest', { state: { appliedParams: paramSet } });
     };
 
+    // Change 3: configPayload no longer includes stopLossPct/takeProfitPct/useTrailingStop
+    // Phase 1 backend zeroes these; Phase 2 sources them from riskRanges
+    const buildConfigPayload = () => ({
+        initial_capital: capital,
+        commission,
+        slippage,
+        pyramiding,
+        positionSizing,
+        positionSizeValue,
+    });
+
     const handleRun = async () => {
         setRunning(true);
         setOptResults(null);
@@ -120,11 +142,6 @@ const Optimization: React.FC = () => {
             return acc;
         }, {} as any);
 
-        const configPayload = {
-            initial_capital: capital, commission, slippage, pyramiding,
-            positionSizing, positionSizeValue, stopLossPct, takeProfitPct, useTrailingStop
-        };
-
         try {
             if (activeTab === 'GRID') {
                 const optConfig: any = {
@@ -133,7 +150,9 @@ const Optimization: React.FC = () => {
                     startDate,
                     endDate,
                     timeframe,
-                    config: configPayload
+                    config: buildConfigPayload(),
+                    // Change 4: include split ratio when enabled
+                    phase2SplitRatio: enableDataSplit ? splitRatio / 100 : 0.0,
                 };
 
                 if (enableRiskSearch) {
@@ -148,7 +167,7 @@ const Optimization: React.FC = () => {
                 // clear any previous manual selection since we just re-ran full search
                 setSelectedParams(null);
             } else if (activeTab === 'WFO') {
-                const wfoRes = await runWFO(symbol || 'NIFTY 50', strategyId || '1', ranges, wfoConfig, configPayload);
+                const wfoRes = await runWFO(symbol || 'NIFTY 50', strategyId || '1', ranges, wfoConfig, buildConfigPayload());
                 setOptResults({ grid: [], wfo: wfoRes, period: undefined } as any);
             }
         } catch (e) {
@@ -223,15 +242,20 @@ const Optimization: React.FC = () => {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h2 className="text-2xl font-bold text-slate-100">Optimization Engine</h2>
-                    <p className="text-emerald-400 text-sm mt-1 flex items-center">
+                    {/* Change 6: data status indicator in header */}
+                    <p className="text-emerald-400 text-sm mt-1 flex items-center flex-wrap gap-2">
                         <Target className="w-4 h-4 mr-1" />
                         Targeting <strong className="mx-1">{strategyName}</strong> on <strong className="mx-1">{symbol || 'Asset'}</strong> — backtest starts <strong className="ml-1">{formatDateDisplay(startDate)}</strong>
+                        {dataStatus === 'READY'
+                            ? <span className="text-emerald-400 text-xs font-mono">● Data Ready</span>
+                            : <span className="text-yellow-500 text-xs font-mono">● No Data Loaded</span>
+                        }
                     </p>
                 </div>
 
                 {/* Tab bar — Walk-Forward and Manual Optuna workflows */}
                 <div className="flex items-center space-x-1 bg-slate-900 border border-slate-800 p-1 rounded-lg shrink-0">
-    
+
                     <button
                         onClick={() => setActiveTab('WFO')}
                         className={`flex items-center px-3 py-1.5 rounded text-xs font-semibold transition-colors ${activeTab === 'WFO'
@@ -289,20 +313,25 @@ const Optimization: React.FC = () => {
                                         No tunable parameters defined for this strategy.
                                     </div>
                                 )}
-                                {/* risk section toggle */}
+
+                                {/* Change 8A: renamed checkbox to make Phase 2 two-step nature explicit */}
                                 <div className="mt-4">
-                                    <label className="inline-flex items-center space-x-2">
+                                    <label className="inline-flex items-center space-x-2 cursor-pointer">
                                         <input type="checkbox" checked={enableRiskSearch} onChange={() => setEnableRiskSearch(!enableRiskSearch)} className="form-checkbox" />
-                                        <span className="text-sm text-slate-300">Also search stop-loss / take-profit ranges</span>
+                                        <span className="text-sm text-slate-300">Enable Phase 2: Optimize Stop-Loss / Take-Profit after RSI search</span>
                                     </label>
                                 </div>
+
                                 {enableRiskSearch && (
                                     <div className="mt-3 space-y-3">
+                                        {/* Risk param rows */}
                                         {riskParams.map((param) => (
                                             <div key={param.id} className="grid grid-cols-12 gap-2 items-center bg-slate-950 p-2 rounded border border-slate-800">
                                                 <div className="col-span-4">
                                                     <span className="text-sm font-medium text-slate-300 ml-2">
-                                                        {param.name.replace(/_/g, ' ').toUpperCase()}
+                                                        {param.name === 'useTrailingStop'
+                                                            ? 'Trailing Stop (0/1)'
+                                                            : param.name.replace(/_/g, ' ').toUpperCase()}
                                                     </span>
                                                 </div>
                                                 <div className="col-span-8 grid grid-cols-3 gap-3">
@@ -321,6 +350,39 @@ const Optimization: React.FC = () => {
                                                 </div>
                                             </div>
                                         ))}
+
+                                        {/* Change 4: data split toggle + slider */}
+                                        <div className="mt-3 p-3 bg-slate-900/50 rounded border border-slate-800">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <label className="text-sm text-slate-300 flex items-center">
+                                                    <Split className="w-3.5 h-3.5 mr-2 text-indigo-400" />
+                                                    Split data between phases
+                                                </label>
+                                                <button
+                                                    onClick={() => setEnableDataSplit(!enableDataSplit)}
+                                                    className={`w-10 h-5 rounded-full p-1 transition-colors ${enableDataSplit ? 'bg-indigo-600' : 'bg-slate-700'}`}
+                                                >
+                                                    <div className={`w-3 h-3 rounded-full bg-white transition-transform ${enableDataSplit ? 'translate-x-5' : ''}`} />
+                                                </button>
+                                            </div>
+                                            {enableDataSplit && (
+                                                <div className="space-y-2 mt-2">
+                                                    <div className="flex justify-between text-xs text-slate-400">
+                                                        <span>Phase 1 (RSI): <strong className="text-indigo-400">{splitRatio}%</strong></span>
+                                                        <span>Phase 2 (SL/TP): <strong className="text-emerald-400">{100 - splitRatio}%</strong></span>
+                                                    </div>
+                                                    <input
+                                                        type="range" min="50" max="90" step="5"
+                                                        value={splitRatio}
+                                                        onChange={(e) => setSplitRatio(parseInt(e.target.value))}
+                                                        className="w-full accent-indigo-500"
+                                                    />
+                                                    <p className="text-[10px] text-slate-500 italic">
+                                                        RSI params found on first {splitRatio}% of bars. SL/TP tuned on remaining {100 - splitRatio}%. Reduces cascading overfitting.
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -341,8 +403,6 @@ const Optimization: React.FC = () => {
                                     </select>
                                 </div>
 
-
-
                                 {activeTab === 'WFO' && (
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
@@ -357,14 +417,27 @@ const Optimization: React.FC = () => {
                                 )}
                             </div>
 
+                            {/* Change 6: data guard warning + disabled button */}
+                            {dataStatus !== 'READY' && (
+                                <div className="flex items-start space-x-2 text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-700/40 rounded p-3">
+                                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                                    <span>No data loaded. Go to Backtest → select symbol + date range → click "Load Market Data" first.</span>
+                                </div>
+                            )}
+
                             <button
                                 onClick={handleRun}
-                                className={`w-full py-4 mt-2 rounded-xl font-bold text-white flex items-center justify-center transition-colors ${activeTab === 'WFO'
-                                    ? 'bg-indigo-600 hover:bg-indigo-500'
-                                    : 'bg-slate-700 hover:bg-slate-600'}`}
+                                disabled={running || dataStatus !== 'READY'}
+                                className={`w-full py-4 mt-2 rounded-xl font-bold text-white flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${activeTab === 'WFO'
+                                    ? 'bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800'
+                                    : 'bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800'}`}
                             >
                                 <Play className="w-5 h-5 mr-2" />
-                                {activeTab === 'WFO' ? 'Start Walk-Forward Analysis' : 'Start Manual Optuna Study'}
+                                {dataStatus !== 'READY'
+                                    ? 'Load Data First'
+                                    : activeTab === 'WFO'
+                                        ? 'Start Walk-Forward Analysis'
+                                        : 'Start Manual Optuna Study'}
                             </button>
                         </div>
                     </Card>
@@ -397,13 +470,16 @@ const Optimization: React.FC = () => {
                 <div className="space-y-4">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h3 className="text-xl font-bold text-slate-200">Top Configurations Found</h3>
+                            {/* Change 8B: "Step 1 of 2" label when Phase 2 is enabled */}
+                            <h3 className="text-xl font-bold text-slate-200">
+                                {enableRiskSearch ? 'Step 1 of 2 — ' : ''}Top Configurations Found
+                            </h3>
                             <p className="text-xs text-amber-400 flex items-center mt-1">
                                 <AlertTriangle className="w-3 h-3 mr-1" />
                                 In-sample results — verify with Auto-Tune or Walk-Forward before trading
                             </p>
                         </div>
-                        <Button variant="secondary" onClick={() => setOptResults(null)}>Reset</Button>
+                        <Button variant="secondary" onClick={() => { setOptResults(null); setSelectedParams(null); }}>Reset</Button>
                     </div>
                     <Card className="p-0 overflow-hidden">
                         <table className="w-full text-left text-sm text-slate-400">
@@ -447,24 +523,24 @@ const Optimization: React.FC = () => {
                         </table>
                     </Card>
 
-                    {/* risk grid section, only if backend returned it */}
-
-                    {/* section for sequential risk optimisation */}
+                    {/* Change 8C+D: section for sequential risk optimisation with improved UX */}
                     {enableRiskSearch && optResults && activeTab === 'GRID' && (
                         <div className="mt-4 px-4 py-3 rounded bg-slate-800 border border-slate-700">
                             {!selectedParams ? (
                                 <p className="text-sm text-slate-300">
-                                    Pick a configuration above and click <strong>Choose</strong> to run a separate SL/TP study on that set.
+                                    <strong className="text-indigo-400">Step 2 of 2</strong> — Pick the best RSI config above and click <strong>Choose</strong>, then <strong>Run SL/TP Search</strong> to find the optimal stop-loss and take-profit for those fixed parameters.
                                 </p>
                             ) : (
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm text-slate-200">
-                                        Selected: {Object.entries(selectedParams).map(([k,v])=>`${k}: ${v}`).join(', ')}
-                                    </span>
-                                    <Button size="sm" onClick={async () => {
-                                        // rerun optimisation with selected parameters locked
+                                <div className="flex items-center justify-between gap-4">
+                                    <div>
+                                        <p className="text-xs text-slate-500 mb-1">Step 2 of 2 — RSI params locked:</p>
+                                        <span className="text-sm text-slate-200 font-mono">
+                                            {Object.entries(selectedParams).map(([k,v])=>`${k}: ${v}`).join(', ')}
+                                        </span>
+                                    </div>
+                                    {/* Change 6: guard "Run SL/TP search" button too */}
+                                    <Button size="sm" disabled={dataStatus !== 'READY'} onClick={async () => {
                                         setRunning(true);
-                                        setOptResults(null);
                                         const fixedRanges = Object.fromEntries(
                                             Object.entries(selectedParams!).map(([k,v]) => [k, { min: v, max: v, step: 1 }])
                                         );
@@ -473,35 +549,31 @@ const Optimization: React.FC = () => {
                                             return acc;
                                         }, {} as any);
                                         try {
-                                            // rebuild the configuration payload here since we're outside
-                                        // the scope of the top-level `handleRun` function.
-                                        const configPayload = {
-                                            initial_capital: capital,
-                                            commission,
-                                            slippage,
-                                            pyramiding,
-                                            positionSizing,
-                                            positionSizeValue,
-                                            stopLossPct,
-                                            takeProfitPct,
-                                            useTrailingStop
-                                        };
-                                        const res = await runOptimization(symbol || 'NIFTY 50', strategyId || '1', fixedRanges, {
-                                            n_trials: 30,
-                                            scoring_metric: optunaMetric,
-                                            startDate,
-                                            endDate,
-                                            timeframe,
-                                            config: configPayload,
-                                            riskRanges: riskRangesObj
-                                        });
-                                            setOptResults({ ...res, wfo: [], period: undefined });
+                                            // Change 3: no SL/TP in configPayload here either
+                                            const res = await runOptimization(symbol || 'NIFTY 50', strategyId || '1', fixedRanges, {
+                                                n_trials: 30,
+                                                scoring_metric: optunaMetric,
+                                                startDate,
+                                                endDate,
+                                                timeframe,
+                                                config: buildConfigPayload(),
+                                                riskRanges: riskRangesObj,
+                                                // Change 4: pass split ratio for Phase 2 run too
+                                                phase2SplitRatio: enableDataSplit ? splitRatio / 100 : 0.0,
+                                            });
+                                            // Change 8D: merge results — keep Phase 1 grid visible, add Phase 2 data
+                                            setOptResults(prev => ({
+                                                ...(prev ?? {}),
+                                                ...res,
+                                                wfo: [],
+                                                period: undefined,
+                                            }));
                                         } catch (e) {
                                             alert("Risk optimisation failed: " + e);
                                         }
                                         setRunning(false);
                                     }}>
-                                        Run SL/TP search
+                                        Run SL/TP Search
                                     </Button>
                                 </div>
                             )}
@@ -510,7 +582,17 @@ const Optimization: React.FC = () => {
 
                     {optResults?.riskGrid && optResults.riskGrid.length > 0 && (
                         <div className="space-y-4 mt-6">
-                            <h4 className="text-lg font-semibold text-slate-200">Risk Parameter Search Results</h4>
+                            {/* Change 8B: "Step 2 of 2" label for risk results */}
+                            <div>
+                                <h4 className="text-lg font-semibold text-slate-200">Step 2 of 2 — Risk Parameter Results</h4>
+                                {optResults.splitRatio && (
+                                    <p className="text-xs text-indigo-400 mt-1 flex items-center">
+                                        <Split className="w-3 h-3 mr-1" />
+                                        Trained on last {Math.round((1 - optResults.splitRatio) * 100)}% of data
+                                        (split {Math.round(optResults.splitRatio * 100)}/{Math.round((1 - optResults.splitRatio) * 100)})
+                                    </p>
+                                )}
+                            </div>
                             <Card className="p-0 overflow-hidden">
                                 <table className="w-full text-left text-sm text-slate-400">
                                     <thead className="bg-slate-950 text-slate-200">

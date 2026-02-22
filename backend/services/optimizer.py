@@ -75,6 +75,7 @@ class OptimizationEngine:
         config: dict | None = None,
         timeframe: str = "1d",
         risk_ranges: dict[str, dict] | None = None,
+        phase2_split_ratio: float = 0.0,
     ) -> dict:
         """Run Optuna hyperparameter optimisation for a strategy.
 
@@ -105,10 +106,39 @@ class OptimizationEngine:
         if not df.empty:
             logger.info(f"Fetched Data: {len(df)} bars. Range: {df.index.min()} to {df.index.max()}")
 
-        # first-phase optimisation
+        # Determine per-phase data slices.
+        # When phase2_split_ratio is set (0 < ratio < 1) and risk_ranges is
+        # provided, Phase 1 trains on the first `ratio` fraction of bars and
+        # Phase 2 trains on the remaining bars.  This reduces cascading
+        # overfitting between the two phases.
+        df_phase1 = df
+        df_phase2 = df
+        if risk_ranges and 0.0 < phase2_split_ratio < 1.0:
+            split_idx = int(len(df) * phase2_split_ratio)
+            df_phase1 = df.iloc[:split_idx].copy()
+            df_phase2 = df.iloc[split_idx:].copy()
+            logger.info(
+                f"Data split enabled: Phase1={len(df_phase1)} bars "
+                f"({phase2_split_ratio * 100:.0f}%), "
+                f"Phase2={len(df_phase2)} bars "
+                f"({(1 - phase2_split_ratio) * 100:.0f}%)"
+            )
+
+        # Phase 1: primary parameter search.
+        # IMPORTANT: must run with SL/TP completely disabled so that the RSI
+        # signal quality is evaluated independently of any risk overlay.  The
+        # user's current UI values are stripped here; Phase 2 will re-introduce
+        # them via risk_ranges.
+        phase1_config = {
+            **(config or {}),
+            "stopLossPct": 0,
+            "takeProfitPct": 0,
+            "useTrailingStop": False,
+        }
         ranges["reproducible"] = reproducible
         best_params, grid = OptimizationEngine._find_best_params(
-            df, strategy_id, ranges, scoring_metric, return_trials=True, n_trials=n_trials, config=config
+            df_phase1, strategy_id, ranges, scoring_metric,
+            return_trials=True, n_trials=n_trials, config=phase1_config
         )
 
         response: dict = {"grid": grid, "wfo": [], "bestParams": best_params}
@@ -119,12 +149,14 @@ class OptimizationEngine:
             # pass best primary parameters separately so they are fixed in the next study
             try:
                 risk_best, risk_grid = OptimizationEngine._find_best_params(
-                    df, strategy_id, risk_ranges, scoring_metric,
+                    df_phase2, strategy_id, risk_ranges, scoring_metric,
                     return_trials=True, n_trials=n_trials, config=config, fixed_params=best_params
                 )
                 response["riskGrid"] = risk_grid
                 response["bestRiskParams"] = risk_best
                 response["combinedParams"] = {**best_params, **risk_best}
+                if phase2_split_ratio > 0.0:
+                    response["splitRatio"] = phase2_split_ratio
             except Exception as e:
                 logger.warning(f"Secondary risk optimisation failed: {e}")
                 # leave risk keys out if it fails

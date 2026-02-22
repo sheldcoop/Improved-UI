@@ -80,7 +80,12 @@ def run_optimization():
         config = data.get("config", {})
         risk_ranges = data.get("riskRanges")  # optional second-phase search space
 
-        logger.info(f"Running Optuna Optimisation for {symbol} | Metric: {scoring_metric} | Timeframe: {timeframe} | Reproducible: {reproducible}")
+        # Optional data split ratio for Phase 2 (0.0 = disabled, 0.7 = 70/30 split)
+        phase2_split_ratio = float(data.get("phase2SplitRatio", 0.0))
+        if not 0.0 <= phase2_split_ratio < 1.0:
+            return jsonify({"status": "error", "message": "phase2SplitRatio must be between 0.0 and 0.99"}), 400
+
+        logger.info(f"Running Optuna Optimisation for {symbol} | Metric: {scoring_metric} | Timeframe: {timeframe} | Reproducible: {reproducible} | Split: {phase2_split_ratio or 'disabled'}")
         results = OptimizationEngine.run_optuna(
             symbol,
             strategy_id,
@@ -92,6 +97,7 @@ def run_optimization():
             config=config,
             timeframe=timeframe,
             risk_ranges=risk_ranges,
+            phase2_split_ratio=phase2_split_ratio,
         )
         return jsonify(results), 200
 
