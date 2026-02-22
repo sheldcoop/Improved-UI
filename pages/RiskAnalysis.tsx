@@ -81,8 +81,8 @@ const RiskAnalysis: React.FC = () => {
                          <p>Configure settings and click run to generate risk paths.</p>
                      </div>
                  ) : (
-                    <div className="flex-1 min-h-0">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="flex-1 min-w-0 min-h-0">
+                        <ResponsiveContainer width="100%" height="100%" aspect={undefined}>
                             <LineChart margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                                 <XAxis dataKey="index" type="category" allowDuplicatedCategory={false} stroke="#64748b" />

@@ -102,7 +102,8 @@ class TestRealDates:
             mock_pf.wrapper.columns = pd.Index(["A"])
             mock_pf.sharpe_ratio.return_value = pd.Series([0.0])
             mock_pf.max_drawdown.return_value = pd.Series([0.0])
-            mock_pf.win_rate.return_value = pd.Series([0.0])
+                # simulate absence of win_rate method by setting it to None
+            mock_pf.win_rate = None
             mock_pf.profit_factor.return_value = pd.Series([0.0])
             mock_pf.trades.count.return_value = pd.Series([0])
             mock_pf.trades.records_readable = pd.DataFrame({"PnL": []})
@@ -165,6 +166,77 @@ class TestStatsParams:
         assert "returnsStats" in res2
         # should not be empty after 100 bars (approx 20 trading days)
         assert res2["returnsStats"], "expected some metrics for 1M freq"
+
+    def test_universe_fallback_winrate_from_trades(self):
+        """When the portfolio lacks win_rate(), the engine must still compute a value."""
+        # capture exception traceback via patched logger
+        import logging, traceback
+        captured = {"trace": None}
+        def logerr(msg):
+            captured["trace"] = traceback.format_exc()
+        df = _make_ohlcv()
+        with patch("services.backtest_engine.logger.error", new=logerr), \
+             patch("services.backtest_engine.vbt") as mock_vbt, \
+             patch("services.backtest_engine.StrategyFactory") as mock_sf:
+            mock_sf.get_strategy.return_value.generate_signals.return_value = (
+                pd.Series(False, index=df.index),
+                pd.Series(False, index=df.index),
+            )
+            mock_pf = MagicMock()
+            # simulate a universe portfolio: value() returns DataFrame with multiple columns
+            mock_pf.value.return_value = pd.DataFrame(
+                {"A": 100_000.0, "B": 100_000.0},
+                index=df.index,
+            )
+            mock_pf.wrapper.columns = pd.Index(["A", "B"])
+            mock_pf.sharpe_ratio.return_value = pd.Series([1.0, 1.5])
+            mock_pf.max_drawdown.return_value = pd.Series([-0.05, -0.02])
+            # remove or disable win_rate
+            mock_pf.win_rate = None
+            # also simulate missing profit_factor
+            mock_pf.profit_factor = None
+            mock_pf.trades.count.return_value = pd.Series([5, 7])
+            # trades with two wins out of three total
+            mock_pf.trades.records_readable = pd.DataFrame({"PnL": [10, -5, 20]})
+            mock_pf.drawdown.return_value = pd.Series(0.0, index=df.index)
+            mock_pf.stats.return_value = {"Win Rate [%]": pd.Series([0.0, 0.0])}
+            mock_pf.total_return.return_value = 0.0
+            mock_vbt.Portfolio.from_signals.return_value = mock_pf
+
+            result = BacktestEngine.run(df, "1")
+
+        assert result is not None
+        # two winning trades of three => 66.7%
+        assert result["metrics"]["winRate"] == round((2/3) * 100, 1)
+        # profit factor fallback from stats should default to 0.0
+        assert result["metrics"]["profitFactor"] == 0.0
+
+    def test_safe_profit_factor_fallback(self):
+        """Metric should return from stats when profit_factor() missing."""
+        df = _make_ohlcv()
+        with patch("services.backtest_engine.vbt") as mock_vbt, \
+             patch("services.backtest_engine.StrategyFactory") as mock_sf:
+            mock_sf.get_strategy.return_value.generate_signals.return_value = (
+                pd.Series(False, index=df.index),
+                pd.Series(False, index=df.index),
+            )
+            mock_pf = MagicMock()
+            mock_pf.value.return_value = pd.Series(100_000.0, index=df.index)
+            mock_pf.wrapper.columns = pd.Index(["A"])
+            mock_pf.sharpe_ratio.return_value = pd.Series([1.0])
+            mock_pf.max_drawdown.return_value = pd.Series([-0.05])
+            mock_pf.win_rate.return_value = pd.Series([0.5])
+            mock_pf.profit_factor = None
+            mock_pf.trades.count.return_value = pd.Series([5])
+            mock_pf.trades.records_readable = pd.DataFrame({"PnL": []})
+            mock_pf.drawdown.return_value = pd.Series(0.0, index=df.index)
+            mock_pf.stats.return_value = {"Profit Factor": 1.23}
+            mock_pf.total_return.return_value = 0.0
+            mock_vbt.Portfolio.from_signals.return_value = mock_pf
+
+            res = BacktestEngine.run(df, "1")
+        assert res is not None
+        assert res["metrics"]["profitFactor"] == 1.23
 
 
 # ---------------------------------------------------------------------------

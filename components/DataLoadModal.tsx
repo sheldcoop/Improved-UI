@@ -78,11 +78,11 @@ const DataLoadModal: React.FC<DataLoadModalProps> = ({ isOpen, onClose, report, 
               {report.previewRows.map((row, idx) => (
                 <tr key={idx}>
                   <td className="py-2 px-2">{row.timestamp}</td>
-                  <td className="py-2 px-2">{row.open.toFixed(2)}</td>
-                  <td className="py-2 px-2">{row.high.toFixed(2)}</td>
-                  <td className="py-2 px-2">{row.low.toFixed(2)}</td>
-                  <td className="py-2 px-2 font-bold text-emerald-300">{row.close.toFixed(2)}</td>
-                  <td className="py-2 px-2">{row.volume.toLocaleString()}</td>
+                  <td className="py-2 px-2">{row.open != null ? row.open.toFixed(2) : '-'}</td>
+                  <td className="py-2 px-2">{row.high != null ? row.high.toFixed(2) : '-'}</td>
+                  <td className="py-2 px-2">{row.low != null ? row.low.toFixed(2) : '-'}</td>
+                  <td className="py-2 px-2 font-bold text-emerald-300">{row.close != null ? row.close.toFixed(2) : '-'}</td>
+                  <td className="py-2 px-2">{row.volume != null ? row.volume.toLocaleString() : '-'}</td>
                 </tr>
               ))}
             </tbody>

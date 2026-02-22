@@ -313,8 +313,8 @@ const Results: React.FC = () => {
               }
             >
               {result.equityCurve && result.equityCurve.length > 0 ? (
-                <div className="flex-1 w-full min-h-0">
-                  <ResponsiveContainer width="100%" height="100%">
+                <div className="flex-1 w-full min-w-0 min-h-0">
+                  <ResponsiveContainer width="100%" height="100%" aspect={undefined}>
                     <AreaChart data={isOOSArray ? (
                       // Combine OOS equity/drawdown curves into a single dataset
                       result.equityCurve.map((point: any, index: number) => {
@@ -470,8 +470,9 @@ const Results: React.FC = () => {
       {activeTab === 'DISTRIBUTION' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card title="Return Distribution" className="h-[400px]">
+            <div className="flex-1 w-full min-w-0 min-h-0">
             {distributionData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" aspect={undefined}>
                 <BarChart data={distributionData}>
                   <CartesianGrid strokeDasharray="3 3" stroke={CONFIG.COLORS.GRID} vertical={false} />
                   <XAxis dataKey="range" stroke={CONFIG.COLORS.TEXT} label={{ value: 'Return %', position: 'bottom', fill: CONFIG.COLORS.TEXT }} />
@@ -487,6 +488,7 @@ const Results: React.FC = () => {
             ) : (
               <div className="flex items-center justify-center h-full text-slate-500">Not enough data for distribution.</div>
             )}
+            </div> {/* wrapper close */}
           </Card>
         </div>
       )}

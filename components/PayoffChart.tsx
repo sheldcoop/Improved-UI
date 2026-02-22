@@ -23,8 +23,8 @@ const PayoffChart: React.FC<PayoffChartProps> = ({ strategy, scenarioIvChange = 
           <div>Max Profit: <span className="text-emerald-400 font-bold">₹{maxProfit.toFixed(0)}</span></div>
           <div>Max Loss: <span className="text-red-400 font-bold">₹{maxLoss.toFixed(0)}</span></div>
        </div>
-       <div className="flex-1 w-full min-h-0">
-        <ResponsiveContainer width="100%" height="100%">
+       <div className="flex-1 w-full min-w-0 min-h-0">
+        <ResponsiveContainer width="100%" height="100%" aspect={undefined}>
             <ComposedChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
             <defs>
                 <linearGradient id="splitColor" x1="0" y1="0" x2="0" y2="1">

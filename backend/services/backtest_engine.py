@@ -328,12 +328,18 @@ class BacktestEngine:
                 {"date": str(d), "value": round(v, 2), "drawdown": round(abs(dd_universe.loc[d]), 2)}
                 for d, v in total_value.items()
             ]
+
+            # win rate and profit factor may not exist on all VectorBT builds;
+            # use safe helpers that fall back to stats or zero when missing.
+            win_rate_val = BacktestEngine._safe_win_rate(pf, universe=True)
+            profit_factor_val = BacktestEngine._safe_profit_factor(pf, universe=True)
+
             metrics = {
                 "totalReturnPct": round(total_return * 100, 2),
                 "sharpeRatio": round(pf.sharpe_ratio().mean(), 2),
                 "maxDrawdownPct": round(abs(pf.max_drawdown().max()) * 100, 2),
-                "winRate": round(pf.win_rate().mean() * 100, 1),
-                "profitFactor": round(pf.profit_factor().mean(), 2),
+                "winRate": win_rate_val,
+                "profitFactor": profit_factor_val,
                 "totalTrades": int(pf.trades.count().sum()),
                 "alpha": 0.0, "beta": 0.0, "volatility": 0.0, "cagr": 0.0,
                 "sortinoRatio": 0.0, "calmarRatio": 0.0,
@@ -379,6 +385,7 @@ class BacktestEngine:
                 "totalReturnPct": round(total_return * 100, 2),
                 "sharpeRatio": round(stats.get("Sharpe Ratio", 0), 2),
                 "maxDrawdownPct": round(abs(stats.get("Max Drawdown [%]", 0)), 2),
+                # stats may already include a win rate percentage; normalize to one decimal
                 "winRate": round(stats.get("Win Rate [%]", 0), 1),
                 "profitFactor": round(stats.get("Profit Factor", 0), 2),
                 "totalTrades": int(stats.get("Total Trades", 0)),
@@ -431,6 +438,90 @@ class BacktestEngine:
         return results
 
     @staticmethod
+    def _safe_win_rate(pf: vbt.Portfolio, universe: bool = False) -> float:
+        """Return the portfolio win rate as a percentage.
+
+        VectorBT has historically exposed ``pf.win_rate()`` but some versions
+        ship without it and calling the method raises ``AttributeError``.
+        To keep the engine robust we try several approaches in order:
+
+        1. If ``pf.win_rate`` exists and is callable, call it and take the
+           mean (universe portfolios return a ``Series``).
+        2. Inspect ``pf.trades.records_readable`` to compute wins/total trades.
+        3. Fall back to ``pf.stats()`` and look for a ``"Win Rate [%]"`` field.
+        4. Return ``0.0`` if nothing else works.
+
+        Args:
+            pf: VectorBT Portfolio instance
+            universe: unused for now but kept for future custom handling
+        """
+        # 1. try the built‑in method
+        try:
+            method = getattr(pf, "win_rate", None)
+            if callable(method):
+                val = method()
+                # result may be scalar or Series
+                if hasattr(val, "mean"):
+                    return round(val.mean() * 100, 1)
+                else:
+                    return round(float(val) * 100, 1)
+        except Exception:
+            pass
+
+        # 2. compute from trades if available
+        try:
+            rec = getattr(pf.trades, "records_readable", None)
+            if rec is not None and len(rec) > 0:
+                wins = rec[rec.get("PnL", 0) > 0].shape[0]
+                total = rec.shape[0]
+                return round((wins / total) * 100, 1) if total > 0 else 0.0
+        except Exception:
+            pass
+
+        # 3. stats fallback
+        try:
+            stats = pf.stats()
+            wr = stats.get("Win Rate [%]", 0)
+            if hasattr(wr, "mean"):
+                return round(wr.mean(), 1)
+            else:
+                return round(float(wr), 1)
+        except Exception:
+            pass
+
+        # last resort
+        return 0.0
+
+
+    @staticmethod
+    def _safe_profit_factor(pf: vbt.Portfolio, universe: bool = False) -> float:
+        """Return profit factor as a float; handle missing VectorBT method gracefully.
+
+        The built-in ``pf.profit_factor()`` may not be defined in some releases.
+        We attempt to call it; if unavailable we look at ``pf.stats()`` for a
+        "Profit Factor" key. If all else fails we return 0.0.
+        """
+        try:
+            method = getattr(pf, "profit_factor", None)
+            if callable(method):
+                val = method()
+                if hasattr(val, "mean"):
+                    return round(val.mean(), 2)
+                else:
+                    return round(float(val), 2)
+        except Exception:
+            pass
+        try:
+            stats = pf.stats()
+            pfv = stats.get("Profit Factor", 0)
+            if hasattr(pfv, "mean"):
+                return round(pfv.mean(), 2)
+            else:
+                return round(float(pfv), 2)
+        except Exception:
+            pass
+        return 0.0
+
     def _compute_advanced_metrics(pf: vbt.Portfolio, universe: bool = False) -> dict:
         """Compute expectancy, consecutive losses, Kelly criterion, avg drawdown duration.
 
