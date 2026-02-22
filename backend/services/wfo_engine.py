@@ -13,6 +13,7 @@ from datetime import datetime
 
 from services.data_fetcher import DataFetcher
 from services.optimizer import OptimizationEngine
+from services.portfolio_utils import build_portfolio, detect_freq
 from strategies import StrategyFactory
 from utils.alert_manager import AlertManager
 from services.backtest_engine import BacktestEngine
@@ -146,8 +147,13 @@ class WFOEngine:
                 entries = entries_full.reindex(test_df.index).fillna(False).astype(bool)
                 exits = exits_full.reindex(test_df.index).fillna(False).astype(bool)
 
-                pf = vbt.Portfolio.from_signals(
-                    test_df["Close"], entries, exits, freq=vbt_freq, fees=0.001
+                # Use build_portfolio so open/high/low are forwarded when
+                # SL/TP is configured, matching the reference Colab behaviour.
+                pf = build_portfolio(
+                    test_df["Close"], entries, exits,
+                    {"commission": 20.0, "initial_capital": 100000},
+                    vbt_freq,
+                    df=test_df,
                 )
                 test_signals = int(entries.sum())
                 if test_signals < 5:
@@ -226,7 +232,7 @@ class WFOEngine:
             found = len(df) if df is not None else 0
             return {"error": f"Not enough data for WFO. Need {needed} bars (~{needed//21}m), found {found} bars."}
 
-        vbt_freq = OptimizationEngine._detect_freq(df)
+        vbt_freq = detect_freq(df)
         loop = WFOEngine._wfo_loop(
             df, strategy_id, ranges, metric, vbt_freq,
             train_m, test_m, fetch_start_dt, collect_signals=False,
@@ -259,7 +265,7 @@ class WFOEngine:
             found = len(df) if df is not None else 0
             return {"error": f"Not enough data for concatenated WFO. Need {needed} bars (~{needed//21}m), found {found} bars."}
 
-        vbt_freq = OptimizationEngine._detect_freq(df)
+        vbt_freq = detect_freq(df)
         loop = WFOEngine._wfo_loop(
             df, strategy_id, ranges, metric, vbt_freq,
             train_m, test_m, fetch_start_dt, collect_signals=True,
@@ -277,12 +283,11 @@ class WFOEngine:
         if oos_df.empty:
             return {"error": "Calibration failed - no OOS data generated."}
 
-        pf = vbt.Portfolio.from_signals(
+        pf = build_portfolio(
             oos_df["Close"], oos_entries, oos_exits,
-            init_cash=wfo_config.get("initial_capital", 100000),
-            fees=float(wfo_config.get("commission", 20.0)) / float(wfo_config.get("positionSizeValue", 100000)) if float(wfo_config.get("positionSizeValue", 100000)) > 0 else 0.001,
-            slippage=float(wfo_config.get("slippage", 0.05)) / 100.0,
-            freq=vbt_freq,
+            wfo_config,
+            vbt_freq,
+            df=oos_df,
         )
 
         results = BacktestEngine._extract_results(pf, oos_df, wfo_config)

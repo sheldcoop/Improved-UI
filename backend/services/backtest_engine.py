@@ -19,6 +19,7 @@ import vectorbt as vbt
 
 from strategies import StrategyFactory
 from utils.alert_manager import AlertManager
+from services.portfolio_utils import boolify, detect_freq
 
 logger = logging.getLogger(__name__)
 
@@ -76,13 +77,12 @@ class BacktestEngine:
             return {"status": "failed", "error": "No data found for the selected period."}
 
         # --- 1. CONFIGURATION ---
-        slippage = float(config.get("slippage", 0.05)) / 100.0
+        slippage = float(config.get("slippage", 0.0)) / 100.0
         initial_capital = float(config.get("initial_capital", 100000.0))
-        # Commission is a fixed amount per trade (e.g. Rs.20).
-        # VBT fees = fraction of trade value, so divide by trade size not portfolio capital.
+        # Commission is a flat amount per trade (e.g. ₹20).
+        # Use fixed_fees so VectorBT deducts exactly ₹20 per order,
+        # matching the reference Colab script and portfolio_utils.build_portfolio.
         commission_fixed = float(config.get("commission", 20.0))
-        trade_size = float(config.get("positionSizeValue", initial_capital))
-        fees = commission_fixed / trade_size if trade_size > 0 else commission_fixed / initial_capital
         sl_pct = float(config.get("stopLossPct", 0)) / 100.0
         tp_pct = float(config.get("takeProfitPct", 0)) / 100.0
         use_trailing = bool(config.get("useTrailingStop", False))
@@ -103,18 +103,8 @@ class BacktestEngine:
         entries, exits = strategy.generate_signals(df)
 
         # --- SANITISE SIGNALS (fix numba failures when dtype==object) ---
-        def _boolify(sig):
-            if isinstance(sig, pd.Series) or isinstance(sig, pd.DataFrame):
-                try:
-                    return sig.fillna(False).astype(bool)
-                except Exception:
-                    return sig.astype(bool)
-            else:
-                import numpy as _np
-                return _np.asarray(sig, dtype=bool)
-
-        entries = _boolify(entries)
-        exits = _boolify(exits)
+        entries = boolify(entries)
+        exits = boolify(exits)
 
         close_price = df["Close"] if isinstance(df, pd.DataFrame) else df["Close"]
         
@@ -125,23 +115,8 @@ class BacktestEngine:
             logger.info(f"BacktestEngine Universe Execution: assets={len(df['Close'].columns)}, bars={len(df['Close'])}")
 
         # --- 3. FREQUENCY DETECTION ---
-        # Detect VBT-compatible freq from time-delta (Issue #18)
-        vbt_freq = "1D"
-        try:
-            sample_df = df if isinstance(df, pd.DataFrame) else df["Close"]
-            if len(sample_df) > 1:
-                # Use the mode (most common) time difference to ignore overnight/weekend gaps
-                diffs = sample_df.index.to_series().diff()
-                mode_diff = diffs.mode()[0]
-                minutes = int(mode_diff.total_seconds() / 60)
-                
-                if minutes == 1: vbt_freq = "1m"
-                elif minutes == 5: vbt_freq = "5m"
-                elif minutes == 15: vbt_freq = "15m"
-                elif minutes == 60: vbt_freq = "1h"
-                elif minutes >= 1440: vbt_freq = "1D"
-        except Exception as e:
-            logger.warning(f"Freq detection failed: {e}. Defaulting to 1D")
+        sample_df = df if isinstance(df, pd.DataFrame) else df["Close"]
+        vbt_freq = detect_freq(sample_df)
 
         # --- 4. UNIVERSE RANKING ---
         entries = BacktestEngine._apply_ranking(entries, df, config)
@@ -152,7 +127,8 @@ class BacktestEngine:
         # --- 6. EXECUTION ---
         pf_kwargs: dict = {
             "init_cash": initial_capital,
-            "fees": fees,
+            "fees": 0.0,
+            "fixed_fees": commission_fixed,
             "slippage": slippage,
             "freq": vbt_freq,
             "size": size,
