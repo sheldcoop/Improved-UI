@@ -48,6 +48,14 @@ class WFOEngine:
             to_date=user_end_str,
         )
 
+        if df is not None:
+            # Normalize column names to title-case so strategies can always
+            # reference 'Close', 'Open', 'High', 'Low', 'Volume' consistently.
+            df.columns = [c.capitalize() for c in df.columns]
+            # Dhan API sometimes returns duplicate columns — keep only the first
+            # occurrence of each name so df['Close'] returns a Series, not a DataFrame.
+            df = df.loc[:, ~df.columns.duplicated()]
+
         if df is not None and user_end_str:
             try:
                 df = df.loc[:user_end_str]
@@ -140,8 +148,8 @@ class WFOEngine:
                 strategy = StrategyFactory.get_strategy(strategy_id, best_params)
                 entries_full, exits_full = strategy.generate_signals(test_df)
 
-                entries = entries_full.reindex(test_df.index).fillna(False)
-                exits = exits_full.reindex(test_df.index).fillna(False)
+                entries = entries_full.reindex(test_df.index).fillna(False).astype(bool)
+                exits = exits_full.reindex(test_df.index).fillna(False).astype(bool)
 
                 pf = vbt.Portfolio.from_signals(
                     test_df["Close"], entries, exits, freq=vbt_freq, fees=0.001
@@ -268,8 +276,8 @@ class WFOEngine:
         # Slice to the OOS range (after the first training block)
         oos_start_date = fetch_start_dt + relativedelta(months=train_m)
         oos_df = df.loc[oos_start_date:]
-        oos_entries = all_entries.loc[oos_start_date:]
-        oos_exits = all_exits.loc[oos_start_date:]
+        oos_entries = all_entries.loc[oos_start_date:].astype(bool)
+        oos_exits = all_exits.loc[oos_start_date:].astype(bool)
 
         if oos_df.empty:
             return {"error": "Calibration failed - no OOS data generated."}

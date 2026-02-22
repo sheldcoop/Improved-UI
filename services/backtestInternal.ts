@@ -51,6 +51,8 @@ export const runBacktestWithDhan = async (payload: {
         start_date: string;
         end_date: string;
         initial_capital: number;
+        /** Frequency string used by backend to compute return statistics (e.g. '1D', '1h') */
+        statsFreq?: string;
         strategy_logic: {
             name: string;
             id?: string;

@@ -30,7 +30,8 @@ const Backtest: React.FC = () => {
     isDynamic, wfoConfig, paramRanges, showRanges,
     top5Trials, oosResults, isOosValidating,
     stopLossPct, stopLossEnabled, takeProfitPct, takeProfitEnabled, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
-    fullReportData, isReportOpen, useLookback, lookbackMonths
+    fullReportData, isReportOpen, useLookback, lookbackMonths,
+    enableDataSplit, splitRatio
   } = state;
   const {
     setMode, setSegment, setSymbolSearchQuery, setSymbol, setSearchResults, setSelectedInstrument,
@@ -40,7 +41,8 @@ const Backtest: React.FC = () => {
     setParamRanges, setShowRanges, setTop5Trials,
     setOosResults, setIsOosValidating,
     setStopLossPct, setStopLossEnabled, setTakeProfitPct, setTakeProfitEnabled, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
-    setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths
+    setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths,
+    setEnableDataSplit, setSplitRatio
   } = setters;
   const { handleLoadData, handleRun, handleOOSValidation } = handlers;
 
@@ -218,6 +220,12 @@ const Backtest: React.FC = () => {
             setTakeProfitPct={setTakeProfitPct}
             dataStatus={dataStatus}
             navigate={navigate}
+            startDate={startDate}
+            endDate={endDate}
+            enableDataSplit={enableDataSplit}
+            setEnableDataSplit={setEnableDataSplit}
+            splitRatio={splitRatio}
+            setSplitRatio={setSplitRatio}
           />
           <AdvancedSettings
             positionSizing={positionSizing}

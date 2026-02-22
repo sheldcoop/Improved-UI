@@ -1,366 +1,118 @@
-import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { fetchAndValidateMarketData, fetchStrategies, runBacktest, runOOSValidation } from '../services/api';
-import { Timeframe, Strategy } from '../types';
-import { fetchClient } from '../services/http';
-import { logActiveRun, logDataHealth, logOptunaResults, logWFOBreakdown, logAlert } from '../components/DebugConsole';
 import { useBacktestContext } from '../context/BacktestContext';
+import { useStrategyInit } from './backtest/useStrategyInit';
+import { useInstrumentSearch } from './backtest/useInstrumentSearch';
+import { useDataLoader } from './backtest/useDataLoader';
+import { useBacktestRunner } from './backtest/useBacktestRunner';
 
-import { useDebounce } from './useDebounce';
-import { searchInstruments, runBacktestWithDhan } from '../services/backtestInternal';
-
+/**
+ * Main backtest hook — thin orchestrator.
+ * Delegates all logic to focused sub-hooks and exposes
+ * a unified { state, setters, handlers } API consumed by Backtest.tsx.
+ */
 export const useBacktest = () => {
-    const navigate = useNavigate();
-    const {
-        running, setRunning, mode, setMode, segment, setSegment, symbol, setSymbol,
-        symbolSearchQuery, setSymbolSearchQuery, searchResults, setSearchResults,
-        selectedInstrument, setSelectedInstrument, isSearching, setIsSearching,
-        universe, setUniverse, timeframe, setTimeframe, strategyId, setStrategyId,
-        customStrategies, setCustomStrategies, startDate, setStartDate, endDate, setEndDate,
-        params, setParams, capital, setCapital, slippage, setSlippage,
-        commission, setCommission, showAdvanced, setShowAdvanced, dataStatus, setDataStatus,
-        healthReport, setHealthReport, isDynamic, setIsDynamic, wfoConfig, setWfoConfig,
-        paramRanges, setParamRanges,
-        showRanges, setShowRanges, top5Trials, setTop5Trials,
-        oosResults, setOosResults, isOosValidating, setIsOosValidating,
-        stopLossPct, setStopLossPct, stopLossEnabled, setStopLossEnabled,
-        takeProfitPct, setTakeProfitPct, takeProfitEnabled, setTakeProfitEnabled,
-        useTrailingStop, setUseTrailingStop,
-        pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
-        fullReportData, setFullReportData, isReportOpen, setIsReportOpen,
-        useLookback, setUseLookback, lookbackMonths, setLookbackMonths,
-        isFetchingData, setIsFetchingData
-    } = useBacktestContext();
+    const context = useBacktestContext();
 
-    // Auto-Calculate WFO Windows when dates change
-    useEffect(() => {
-        if (!isDynamic) return;
+    // Side-effect hooks (no return value needed)
+    useStrategyInit();
+    useInstrumentSearch();
 
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        const diffTime = Math.abs(end.getTime() - start.getTime());
-        const totalMonths = Math.round(diffTime / (1000 * 60 * 60 * 24 * 30.44));
-
-        let newTrain = 12;
-        let newTest = 3;
-
-        if (totalMonths < 12) { newTrain = 3; newTest = 1; }
-        else if (totalMonths < 24) { newTrain = 6; newTest = 2; }
-        else if (totalMonths < 36) { newTrain = 9; newTest = 3; }
-
-        setWfoConfig({ trainWindow: newTrain, testWindow: newTest });
-    }, [startDate, endDate, isDynamic]);
-
-    // Load Strategies on Mount
-    useEffect(() => {
-        const loadStrats = async () => {
-            try {
-                const strats = await fetchStrategies() as unknown as Strategy[];
-                setCustomStrategies(strats);
-            } catch (e) {
-                console.error("Failed to load strategies", e);
-            }
-        };
-        loadStrats();
-    }, []);
-
-    // Initialize defaults based on strategy selection
-    useEffect(() => {
-        if (strategyId === '1') { // RSI
-            setParams({ period: 14, lower: 30, upper: 70 });
-            setParamRanges({
-                period: { min: 5, max: 30, step: 1 },
-                lower: { min: 10, max: 40, step: 1 },
-                upper: { min: 60, max: 90, step: 1 }
-            });
-        } else if (strategyId === '3') { // SMA
-            setParams({ fast: 10, slow: 50 });
-            setParamRanges({
-                fast: { min: 5, max: 50, step: 1 },
-                slow: { min: 20, max: 200, step: 1 }
-            });
-        } else {
-            // Clear params for custom strategies
-            setParams({});
-            setParamRanges({});
-        }
-        setShowRanges(false);
-    }, [strategyId]);
-
-    // Reset data status when key inputs change
-    useEffect(() => {
-        setDataStatus('IDLE');
-        setHealthReport(null);
-    }, [symbol, universe, timeframe, startDate, endDate]);
-
-    // Debounced search effect
-    const debouncedSearchQuery = useDebounce(symbolSearchQuery, 300);
-
-    useEffect(() => {
-        if (mode !== 'SINGLE' || !debouncedSearchQuery || debouncedSearchQuery.length < 2) {
-            setSearchResults([]);
-            return;
-        }
-
-        const doSearch = async () => {
-            setIsSearching(true);
-            try {
-                const results = await searchInstruments(segment, debouncedSearchQuery);
-                setSearchResults(results);
-            } catch (e) {
-                console.error('Search failed:', e);
-                setSearchResults([]);
-            } finally {
-                setIsSearching(false);
-            }
-        };
-
-        doSearch();
-    }, [debouncedSearchQuery, segment, mode]);
-
-    const handleLoadData = async () => {
-        if (isFetchingData) {
-            console.log('handleLoadData called while already fetching; ignoring');
-            return;
-        }
-        setIsFetchingData(true);
-        setDataStatus('LOADING');
-        try {
-            const target = mode === 'SINGLE' ? symbol : universe;
-
-            // Calculate extended from_date to cover indicator warmup lookback (if toggled)
-            const indicatorLookback = useLookback ? lookbackMonths : 0;
-            const totalLookbackMonths = indicatorLookback;
-
-            const fromDateObj = new Date(startDate);
-            fromDateObj.setMonth(fromDateObj.getMonth() - totalLookbackMonths);
-            const extendedFromDate = fromDateObj.toISOString().split('T')[0];
-            console.log(`Data fetch range: ${extendedFromDate} → ${endDate} (indicator: ${indicatorLookback}m)`);
-
-            logActiveRun({
-                type: 'DATA_LOADING',
-                strategyName: 'Market Data Validator',
-                symbol: target,
-                timeframe,
-                startDate: extendedFromDate,
-                endDate: endDate,
-                status: 'running'
-            });
-
-            const fullReport = await fetchAndValidateMarketData(target, timeframe, extendedFromDate, endDate);
-            setHealthReport(fullReport.health);
-            setFullReportData(fullReport);
-            setIsReportOpen(true);
-            logDataHealth(fullReport.health);
-
-            if (fullReport.health.status === 'POOR' || fullReport.health.status === 'CRITICAL') {
-                logAlert([{
-                    type: 'warning',
-                    msg: `Data health is ${fullReport.health.status} for ${target}. ${fullReport.health.missingCandles} candles missing.`,
-                    timestamp: new Date().toLocaleTimeString()
-                }]);
-            }
-
-            setDataStatus('READY');
-        } catch (e) {
-            console.error("Data load failed", e);
-            setDataStatus('ERROR');
-            logAlert([{
-                type: 'error',
-                msg: `Failed to load data for ${mode === 'SINGLE' ? symbol : universe}: ${e}`,
-                timestamp: new Date().toLocaleTimeString()
-            }]);
-        } finally {
-            logActiveRun(null);
-            setIsFetchingData(false);
-        }
-    };
-
-
-    const handleRun = async () => {
-        if (running) {
-            // already running, guard against double invocation
-            return;
-        }
-        if (dataStatus !== 'READY') {
-            alert("Please load and validate market data first.");
-            return;
-        }
-
-        if (mode === 'SINGLE' && !selectedInstrument) {
-            alert("Please select a symbol from the search results.");
-            return;
-        }
-
-        setRunning(true);
-        logActiveRun({
-            type: isDynamic ? 'WALK_FORWARD_OPTIMIZATION' : 'SINGLE_BACKTEST',
-            strategyName: strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy',
-            symbol: mode === 'SINGLE' ? selectedInstrument?.symbol || symbol : universe,
-            timeframe,
-            startDate,
-            endDate,
-            params,
-            status: 'running'
-        });
-
-        try {
-            if (isDynamic && mode === 'SINGLE' && selectedInstrument) {
-                // Path 1: Dynamic WFO Backtest
-                const result = await fetchClient<any>('/optimization/wfo', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        symbol: selectedInstrument.symbol,
-                        strategyId: strategyId,
-                        ranges: paramRanges,
-                        wfoConfig: {
-                            ...wfoConfig,
-                            startDate,
-                            endDate,
-                            scoringMetric: 'sharpe',
-                            initial_capital: capital
-                        },
-                        fullResults: true
-                    })
-                });
-
-                if (result && !result.error) {
-                    if (result.wfo) logWFOBreakdown(result.wfo);
-                    if (result.grid) logOptunaResults(result.grid);
-                    logActiveRun(null);
-
-                    // Inject properties required by the Results page
-                    result.timeframe = timeframe;
-                    result.symbol = selectedInstrument.symbol;
-                    result.strategyName = strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy';
-
-                    navigate('/results', { state: { result } });
-                } else {
-                    alert("Dynamic Backtest Failed: " + (result?.error || "Unknown error"));
-                    logActiveRun(null);
-                }
-            } else if (mode === 'SINGLE' && selectedInstrument) {
-                // Path 2: Standard Dhan-based Single Backtest
-                const timeframeMap: Record<string, string> = {
-                    [Timeframe.M1]: '1m', [Timeframe.M5]: '5m', [Timeframe.M15]: '15m',
-                    [Timeframe.H1]: '1h', [Timeframe.D1]: '1d'
-                };
-
-                const result = await runBacktestWithDhan({
-                    instrument_details: {
-                        security_id: selectedInstrument.security_id,
-                        symbol: selectedInstrument.symbol,
-                        exchange_segment: 'NSE_EQ',
-                        instrument_type: selectedInstrument.instrument_type
-                    },
-                    parameters: {
-                        timeframe: timeframeMap[timeframe] || '1d',
-                        start_date: startDate,
-                        end_date: endDate,
-                        initial_capital: capital,
-                        // Pass statsFreq so backend computes detailed return statistics
-                        statsFreq: timeframe === '1d' ? '1D' : timeframe === '1h' ? '1h' : timeframe === '15m' ? '15m' : timeframe === '5m' ? '5m' : '1D',
-                        strategy_logic: {
-                            id: strategyId,
-                            name: strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy',
-                            stopLossPct,
-                            takeProfitPct,
-                            useTrailingStop,
-                            pyramiding,
-                            positionSizing,
-                            positionSizeValue,
-                            ...params
-                        }
-                    }
-                });
-
-                if (result) {
-                    navigate('/results', { state: { result } });
-                }
-            } else {
-                // Path 3: Fallback for Universe mode
-                const config: any = {
-                    capital, slippage, commission, ...params
-                };
-
-                if (mode === 'UNIVERSE') {
-                    config.universe = universe;
-                }
-
-                const extendedConfig = {
-                    ...config,
-                    statsFreq: timeframe === '1d' ? '1D' : timeframe === '1h' ? '1h' : timeframe === '15m' ? '15m' : timeframe === '5m' ? '5m' : '1D',
-                };
-                const result = await runBacktest(strategyId, mode === 'SINGLE' ? symbol : universe, extendedConfig);
-                if (result) result.timeframe = timeframe;
-                navigate('/results', { state: { result } });
-            }
-        } catch (e) {
-            alert("Backtest Failed: " + e);
-            logActiveRun(null);
-        } finally {
-            setRunning(false);
-        }
-    };
-
-    const handleOOSValidation = async () => {
-        if (!selectedInstrument || top5Trials.length === 0) {
-            alert("Please run an optimization first to generate Top 5 parameter sets.");
-            return;
-        }
-
-        setIsOosValidating(true);
-        try {
-            const result = await runOOSValidation(
-                selectedInstrument.symbol,
-                strategyId,
-                top5Trials.map((t: any) => t.paramSet),
-                startDate,
-                endDate
-            );
-
-            if (result && Array.isArray(result.results) && result.results.length > 0) {
-                // Pre-process results to include timeframe, symbol, and strategyName for the Results page
-                const formattedResults = result.results.map((res: any) => ({
-                    ...res,
-                    timeframe,
-                    symbol: selectedInstrument.symbol,
-                    strategyName: strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy'
-                }));
-                // Route to results page with the array of OOS validations
-                navigate('/results', { state: { result: formattedResults, isOOSArray: true } });
-            } else {
-                alert("OOS Validation failed to return data array.");
-            }
-        } catch (e: any) {
-            console.error("OOS Validation error", e);
-            alert("OOS Validation Failed: " + (e.message || e));
-        } finally {
-            setIsOosValidating(false);
-        }
-    };
+    // Handler hooks
+    const { handleLoadData } = useDataLoader();
+    const { handleRun, handleOOSValidation } = useBacktestRunner();
 
     return {
         state: {
-            running, mode, segment, symbol, symbolSearchQuery, searchResults, selectedInstrument,
-            isSearching, universe, timeframe, strategyId, customStrategies, startDate, endDate,
-            params, capital, slippage, commission, showAdvanced, dataStatus, healthReport,
-            isDynamic, wfoConfig, paramRanges, showRanges,
-            top5Trials, oosResults, isOosValidating,
-            stopLossPct, stopLossEnabled, takeProfitPct, takeProfitEnabled, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
-            fullReportData, isReportOpen, useLookback, lookbackMonths
+            running: context.running,
+            mode: context.mode,
+            segment: context.segment,
+            symbol: context.symbol,
+            symbolSearchQuery: context.symbolSearchQuery,
+            searchResults: context.searchResults,
+            selectedInstrument: context.selectedInstrument,
+            isSearching: context.isSearching,
+            universe: context.universe,
+            timeframe: context.timeframe,
+            strategyId: context.strategyId,
+            customStrategies: context.customStrategies,
+            startDate: context.startDate,
+            endDate: context.endDate,
+            params: context.params,
+            capital: context.capital,
+            slippage: context.slippage,
+            commission: context.commission,
+            showAdvanced: context.showAdvanced,
+            dataStatus: context.dataStatus,
+            healthReport: context.healthReport,
+            isDynamic: context.isDynamic,
+            wfoConfig: context.wfoConfig,
+            paramRanges: context.paramRanges,
+            showRanges: context.showRanges,
+            top5Trials: context.top5Trials,
+            oosResults: context.oosResults,
+            isOosValidating: context.isOosValidating,
+            stopLossPct: context.stopLossPct,
+            stopLossEnabled: context.stopLossEnabled,
+            takeProfitPct: context.takeProfitPct,
+            takeProfitEnabled: context.takeProfitEnabled,
+            useTrailingStop: context.useTrailingStop,
+            pyramiding: context.pyramiding,
+            positionSizing: context.positionSizing,
+            positionSizeValue: context.positionSizeValue,
+            fullReportData: context.fullReportData,
+            isReportOpen: context.isReportOpen,
+            useLookback: context.useLookback,
+            lookbackMonths: context.lookbackMonths,
+            enableDataSplit: context.enableDataSplit,
+            splitRatio: context.splitRatio,
         },
         setters: {
-            setRunning, setMode, setSegment, setSymbol, setSymbolSearchQuery, setSearchResults,
-            setSelectedInstrument, setIsSearching, setUniverse, setTimeframe, setStrategyId, setCustomStrategies,
-            setStartDate, setEndDate, setParams, setCapital, setSlippage, setCommission,
-            setShowAdvanced, setDataStatus, setHealthReport, setIsDynamic, setWfoConfig,
-            setParamRanges, setShowRanges, setTop5Trials, setOosResults, setIsOosValidating,
-            setStopLossPct, setStopLossEnabled, setTakeProfitPct, setTakeProfitEnabled, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
-            setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths
+            setRunning: context.setRunning,
+            setMode: context.setMode,
+            setSegment: context.setSegment,
+            setSymbol: context.setSymbol,
+            setSymbolSearchQuery: context.setSymbolSearchQuery,
+            setSearchResults: context.setSearchResults,
+            setSelectedInstrument: context.setSelectedInstrument,
+            setIsSearching: context.setIsSearching,
+            setUniverse: context.setUniverse,
+            setTimeframe: context.setTimeframe,
+            setStrategyId: context.setStrategyId,
+            setCustomStrategies: context.setCustomStrategies,
+            setStartDate: context.setStartDate,
+            setEndDate: context.setEndDate,
+            setParams: context.setParams,
+            setCapital: context.setCapital,
+            setSlippage: context.setSlippage,
+            setCommission: context.setCommission,
+            setShowAdvanced: context.setShowAdvanced,
+            setDataStatus: context.setDataStatus,
+            setHealthReport: context.setHealthReport,
+            setIsDynamic: context.setIsDynamic,
+            setWfoConfig: context.setWfoConfig,
+            setParamRanges: context.setParamRanges,
+            setShowRanges: context.setShowRanges,
+            setTop5Trials: context.setTop5Trials,
+            setOosResults: context.setOosResults,
+            setIsOosValidating: context.setIsOosValidating,
+            setStopLossPct: context.setStopLossPct,
+            setStopLossEnabled: context.setStopLossEnabled,
+            setTakeProfitPct: context.setTakeProfitPct,
+            setTakeProfitEnabled: context.setTakeProfitEnabled,
+            setUseTrailingStop: context.setUseTrailingStop,
+            setPyramiding: context.setPyramiding,
+            setPositionSizing: context.setPositionSizing,
+            setPositionSizeValue: context.setPositionSizeValue,
+            setFullReportData: context.setFullReportData,
+            setIsReportOpen: context.setIsReportOpen,
+            setUseLookback: context.setUseLookback,
+            setLookbackMonths: context.setLookbackMonths,
+            setEnableDataSplit: context.setEnableDataSplit,
+            setSplitRatio: context.setSplitRatio,
         },
         handlers: {
-            handleLoadData, handleRun, handleOOSValidation
-        }
+            handleLoadData,
+            handleRun,
+            handleOOSValidation,
+        },
     };
 };

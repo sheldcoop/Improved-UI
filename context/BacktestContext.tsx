@@ -102,6 +102,12 @@ interface BacktestContextType {
     lookbackMonths: number;
     setLookbackMonths: (val: number) => void;
 
+    // Optimization data split (set on Backtest page, shared with Optimization page)
+    enableDataSplit: boolean;
+    setEnableDataSplit: (val: boolean) => void;
+    splitRatio: number;           // integer 50–90 (percentage)
+    setSplitRatio: (val: number) => void;
+
     // Loading guards
     isFetchingData: boolean;
     setIsFetchingData: (val: boolean) => void;
@@ -162,6 +168,8 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
     const [useLookback, setUseLookback] = useState(false);
     const [lookbackMonths, setLookbackMonths] = useState(12);
     const [isFetchingData, setIsFetchingData] = useState(false);
+    const [enableDataSplit, setEnableDataSplit] = useState(false);
+    const [splitRatio, setSplitRatio] = useState(70);
     const [statsFreq, setStatsFreq] = useState<string | null>(() => load('statsFreq', null));
     const [statsWindow, setStatsWindow] = useState<number | null>(() => load('statsWindow', null));
     // Save to localStorage effects
@@ -205,7 +213,8 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
         pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
         fullReportData, setFullReportData, isReportOpen, setIsReportOpen,
         useLookback, setUseLookback, lookbackMonths, setLookbackMonths,
-        isFetchingData, setIsFetchingData, statsFreq, setStatsFreq, statsWindow, setStatsWindow
+        isFetchingData, setIsFetchingData, statsFreq, setStatsFreq, statsWindow, setStatsWindow,
+        enableDataSplit, setEnableDataSplit, splitRatio, setSplitRatio,
     };
 
     return <BacktestContext.Provider value={value}>{children}</BacktestContext.Provider>;

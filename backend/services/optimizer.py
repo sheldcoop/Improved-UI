@@ -113,15 +113,20 @@ class OptimizationEngine:
         # overfitting between the two phases.
         df_phase1 = df
         df_phase2 = df
+        phase1_end_date: str | None = None
+        phase2_start_date: str | None = None
         if risk_ranges and 0.0 < phase2_split_ratio < 1.0:
             split_idx = int(len(df) * phase2_split_ratio)
             df_phase1 = df.iloc[:split_idx].copy()
             df_phase2 = df.iloc[split_idx:].copy()
+            # Capture actual calendar boundaries for frontend display
+            phase1_end_date = df_phase1.index[-1].strftime('%Y-%m-%d')
+            phase2_start_date = df_phase2.index[0].strftime('%Y-%m-%d')
             logger.info(
                 f"Data split enabled: Phase1={len(df_phase1)} bars "
-                f"({phase2_split_ratio * 100:.0f}%), "
+                f"({phase2_split_ratio * 100:.0f}%) ending {phase1_end_date}, "
                 f"Phase2={len(df_phase2)} bars "
-                f"({(1 - phase2_split_ratio) * 100:.0f}%)"
+                f"({(1 - phase2_split_ratio) * 100:.0f}%) starting {phase2_start_date}"
             )
 
         # Phase 1: primary parameter search.
@@ -141,7 +146,15 @@ class OptimizationEngine:
             return_trials=True, n_trials=n_trials, config=phase1_config
         )
 
-        response: dict = {"grid": grid, "wfo": [], "bestParams": best_params}
+        # Always include dataset metadata so frontend can show date ranges
+        response: dict = {
+            "grid": grid,
+            "wfo": [],
+            "bestParams": best_params,
+            "totalBars": len(df),
+            "dataStartDate": df.index[0].strftime('%Y-%m-%d'),
+            "dataEndDate": df.index[-1].strftime('%Y-%m-%d'),
+        }
 
         # if risk_ranges supplied, run second-phase optimisation
         if risk_ranges:
@@ -157,6 +170,10 @@ class OptimizationEngine:
                 response["combinedParams"] = {**best_params, **risk_best}
                 if phase2_split_ratio > 0.0:
                     response["splitRatio"] = phase2_split_ratio
+                    response["phase1EndDate"] = phase1_end_date
+                    response["phase2StartDate"] = phase2_start_date
+                    response["phase1Bars"] = len(df_phase1)
+                    response["phase2Bars"] = len(df_phase2)
             except Exception as e:
                 logger.warning(f"Secondary risk optimisation failed: {e}")
                 # leave risk keys out if it fails
@@ -182,6 +199,9 @@ class OptimizationEngine:
         # Normalize columns consistency (Issue #Alignment)
         if isinstance(df, pd.DataFrame):
             df.columns = [c.capitalize() for c in df.columns]
+            # Dhan API sometimes returns duplicate columns — keep only the first
+            # occurrence so df['Close'] always returns a Series.
+            df = df.loc[:, ~df.columns.duplicated()]
 
         # Non-parameter keys injected by routes (startDate, endDate, reproducible) — skip them
         _META_KEYS = frozenset({"startDate", "endDate", "reproducible"})
@@ -240,9 +260,11 @@ class OptimizationEngine:
                     pf, scoring_metric
                 )
 
-                # count trades (closed trades is most appropriate)
+                # count all trades (open + closed) — using .closed.count() misses
+                # positions still held at the end of the window (VectorBT keeps them
+                # open rather than force-closing them).
                 try:
-                    trade_count = int(pf.trades.closed.count())
+                    trade_count = int(OptimizationEngine._to_scalar(pf.trades.count()))
                 except Exception:
                     trade_count = 0
             except Exception as e:
@@ -280,31 +302,43 @@ class OptimizationEngine:
         
         study.optimize(objective, n_trials=n_trials)
         
-        valid_trials = [t for t in study.trials if t.value is not None and t.value != -999]
+        valid_trials = [
+            t for t in study.trials
+            if t.value is not None
+            and np.isfinite(t.value)   # rejects inf/-inf
+            and t.value != -999        # rejects penalised (zero-trade) trials
+        ]
         if len(valid_trials) == 0:
-            logger.warning("Optuna found no valid parameter sets. Returning default or raising.")
-            raise ValueError("Optimization failed: No valid parameter sets found in search space.")
+            logger.warning("Optuna found no valid parameter sets — all trials produced 0 trades or invalid scores.")
+            raise ValueError(
+                "Optimization produced no valid results: every parameter combination "
+                "generated 0 trades on this dataset. Try widening the RSI ranges "
+                "(lower threshold higher, upper threshold lower) or use a longer date range."
+            )
 
         logger.info(f"--- OPTIMIZATION COMPLETE ---")
-        logger.info(f"Best Params: {study.best_params} | Best Score: {study.best_value:.4f}")
+        best_val_display = f"{study.best_value:.4f}" if np.isfinite(study.best_value) else str(study.best_value)
+        logger.info(f"Best Params: {study.best_params} | Best Score: {best_val_display}")
         
         if return_trials:
-            # Format trials for frontend
+            # Format trials for frontend — only include valid (trade-generating) trials
             grid_results = []
             seen_params = set()
             for trial in study.trials:
+                # Skip penalised / zero-trade / inf trials
                 if trial.value is None or trial.value == -999: continue
-                
+                if not np.isfinite(trial.value): continue
+
                 # Deduplicate parameters so the UI table is clean
                 param_str = str(trial.params)
                 if param_str in seen_params: continue
                 seen_params.add(param_str)
-                
+
                 # Retrieve stored metrics or fallback to defaults
                 sharpe = trial.user_attrs.get("sharpe", 0.0)
                 return_pct = trial.user_attrs.get("returnPct", 0.0)
                 drawdown = trial.user_attrs.get("drawdown", 0.0)
-                
+
                 grid_results.append({
                     "paramSet": trial.params,
                     "sharpe": round(sharpe, 2),
@@ -314,7 +348,7 @@ class OptimizationEngine:
                     "winRate": round(float(trial.user_attrs.get("winRate", 0.0)), 1),
                     "score": round(float(trial.value), 4)
                 })
-            
+
             # Sort by score descending so the frontend displays the actual best trials
             grid_results.sort(key=lambda x: x["score"], reverse=True)
             return study.best_params, grid_results
@@ -357,6 +391,7 @@ class OptimizationEngine:
         # Normalize columns
         if isinstance(full_df, pd.DataFrame):
             full_df.columns = [c.capitalize() for c in full_df.columns]
+            full_df = full_df.loc[:, ~full_df.columns.duplicated()]
 
         # Slice to the lookback window, handling tz-aware vs tz-naive indexes
         try:
@@ -548,41 +583,81 @@ class OptimizationEngine:
         return vbt.Portfolio.from_signals(close_series, entries, exits, **pf_kwargs)
 
     @staticmethod
+    def _to_scalar(val) -> float:
+        """Safely convert a VectorBT metric to a Python float.
+
+        VectorBT may return a pd.Series instead of a scalar when the portfolio
+        was built from a sliced DataFrame (e.g. after data-split).  This helper
+        handles Series, numpy scalars, and plain Python numbers uniformly.
+        """
+        if isinstance(val, pd.Series):
+            return float(val.iloc[0]) if len(val) > 0 else 0.0
+        if hasattr(val, 'item'):          # np.generic / np.ndarray scalar
+            return float(val.item())
+        return float(val)
+
+    @staticmethod
     def _extract_score(pf: vbt.Portfolio, scoring_metric: str) -> tuple[float, float, float, float, float]:
         """Extract optimizer scores from a portfolio.
-        
+
         Returns:
             Tuple: (target_score, sharpe, return_pct, max_drawdown_pct, win_rate)
         """
-        total_return = float(pf.total_return())
-        sharpe = float(pf.sharpe_ratio()) if not np.isnan(pf.sharpe_ratio()) else 0.0
-        max_dd = float(pf.max_drawdown())
-        
+        to_s = OptimizationEngine._to_scalar
+
+        # --- trade count (needed early to penalise zero-trade configs) ---
+        # Use .count() (all trades) not .closed.count() — VectorBT keeps the last
+        # position open rather than force-closing it, so .closed misses real trades.
+        trade_count = 0
+        try:
+            trade_count = int(to_s(pf.trades.count()))
+        except Exception:
+            pass
+
+        total_return = to_s(pf.total_return())
+
+        # Sharpe: inf/-inf arise when 0 trades are executed (no P&L volatility
+        # → returns std = 0 → division by zero).  Treat those as 0 so that
+        # zero-trade parameter sets are never selected as "best".
+        _raw_sharpe = pf.sharpe_ratio()
+        sharpe_val = to_s(_raw_sharpe)
+        if not np.isfinite(sharpe_val):
+            sharpe_val = 0.0
+        sharpe = sharpe_val if not np.isnan(sharpe_val) else 0.0
+
+        max_dd = to_s(pf.max_drawdown())
+
         calmar = 0.0
         try:
             stats = pf.stats()
-            calmar = float(stats.get("Calmar Ratio", 0.0))
+            calmar = to_s(stats.get("Calmar Ratio", 0.0))
+            if not np.isfinite(calmar):
+                calmar = 0.0
         except Exception:
             pass
-        
+
         win_rate = 0.0
         try:
-            closed_trades = pf.trades.closed.count()
-            winning_trades = pf.trades.winning.count()
-            if closed_trades > 0:
-                win_rate = (winning_trades / closed_trades) * 100
-        except (AttributeError, ValueError):
+            winning_trades = int(to_s(pf.trades.winning.count()))
+            if trade_count > 0:
+                win_rate = (winning_trades / trade_count) * 100
+        except (AttributeError, ValueError, TypeError):
             pass
+
+        # Hard-penalise configs that generated zero trades — they are useless
+        # regardless of what VectorBT returns for the metric.
+        if trade_count == 0:
+            return -999.0, 0.0, 0.0, 0.0, 0.0
 
         if scoring_metric == "total_return":
             score = total_return
         elif scoring_metric == "calmar":
             score = calmar
         elif scoring_metric == "drawdown":
-            # Optuna maximizes, so we pass the negative of the *raw* (positive absolute) percentage. 
-            # E.g. a 5% drawdown is -5.0 score. 
+            # Optuna maximizes, so we pass the negative of the *raw* (positive absolute) percentage.
+            # E.g. a 5% drawdown is -5.0 score.
             score = -abs(max_dd) * 100
         else:
             score = sharpe
-            
+
         return score, sharpe, total_return * 100, abs(max_dd) * 100, win_rate
