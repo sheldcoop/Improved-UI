@@ -48,13 +48,8 @@ class WFOEngine:
             to_date=user_end_str,
         )
 
-        if df is not None:
-            # Normalize column names to title-case so strategies can always
-            # reference 'Close', 'Open', 'High', 'Low', 'Volume' consistently.
-            df.columns = [c.capitalize() for c in df.columns]
-            # Dhan API sometimes returns duplicate columns — keep only the first
-            # occurrence of each name so df['Close'] returns a Series, not a DataFrame.
-            df = df.loc[:, ~df.columns.duplicated()]
+        # Column names are already Title-Case and deduplicated by DataFetcher.
+        # No rename needed here.
 
         if df is not None and user_end_str:
             try:

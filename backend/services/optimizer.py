@@ -196,12 +196,8 @@ class OptimizationEngine:
         if config is None: config = {}
         trial_logs = []
 
-        # Normalize columns consistency (Issue #Alignment)
-        if isinstance(df, pd.DataFrame):
-            df.columns = [c.capitalize() for c in df.columns]
-            # Dhan API sometimes returns duplicate columns — keep only the first
-            # occurrence so df['Close'] always returns a Series.
-            df = df.loc[:, ~df.columns.duplicated()]
+        # Column names are already Title-Case and deduplicated by DataFetcher.
+        # No rename needed here.
 
         # Non-parameter keys injected by routes (startDate, endDate, reproducible) — skip them
         _META_KEYS = frozenset({"startDate", "endDate", "reproducible"})
@@ -388,10 +384,7 @@ class OptimizationEngine:
         if full_df is None or (isinstance(full_df, pd.DataFrame) and full_df.empty):
             return {"status": "error", "message": f"No cached data for {symbol}. Please click 'Load Data' first."}
 
-        # Normalize columns
-        if isinstance(full_df, pd.DataFrame):
-            full_df.columns = [c.capitalize() for c in full_df.columns]
-            full_df = full_df.loc[:, ~full_df.columns.duplicated()]
+        # Column names already Title-Case from DataFetcher — no rename needed.
 
         # Slice to the lookback window, handling tz-aware vs tz-naive indexes
         try:

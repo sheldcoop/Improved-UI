@@ -205,13 +205,22 @@ class DataFetcher:
     def _filter_and_standardize(
         self, df: pd.DataFrame, start: Optional[pd.Timestamp], end: Optional[pd.Timestamp]
     ) -> pd.DataFrame:
-        """Filter to range and ensure column casing."""
+        """Filter to range and ensure column casing.
+
+        All callers (optimizer, WFO engine, backtest engine, strategies) expect
+        Title-Case column names: Open, High, Low, Close, Volume.
+        Normalise here — the single exit point — so no downstream code needs
+        to rename columns and duplicate-column bugs cannot arise.
+        """
         if df.empty:
             return df
-            
-        # Ensure column casing
-        df.columns = [c.lower() for c in df.columns]
-        
+
+        # Normalise to Title-Case and drop any duplicate column names that the
+        # Dhan API sometimes produces (e.g. two 'close' columns in one response).
+        df = df.copy()
+        df.columns = [c.capitalize() for c in df.columns]
+        df = df.loc[:, ~df.columns.duplicated()]
+
         res = df
         if start:
             if res.index.tz and not start.tz:
