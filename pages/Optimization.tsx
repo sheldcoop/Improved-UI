@@ -569,12 +569,15 @@ const Optimization: React.FC = () => {
                                                 phase2SplitRatio: enableDataSplit ? splitRatio / 100 : 0.0,
                                             });
                                             // Change 8D: merge results — keep Phase 1 grid visible, add Phase 2 data
-                                            setOptResults(prev => ({
-                                                ...(prev ?? {}),
+                                            // merge new risk-search results with any existing grid data
+                                            // since `setOptResults` does not accept a functional updater we
+                                            // build the object explicitly using the current `optResults`
+                                            setOptResults({
+                                                ...((optResults ?? {}) as any),
                                                 ...res,
                                                 wfo: [],
                                                 period: undefined,
-                                            }));
+                                            });
                                         } catch (e) {
                                             alert("Risk optimisation failed: " + e);
                                         }
