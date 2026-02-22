@@ -27,6 +27,14 @@ const MetricBox: React.FC<{ label: string; value: string; subValue?: string; goo
   </div>
 );
 
+// helper to format numbers safely (used elsewhere too)
+const safeToFixed = (val: number | null | undefined, decimals: number = 2): string => {
+  if (val === null || val === undefined || isNaN(val)) {
+    return '0.00';
+  }
+  return val.toFixed(decimals);
+};
+
 const TradeTable: React.FC<{ trades: Trade[], onRowClick: (trade: Trade) => void }> = ({ trades, onRowClick }) => (
   <div className="overflow-x-auto max-h-[400px]">
     <table className="w-full text-left text-sm text-slate-400">
@@ -55,13 +63,13 @@ const TradeTable: React.FC<{ trades: Trade[], onRowClick: (trade: Trade) => void
             <td className="px-4 py-3">
               <Badge variant={trade.side === 'LONG' ? 'success' : 'danger'}>{trade.side}</Badge>
             </td>
-            <td className="px-4 py-3 text-right">{trade.entryPrice.toFixed(2)}</td>
-            <td className="px-4 py-3 text-right">{trade.exitPrice.toFixed(2)}</td>
+            <td className="px-4 py-3 text-right">{safeToFixed(trade.entryPrice)}</td>
+            <td className="px-4 py-3 text-right">{safeToFixed(trade.exitPrice)}</td>
             <td className={`px-4 py-3 text-right font-medium ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {trade.pnl.toFixed(2)}
+              {safeToFixed(trade.pnl)}
             </td>
             <td className={`px-4 py-3 text-right ${trade.pnlPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {trade.pnlPct.toFixed(2)}%
+              {safeToFixed(trade.pnlPct)}%
             </td>
           </tr>
         ))}
@@ -346,9 +354,10 @@ const Results: React.FC = () => {
                         domain={zoomLeft && zoomRight ? [zoomLeft, zoomRight] : ['auto', 'auto']}
                         tickFormatter={(val) => formatDateDisplay(val)}
                       />
-                      <YAxis yAxisId="left" stroke={CONFIG.COLORS.TEXT} fontSize={12} tickLine={false} axisLine={false} domain={['auto', 'auto']} tickFormatter={(val) => {
-                          if (curveType === 'EQUITY') return `₹${(val / 1000).toFixed(0)}k`;
-                          return `${val.toFixed(1)}%`;
+<YAxis yAxisId="left" stroke={CONFIG.COLORS.TEXT} fontSize={12} tickLine={false} axisLine={false} domain={["auto", "auto"]} tickFormatter={(val: any) => {
+                          // val may be null on initial render
+                          if (curveType === 'EQUITY') return `₹${safeToFixed(val / 1000, 0)}k`;
+                          return `${safeToFixed(val, 1)}%`;
                       }} />
                       <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9' }} />
 
@@ -428,7 +437,7 @@ const Results: React.FC = () => {
                   return (
                     <div key={idx} className={`rounded-md p-2 flex flex-col items-center justify-center text-xs ${colorClass}`}>
                       <span className="opacity-70 text-[10px] uppercase">{MONTH_NAMES[m.month]}</span>
-                      <span>{m.returnPct > 0 ? '+' : ''}{m.returnPct.toFixed(1)}%</span>
+                      <span>{m.returnPct > 0 ? '+' : ''}{safeToFixed(m.returnPct, 1)}%</span>
                     </div>
                   );
                 })}
