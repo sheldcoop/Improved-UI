@@ -8,9 +8,13 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { useBacktest } from '../hooks/useBacktest';
-import { DataReportModal } from '../components/DataReportModal';
+import DataLoadModal from '../components/DataLoadModal';
 import { DateInput } from '../components/ui/DateInput';
 import MarketDataSelector from '../components/MarketDataSelector';
+import StrategyLogic from '../components/StrategyLogic';
+import AdvancedSettings from '../components/AdvancedSettings';
+import HealthReportCard from '../components/HealthReportCard';
+import DateRangePicker from '../components/DateRangePicker';
 
 const Backtest: React.FC = () => {
   const navigate = useNavigate();
@@ -105,7 +109,6 @@ const Backtest: React.FC = () => {
 
       <Card className="p-8 shadow-2xl shadow-black/50 border-t-4 border-t-emerald-500 flex-1 flex flex-col overflow-y-auto">
         <div className="space-y-8 flex-1 flex flex-col overflow-y-auto">
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {/* 1. ASSET SELECTION (Reusable Component) */}
             <MarketDataSelector
@@ -126,108 +129,64 @@ const Backtest: React.FC = () => {
               timeframe={timeframe}
               setTimeframe={setTimeframe}
             />
-
             {/* 3. DATES, LOAD DATA & SPLITTER */}
             <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center justify-between">
-                  <div className="flex items-center"><Calendar className="w-4 h-4 mr-2" /> Date Range & Data</div>
-                  {dataStatus === 'READY' && <span className="text-xs text-emerald-400 font-mono">DATA LOCKED</span>}
-                </label>
-                <div className="flex space-x-2 mb-3">
-                  <DateInput value={startDate} onChange={setStartDate} className="flex-1" />
-                  <span className="text-slate-600 self-center">-</span>
-                  <DateInput value={endDate} onChange={setEndDate} className="flex-1" />
-                </div>
-
-                {/* Improvement 1: Load Market Data Button */}
-                <Button
-                  variant="secondary"
-                  className={`w-full justify-center ${dataStatus === 'READY' ? 'bg-emerald-900/20 border-emerald-500/50 text-emerald-400' : ''}`}
-                  onClick={handleLoadData}
-                  disabled={dataStatus === 'LOADING' || (mode === 'SINGLE' && !symbol)}
-                  icon={dataStatus === 'LOADING' ? <div className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin"></div> : <Database className="w-4 h-4" />}
-                >
-                  {dataStatus === 'LOADING' ? 'Validating Data...' :
-                    dataStatus === 'READY' ? 'Data Loaded & Validated' :
-                      (mode === 'SINGLE' && !symbol) ? 'Select a Symbol First' : 'Load Market Data'}
-                </Button>
-
-                {/* Lookback Toggle moved here for visibility */}
-                <div className="mt-4 p-3 bg-slate-900/50 rounded-lg border border-slate-800">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center">
-                      <Clock className="w-4 h-4 mr-2 text-indigo-400" />
-                      <span className="text-sm font-medium text-slate-300">Indicator Lookback</span>
-                    </div>
-                    <button
-                      onClick={() => setUseLookback(!useLookback)}
-                      className={`w-10 h-5 rounded-full p-1 transition-colors ${useLookback ? 'bg-emerald-600' : 'bg-slate-700'}`}
-                    >
-                      <div className={`w-3 h-3 rounded-full bg-white transition-transform ${useLookback ? 'translate-x-5' : ''}`} />
-                    </button>
+              <DateRangePicker
+                startDate={startDate}
+                endDate={endDate}
+                setStartDate={setStartDate}
+                setEndDate={setEndDate}
+                dataStatus={dataStatus}
+              />
+              {/* Improvement 1: Load Market Data Button */}
+              <Button
+                variant="secondary"
+                className={`w-full justify-center ${dataStatus === 'READY' ? 'bg-emerald-900/20 border-emerald-500/50 text-emerald-400' : ''}`}
+                onClick={handleLoadData}
+                disabled={dataStatus === 'LOADING' || (mode === 'SINGLE' && !symbol)}
+                icon={dataStatus === 'LOADING' ? <div className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin"></div> : <Database className="w-4 h-4" />}
+              >
+                {dataStatus === 'LOADING' ? 'Validating Data...' :
+                  dataStatus === 'READY' ? 'Data Loaded & Validated' :
+                    (mode === 'SINGLE' && !symbol) ? 'Select a Symbol First' : 'Load Market Data'}
+              </Button>
+              {/* Lookback Toggle moved here for visibility */}
+              <div className="mt-4 p-3 bg-slate-900/50 rounded-lg border border-slate-800">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center">
+                    <Clock className="w-4 h-4 mr-2 text-indigo-400" />
+                    <span className="text-sm font-medium text-slate-300">Indicator Lookback</span>
                   </div>
-
-                  {useLookback ? (
-                    <div className="flex items-center space-x-3 mt-2 animate-in fade-in slide-in-from-top-1">
-                      <span className="text-xs text-slate-500 whitespace-nowrap">Duration (months):</span>
-                      <input
-                        type="number"
-                        min="1"
-                        max="36"
-                        value={lookbackMonths}
-                        onChange={(e) => setLookbackMonths(parseInt(e.target.value) || 1)}
-                        className="w-16 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 text-center focus:ring-1 focus:ring-emerald-500 outline-none"
-                      />
-                      <span className="text-[10px] text-slate-500 italic">Recommended: 12m</span>
-                    </div>
-                  ) : (
-                    <p className="text-[10px] text-slate-500 italic">
-                      Strategy starts exactly on your start date (stabilization not guaranteed).
-                    </p>
-                  )}
+                  <button
+                    onClick={() => setUseLookback(!useLookback)}
+                    className={`w-10 h-5 rounded-full p-1 transition-colors ${useLookback ? 'bg-emerald-600' : 'bg-slate-700'}`}
+                  >
+                    <div className={`w-3 h-3 rounded-full bg-white transition-transform ${useLookback ? 'translate-x-5' : ''}`} />
+                  </button>
                 </div>
-
+                {useLookback ? (
+                  <div className="flex items-center space-x-3 mt-2 animate-in fade-in slide-in-from-top-1">
+                    <span className="text-xs text-slate-500 whitespace-nowrap">Duration (months):</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="36"
+                      value={lookbackMonths}
+                      onChange={(e) => setLookbackMonths(parseInt(e.target.value) || 1)}
+                      className="w-16 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 text-center focus:ring-1 focus:ring-emerald-500 outline-none"
+                    />
+                    <span className="text-[10px] text-slate-500 italic">Recommended: 12m</span>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-slate-500 italic">
+                    Strategy starts exactly on your start date (stabilization not guaranteed).
+                  </p>
+                )}
               </div>
-
               {/* Improvement 2: Data Health Report Card */}
               {dataStatus === 'READY' && healthReport && (
-                <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 animate-in fade-in slide-in-from-top-2">
-                  <div className="flex justify-between items-center mb-3">
-                    <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Health Report</h4>
-                    {renderHealthBadge(healthReport.status)}
-                  </div>
-                  <div className="grid grid-cols-2 gap-y-2 text-sm">
-                    <div className="flex justify-between pr-2 border-r border-slate-800">
-                      <span className="text-slate-500">Quality Score</span>
-                      <span className={`font-mono font-bold ${healthReport.score > 90 ? 'text-emerald-400' : 'text-yellow-400'}`}>{healthReport.score}%</span>
-                    </div>
-                    <div className="flex justify-between pl-2">
-                      <span className="text-slate-500">Total Candles</span>
-                      <span className="font-mono text-slate-200">{healthReport.totalCandles}</span>
-                    </div>
-                    <div className="flex justify-between pr-2 border-r border-slate-800">
-                      <span className="text-slate-500">Missing</span>
-                      <span className={`font-mono ${healthReport.missingCandles > 0 ? 'text-red-400' : 'text-slate-200'}`}>{healthReport.missingCandles}</span>
-                    </div>
-                    <div className="flex justify-between pl-2">
-                      <span className="text-slate-500">Zero Volume</span>
-                      <span className={`font-mono ${healthReport.zeroVolumeCandles > 0 ? 'text-yellow-400' : 'text-slate-200'}`}>{healthReport.zeroVolumeCandles}</span>
-                    </div>
-                  </div>
-                  {healthReport.gaps.length > 0 && (
-                    <div className="mt-2 pt-2 border-t border-slate-800">
-                      <p className="text-xs text-red-400 flex items-center"><AlertTriangle className="w-3 h-3 mr-1" /> Gap detected near {healthReport.gaps[0]}</p>
-                    </div>
-                  )}
-                  {healthReport.note && (
-                    <div className="mt-2 pt-2 border-t border-slate-800">
-                      <p className="text-xs text-yellow-400">{healthReport.note}</p>
-                    </div>
-                  )}
-                </div>
+                <HealthReportCard healthReport={healthReport} />
               )}
-
               <div className="pt-2">
                 <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center">
                   <DollarSign className="w-4 h-4 mr-2" /> Initial Capital
@@ -241,178 +200,35 @@ const Backtest: React.FC = () => {
               </div>
             </div>
           </div>
-
-          {/* 3. STRATEGY SELECTION & DYNAMIC PARAMS */}
-          <div className="bg-slate-950/50 p-6 rounded-xl border border-slate-800">
-            <div className="flex items-center justify-between mb-4">
-              <label className="text-sm font-medium text-slate-400 flex items-center">
-                <Layers className="w-4 h-4 mr-2" /> Strategy Logic
-              </label>
-              {dataStatus !== 'READY' && (
-                <div className="text-xs text-yellow-500 flex items-center bg-yellow-500/10 px-2 py-1 rounded">
-                  <AlertTriangle className="w-3 h-3 mr-1" /> Pending Data
-                </div>
-              )}
-            </div>
-
-            {/* make the selector noticeably wider than the parameter inputs and give params a little breathing room */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="md:col-span-2">
-                <select
-                  value={strategyId}
-                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setStrategyId(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:ring-1 focus:ring-emerald-500 outline-none"
-                  disabled={dataStatus !== 'READY'}
-                >
-                  <optgroup label="Preset Strategies">
-                    <option value="3">Moving Average Crossover</option>
-                    <option value="1">RSI Mean Reversion</option>
-                  </optgroup>
-                  {customStrategies.length > 0 && (
-                    <optgroup label="My Custom Strategies">
-                      {customStrategies.map((s: Strategy) => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
-              </div>
-
-              {/* In-Place Parameter Overrides & Optimization Helpers */}
-              <div className={`md:col-span-2 space-y-4 ${dataStatus !== 'READY' ? 'opacity-50 pointer-events-none' : ''}`}>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {customStrategies.find((s: Strategy) => s.id === strategyId)?.params?.map((param: any) => (
-                    <div key={param.name}>
-                      <label className="text-xs text-slate-500 block mb-1">
-                        {param.name.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
-                      </label>
-                      <input
-                        type="number"
-                        step={param.type === 'float' ? '0.1' : '1'}
-                        value={params[param.name] ?? param.default}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setParams({ ...params, [param.name]: param.type === 'float' ? parseFloat(e.target.value) : parseInt(e.target.value) })}
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200"
-                      />
-                    </div>
-                  ))}
-
-                  {/* Stop Loss + Trailing Stop — grouped as one unit */}
-                  <div className={`space-y-2 ${stopLossEnabled ? 'p-2 bg-slate-900/60 rounded-lg border border-slate-700/60' : ''}`}>
-                    <label className="flex items-center space-x-2 text-xs text-slate-400 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={stopLossEnabled}
-                        onChange={e => {
-                          setStopLossEnabled(e.target.checked);
-                          if (!e.target.checked) { setStopLossPct(0); setUseTrailingStop(false); }
-                        }}
-                        className="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500"
-                      />
-                      <span>Stop Loss %</span>
-                    </label>
-                    {stopLossEnabled && (
-                      <>
-                        <input
-                          type="number" min="0.1" step="0.1"
-                          value={stopLossPct || 2}
-                          onChange={(e) => setStopLossPct(parseFloat(e.target.value))}
-                          className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200"
-                        />
-                        {/* Trailing Stop lives here — only visible when SL is on */}
-                        <label className="flex items-center space-x-2 text-xs text-slate-400 cursor-pointer pt-1 border-t border-slate-700/50">
-                          <input
-                            type="checkbox"
-                            checked={useTrailingStop}
-                            onChange={e => setUseTrailingStop(e.target.checked)}
-                            className="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500"
-                          />
-                          <span>Trailing Stop</span>
-                        </label>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Take Profit — checkbox toggles the input */}
-                  <div>
-                    <label className="flex items-center space-x-2 text-xs text-slate-400 cursor-pointer mb-1">
-                      <input
-                        type="checkbox"
-                        checked={takeProfitEnabled}
-                        onChange={e => {
-                          setTakeProfitEnabled(e.target.checked);
-                          if (!e.target.checked) setTakeProfitPct(0);
-                        }}
-                        className="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500"
-                      />
-                      <span>Take Profit %</span>
-                    </label>
-                    {takeProfitEnabled && (
-                      <input
-                        type="number" min="0.1" step="0.1"
-                        value={takeProfitPct || 2}
-                        onChange={(e) => setTakeProfitPct(parseFloat(e.target.value))}
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200"
-                      />
-                    )}
-                  </div>
-                </div>
-
-                {/* Tune Parameters Button */}
-                {(customStrategies.find((s: Strategy) => s.id === strategyId)?.params?.length ?? 0) > 0 && (
-                  <div className={`flex items-center gap-4 bg-slate-900/50 p-3 rounded border border-slate-800 border-dashed transition-opacity`}>
-                    <div className="flex-1">
-                      <p className="text-[11px] text-slate-400">Not sure what parameters to use? Use the Optimizer to scientifically search for the best values.</p>
-                    </div>
-                    <button
-                      onClick={() => navigate('/optimization')}
-                      disabled={dataStatus !== 'READY'}
-                      className={`bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 text-xs font-bold px-4 py-2 rounded border border-indigo-600/30 transition-all flex items-center h-fit shrink-0 ${dataStatus !== 'READY' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      <Sliders className="w-3 h-3 mr-2" />
-                      {dataStatus !== 'READY' ? 'Load Data First' : 'Tune Parameters'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Advanced Settings Toggle */}
-          <div className="border-t border-slate-800 pt-4">
-            <button onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center text-sm text-slate-400 hover:text-emerald-400 transition-colors">
-              <Settings className="w-4 h-4 mr-2" />
-              Advanced Configuration
-              <ChevronDown className={`w-4 h-4 ml-2 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
-            </button>
-            {showAdvanced && (
-              <div className="space-y-6 mt-4 bg-slate-950 p-6 rounded-xl border border-slate-800 animate-in fade-in slide-in-from-top-2">
-                {/* Execution & Sizing */}
-                <div className="space-y-4">
-                  <h4 className="text-xs font-bold text-slate-500 uppercase flex items-center">
-                    <Activity className="w-3 h-3 mr-1" /> Execution & Sizing
-                  </h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-[10px] text-slate-500 block mb-1">Sizing Mode</label>
-                      <select value={positionSizing} onChange={e => setPositionSizing(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500">
-                        <option value="Fixed Capital">Fixed Capital</option>
-                        <option value="Fixed Percent">Fixed Percent</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-slate-500 block mb-1">Sizing Value</label>
-                      <input type="number" value={positionSizeValue} onChange={e => setPositionSizeValue(parseFloat(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500" />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-500 block mb-1">Pyramiding (Max Entries)</label>
-                    <input type="number" min="1" max="10" value={pyramiding} onChange={e => setPyramiding(parseInt(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500" />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
+          <StrategyLogic
+            strategyId={strategyId}
+            setStrategyId={setStrategyId}
+            customStrategies={customStrategies}
+            params={params}
+            setParams={setParams}
+            stopLossEnabled={stopLossEnabled}
+            setStopLossEnabled={setStopLossEnabled}
+            stopLossPct={stopLossPct}
+            setStopLossPct={setStopLossPct}
+            useTrailingStop={useTrailingStop}
+            setUseTrailingStop={setUseTrailingStop}
+            takeProfitEnabled={takeProfitEnabled}
+            setTakeProfitEnabled={setTakeProfitEnabled}
+            takeProfitPct={takeProfitPct}
+            setTakeProfitPct={setTakeProfitPct}
+            dataStatus={dataStatus}
+            navigate={navigate}
+          />
+          <AdvancedSettings
+            positionSizing={positionSizing}
+            setPositionSizing={setPositionSizing}
+            positionSizeValue={positionSizeValue}
+            setPositionSizeValue={setPositionSizeValue}
+            pyramiding={pyramiding}
+            setPyramiding={setPyramiding}
+            showAdvanced={showAdvanced}
+            setShowAdvanced={setShowAdvanced}
+          />
           <div className="pt-2 space-y-4">
             <button
               onClick={handleRun}
@@ -434,11 +250,23 @@ const Backtest: React.FC = () => {
           </div>
         </div>
       </Card>
-
-      <DataReportModal
+      <DataLoadModal
         isOpen={isReportOpen}
         onClose={() => setIsReportOpen(false)}
-        report={fullReportData}
+        report={{
+          score: healthReport?.score ?? 0,
+          status: healthReport?.status ?? 'Unknown',
+          totalCandles: healthReport?.totalCandles ?? 0,
+          missingCandles: healthReport?.missingCandles ?? 0,
+          startDate: startDate,
+          endDate: endDate,
+          previewRows: fullReportData?.sample ?? [],
+          note: healthReport?.note ?? '',
+        }}
+        onAcknowledge={() => {
+          setIsReportOpen(false);
+          // Optionally sync or trigger any other action here
+        }}
       />
     </div>
   );
