@@ -49,8 +49,12 @@ interface BacktestContextType {
     setShowAdvanced: (val: boolean) => void;
     stopLossPct: number;
     setStopLossPct: (val: number) => void;
+    stopLossEnabled: boolean;
+    setStopLossEnabled: (val: boolean) => void;
     takeProfitPct: number;
     setTakeProfitPct: (val: number) => void;
+    takeProfitEnabled: boolean;
+    setTakeProfitEnabled: (val: boolean) => void;
     useTrailingStop: boolean;
     setUseTrailingStop: (val: boolean) => void;
     pyramiding: number;
@@ -77,8 +81,6 @@ interface BacktestContextType {
     setParamRanges: (val: Record<string, { min: number; max: number; step: number }>) => void;
     showRanges: boolean;
     setShowRanges: (val: boolean) => void;
-    reproducible: boolean;
-    setReproducible: (val: boolean) => void;
     // stored optimisation results (grid / wfo etc). persisted in memory so we
     // don't lose them when switching pages.
     optResults: (OptimizationResponse & { wfo: WFOResult[]; period?: string }) | null;
@@ -139,7 +141,9 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
     const [commission, setCommission] = useState(20);
     const [showAdvanced, setShowAdvanced] = useState(false);
     const [stopLossPct, setStopLossPct] = useState(0);
+    const [stopLossEnabled, setStopLossEnabled] = useState(false);
     const [takeProfitPct, setTakeProfitPct] = useState(0);
+    const [takeProfitEnabled, setTakeProfitEnabled] = useState(false);
     const [useTrailingStop, setUseTrailingStop] = useState(false);
     const [pyramiding, setPyramiding] = useState(1);
     const [positionSizing, setPositionSizing] = useState('Fixed Capital');
@@ -150,7 +154,6 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
     const [wfoConfig, setWfoConfig] = useState({ trainWindow: 12, testWindow: 3 });
     const [paramRanges, setParamRanges] = useState<Record<string, { min: number, max: number, step: number }>>({});
     const [showRanges, setShowRanges] = useState(false);
-    const [reproducible, setReproducible] = useState(false);
     const [optResults, setOptResults] = useState<(OptimizationResponse & { wfo: WFOResult[]; period?: string }) | null>(null);
     const [top5Trials, setTop5Trials] = useState<any[]>([]);
     const [oosResults, setOosResults] = useState<any[]>([]);
@@ -192,11 +195,13 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
         commission, setCommission, showAdvanced, setShowAdvanced, running, setRunning,
         dataStatus, setDataStatus, healthReport, setHealthReport, isDynamic, setIsDynamic,
         wfoConfig, setWfoConfig, paramRanges, setParamRanges,
-        showRanges, setShowRanges, reproducible, setReproducible,
+        showRanges, setShowRanges,
         // persisted optimization results
         optResults, setOptResults,
         top5Trials, setTop5Trials, oosResults, setOosResults, isOosValidating, setIsOosValidating,
-        stopLossPct, setStopLossPct, takeProfitPct, setTakeProfitPct, useTrailingStop, setUseTrailingStop,
+        stopLossPct, setStopLossPct, stopLossEnabled, setStopLossEnabled,
+        takeProfitPct, setTakeProfitPct, takeProfitEnabled, setTakeProfitEnabled,
+        useTrailingStop, setUseTrailingStop,
         pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
         fullReportData, setFullReportData, isReportOpen, setIsReportOpen,
         useLookback, setUseLookback, lookbackMonths, setLookbackMonths,

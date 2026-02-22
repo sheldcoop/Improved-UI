@@ -271,8 +271,9 @@ class OptimizationEngine:
         logger.info(f"--- OPTIMIZATION START ---")
         logger.info(f"Metric: {scoring_metric} | Strategy: {strategy_id} | Bars: {len(df)} | Freq: {vbt_freq}")
         
-        seed = 42 if ranges.get("reproducible", False) else None
-        sampler = optuna.samplers.TPESampler(seed=seed)
+        # Always use a fixed seed so results are reproducible across runs.
+        # TPE with seed=42 gives stable, deterministic trial ordering.
+        sampler = optuna.samplers.TPESampler(seed=42)
         pruner = optuna.pruners.MedianPruner(n_startup_trials=5)
         
         study = optuna.create_study(direction="maximize", sampler=sampler, pruner=pruner)

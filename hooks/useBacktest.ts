@@ -21,9 +21,11 @@ export const useBacktest = () => {
         commission, setCommission, showAdvanced, setShowAdvanced, dataStatus, setDataStatus,
         healthReport, setHealthReport, isDynamic, setIsDynamic, wfoConfig, setWfoConfig,
         paramRanges, setParamRanges,
-        showRanges, setShowRanges, reproducible, setReproducible, top5Trials, setTop5Trials,
+        showRanges, setShowRanges, top5Trials, setTop5Trials,
         oosResults, setOosResults, isOosValidating, setIsOosValidating,
-        stopLossPct, setStopLossPct, takeProfitPct, setTakeProfitPct, useTrailingStop, setUseTrailingStop,
+        stopLossPct, setStopLossPct, stopLossEnabled, setStopLossEnabled,
+        takeProfitPct, setTakeProfitPct, takeProfitEnabled, setTakeProfitEnabled,
+        useTrailingStop, setUseTrailingStop,
         pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
         fullReportData, setFullReportData, isReportOpen, setIsReportOpen,
         useLookback, setUseLookback, lookbackMonths, setLookbackMonths,
@@ -218,7 +220,6 @@ export const useBacktest = () => {
                             scoringMetric: 'sharpe',
                             initial_capital: capital
                         },
-                        reproducible: reproducible,
                         fullResults: true
                     })
                 });
@@ -257,6 +258,8 @@ export const useBacktest = () => {
                         start_date: startDate,
                         end_date: endDate,
                         initial_capital: capital,
+                        // Pass statsFreq so backend computes detailed return statistics
+                        statsFreq: timeframe === '1d' ? '1D' : timeframe === '1h' ? '1h' : timeframe === '15m' ? '15m' : timeframe === '5m' ? '5m' : '1D',
                         strategy_logic: {
                             id: strategyId,
                             name: strategyId === '1' ? 'RSI Mean Reversion' : strategyId === '3' ? 'Moving Average Crossover' : 'Custom Strategy',
@@ -267,8 +270,7 @@ export const useBacktest = () => {
                             positionSizing,
                             positionSizeValue,
                             ...params
-                        },
-                        // statsFreq and statsWindow are no longer tracked in context
+                        }
                     }
                 });
 
@@ -286,7 +288,8 @@ export const useBacktest = () => {
                 }
 
                 const extendedConfig = {
-                    ...config
+                    ...config,
+                    statsFreq: timeframe === '1d' ? '1D' : timeframe === '1h' ? '1h' : timeframe === '15m' ? '15m' : timeframe === '5m' ? '5m' : '1D',
                 };
                 const result = await runBacktest(strategyId, mode === 'SINGLE' ? symbol : universe, extendedConfig);
                 if (result) result.timeframe = timeframe;
@@ -342,9 +345,9 @@ export const useBacktest = () => {
             running, mode, segment, symbol, symbolSearchQuery, searchResults, selectedInstrument,
             isSearching, universe, timeframe, strategyId, customStrategies, startDate, endDate,
             params, capital, slippage, commission, showAdvanced, dataStatus, healthReport,
-            isDynamic, wfoConfig, paramRanges, showRanges, reproducible,
+            isDynamic, wfoConfig, paramRanges, showRanges,
             top5Trials, oosResults, isOosValidating,
-            stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
+            stopLossPct, stopLossEnabled, takeProfitPct, takeProfitEnabled, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
             fullReportData, isReportOpen, useLookback, lookbackMonths
         },
         setters: {
@@ -352,8 +355,8 @@ export const useBacktest = () => {
             setSelectedInstrument, setIsSearching, setUniverse, setTimeframe, setStrategyId, setCustomStrategies,
             setStartDate, setEndDate, setParams, setCapital, setSlippage, setCommission,
             setShowAdvanced, setDataStatus, setHealthReport, setIsDynamic, setWfoConfig,
-            setParamRanges, setShowRanges, setReproducible, setTop5Trials, setOosResults, setIsOosValidating,
-            setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
+            setParamRanges, setShowRanges, setTop5Trials, setOosResults, setIsOosValidating,
+            setStopLossPct, setStopLossEnabled, setTakeProfitPct, setTakeProfitEnabled, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
             setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths
         },
         handlers: {

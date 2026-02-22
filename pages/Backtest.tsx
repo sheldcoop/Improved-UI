@@ -22,9 +22,9 @@ const Backtest: React.FC = () => {
     running, mode, segment, symbol, symbolSearchQuery, searchResults, selectedInstrument,
     isSearching, universe, timeframe, strategyId, customStrategies, startDate, endDate,
     params, capital, slippage, commission, showAdvanced, dataStatus, healthReport,
-    isDynamic, wfoConfig, paramRanges, showRanges, reproducible,
+    isDynamic, wfoConfig, paramRanges, showRanges,
     top5Trials, oosResults, isOosValidating,
-    stopLossPct, takeProfitPct, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
+    stopLossPct, stopLossEnabled, takeProfitPct, takeProfitEnabled, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
     fullReportData, isReportOpen, useLookback, lookbackMonths
   } = state;
   const {
@@ -32,9 +32,9 @@ const Backtest: React.FC = () => {
     setIsSearching, setUniverse, setTimeframe, setStrategyId, setCustomStrategies, setParams,
     setStartDate, setEndDate, setCapital, setSlippage, setCommission, setShowAdvanced,
     setDataStatus, setHealthReport, setRunning, setIsDynamic, setWfoConfig,
-    setParamRanges, setShowRanges, setReproducible, setTop5Trials,
+    setParamRanges, setShowRanges, setTop5Trials,
     setOosResults, setIsOosValidating,
-    setStopLossPct, setTakeProfitPct, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
+    setStopLossPct, setStopLossEnabled, setTakeProfitPct, setTakeProfitEnabled, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
     setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths
   } = setters;
   const { handleLoadData, handleRun, handleOOSValidation } = handlers;
@@ -406,26 +406,64 @@ const Backtest: React.FC = () => {
                     </div>
                   ))}
 
-                  {/* always expose stop-loss and take-profit as top‑level overrides */}
-                  <div>
-                    <label className="text-xs text-slate-500 block mb-1">Stop Loss %</label>
-                    <input
-                        type="number" min="0"
-                      step="0.1"
-                      value={stopLossPct}
-                      onChange={(e) => setStopLossPct(parseFloat(e.target.value))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200"
-                    />
+                  {/* Stop Loss + Trailing Stop — grouped as one unit */}
+                  <div className={`space-y-2 ${stopLossEnabled ? 'p-2 bg-slate-900/60 rounded-lg border border-slate-700/60' : ''}`}>
+                    <label className="flex items-center space-x-2 text-xs text-slate-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={stopLossEnabled}
+                        onChange={e => {
+                          setStopLossEnabled(e.target.checked);
+                          if (!e.target.checked) { setStopLossPct(0); setUseTrailingStop(false); }
+                        }}
+                        className="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500"
+                      />
+                      <span>Stop Loss %</span>
+                    </label>
+                    {stopLossEnabled && (
+                      <>
+                        <input
+                          type="number" min="0.1" step="0.1"
+                          value={stopLossPct || 2}
+                          onChange={(e) => setStopLossPct(parseFloat(e.target.value))}
+                          className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200"
+                        />
+                        {/* Trailing Stop lives here — only visible when SL is on */}
+                        <label className="flex items-center space-x-2 text-xs text-slate-400 cursor-pointer pt-1 border-t border-slate-700/50">
+                          <input
+                            type="checkbox"
+                            checked={useTrailingStop}
+                            onChange={e => setUseTrailingStop(e.target.checked)}
+                            className="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500"
+                          />
+                          <span>Trailing Stop</span>
+                        </label>
+                      </>
+                    )}
                   </div>
+
+                  {/* Take Profit — checkbox toggles the input */}
                   <div>
-                    <label className="text-xs text-slate-500 block mb-1">Take Profit %</label>
-                    <input
-                      type="number" min="0"
-                      step="0.1"
-                      value={takeProfitPct}
-                      onChange={(e) => setTakeProfitPct(parseFloat(e.target.value))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200"
-                    />
+                    <label className="flex items-center space-x-2 text-xs text-slate-400 cursor-pointer mb-1">
+                      <input
+                        type="checkbox"
+                        checked={takeProfitEnabled}
+                        onChange={e => {
+                          setTakeProfitEnabled(e.target.checked);
+                          if (!e.target.checked) setTakeProfitPct(0);
+                        }}
+                        className="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500"
+                      />
+                      <span>Take Profit %</span>
+                    </label>
+                    {takeProfitEnabled && (
+                      <input
+                        type="number" min="0.1" step="0.1"
+                        value={takeProfitPct || 2}
+                        onChange={(e) => setTakeProfitPct(parseFloat(e.target.value))}
+                        className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200"
+                      />
+                    )}
                   </div>
                 </div>
 
@@ -458,61 +496,27 @@ const Backtest: React.FC = () => {
             </button>
             {showAdvanced && (
               <div className="space-y-6 mt-4 bg-slate-950 p-6 rounded-xl border border-slate-800 animate-in fade-in slide-in-from-top-2">
-                {/* Reproducible Mode Toggle */}
-                <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                  <div>
-                    <h4 className="text-slate-200 font-bold flex items-center">
-                      <Settings className="w-4 h-4 mr-2 text-indigo-400" />
-                      Reproducible Mode
-                    </h4>
-                    <p className="text-xs text-slate-500">
-                      OFF = Random exploration (production)<br />
-                      ON = Fixed seed (debugging/verification)
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setReproducible(!reproducible)}
-                    className={`w-12 h-6 rounded-full p-1 transition-colors ${reproducible ? 'bg-indigo-600' : 'bg-slate-700'}`}
-                  >
-                    <div className={`w-4 h-4 rounded-full bg-white transition-transform ${reproducible ? 'translate-x-6' : ''}`} />
-                  </button>
-                </div>
-
-
-                {/* Risk Management & Execution updated – stop loss and take‑profit are surfaced above */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-4 border-b border-slate-800">
-                  <div className="space-y-4">
-                    <h4 className="text-xs font-bold text-slate-500 uppercase flex items-center">
-                      <Shield className="w-3 h-3 mr-1" /> Risk Management
-                    </h4>
-                    <div className="grid grid-cols-1 gap-4">
-                      <label className="flex items-center space-x-2 text-[10px] text-slate-400 cursor-pointer">
-                        <input type="checkbox" checked={useTrailingStop} onChange={e => setUseTrailingStop(e.target.checked)} className="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500" />
-                        <span>Use Trailing Stop</span>
-                      </label>
-                    </div>
-                  </div>
-                  <div className="space-y-4">
-                    <h4 className="text-xs font-bold text-slate-500 uppercase flex items-center">
-                      <Activity className="w-3 h-3 mr-1" /> Execution & Sizing
-                    </h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-[10px] text-slate-500 block mb-1">Sizing Mode</label>
-                        <select value={positionSizing} onChange={e => setPositionSizing(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500">
-                          <option value="Fixed Capital">Fixed Capital</option>
-                          <option value="Fixed Percent">Fixed Percent</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-[10px] text-slate-500 block mb-1">Sizing Value</label>
-                        <input type="number" value={positionSizeValue} onChange={e => setPositionSizeValue(parseFloat(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500" />
-                      </div>
+                {/* Execution & Sizing */}
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold text-slate-500 uppercase flex items-center">
+                    <Activity className="w-3 h-3 mr-1" /> Execution & Sizing
+                  </h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[10px] text-slate-500 block mb-1">Sizing Mode</label>
+                      <select value={positionSizing} onChange={e => setPositionSizing(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500">
+                        <option value="Fixed Capital">Fixed Capital</option>
+                        <option value="Fixed Percent">Fixed Percent</option>
+                      </select>
                     </div>
                     <div>
-                      <label className="text-[10px] text-slate-500 block mb-1">Pyramiding (Max Entries)</label>
-                      <input type="number" min="1" max="10" value={pyramiding} onChange={e => setPyramiding(parseInt(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500" />
+                      <label className="text-[10px] text-slate-500 block mb-1">Sizing Value</label>
+                      <input type="number" value={positionSizeValue} onChange={e => setPositionSizeValue(parseFloat(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500" />
                     </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500 block mb-1">Pyramiding (Max Entries)</label>
+                    <input type="number" min="1" max="10" value={pyramiding} onChange={e => setPyramiding(parseInt(e.target.value))} className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500" />
                   </div>
                 </div>
               </div>

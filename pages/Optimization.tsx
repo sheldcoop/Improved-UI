@@ -285,8 +285,15 @@ const Optimization: React.FC = () => {
                     <Card title="Hyperparameter Search Space">
                         <div className="space-y-6">
                             <div className="space-y-3">
+                                {/* When Phase 2 is enabled, Phase 1 RSI params are FIXED — visually lock them */}
+                                {enableRiskSearch && (
+                                    <div className="flex items-center space-x-1 text-[10px] text-amber-400 bg-amber-900/20 border border-amber-700/30 rounded px-2 py-1">
+                                        <span>🔒</span>
+                                        <span>Phase 1 parameters are fixed — Phase 2 will search SL/TP with these RSI values locked.</span>
+                                    </div>
+                                )}
                                 {params.map((param) => (
-                                    <div key={param.id} className="grid grid-cols-12 gap-2 items-center bg-slate-950 p-2 rounded border border-slate-800">
+                                    <div key={param.id} className={`grid grid-cols-12 gap-2 items-center bg-slate-950 p-2 rounded border transition-opacity ${enableRiskSearch ? 'border-slate-800/50 opacity-40 pointer-events-none' : 'border-slate-800'}`}>
                                         <div className="col-span-4">
                                             <span className="text-sm font-medium text-slate-300 ml-2">
                                                 {param.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
