@@ -145,8 +145,9 @@ def build_portfolio(
         bt_size = np.inf
         bt_size_type = "amount"
 
-    sl_pct = float(config.get("stopLossPct", 0)) / 100.0
-    tp_pct = float(config.get("takeProfitPct", 0)) / 100.0
+    sl_pct  = float(config.get("stopLossPct", 0)) / 100.0
+    tp_pct  = float(config.get("takeProfitPct", 0)) / 100.0
+    tsl_pct = float(config.get("trailingStopPct", 0)) / 100.0
 
     # Sanitise signals — numba JIT rejects object-dtype arrays
     entries = boolify(entries)
@@ -165,16 +166,22 @@ def build_portfolio(
 
     if sl_pct > 0:
         pf_kwargs["sl_stop"] = sl_pct
-        if bool(config.get("useTrailingStop", False)):
-            pf_kwargs["sl_trail"] = True
     if tp_pct > 0:
         pf_kwargs["tp_stop"] = tp_pct
+    # TSL (trailingStopPct) takes precedence over fixed SL when both are set:
+    # it overwrites sl_stop with the trailing distance and enables sl_trail.
+    # Legacy useTrailingStop (bool) is also supported for backward-compatibility.
+    if tsl_pct > 0:
+        pf_kwargs["sl_stop"] = tsl_pct
+        pf_kwargs["sl_trail"] = True
+    elif sl_pct > 0 and bool(config.get("useTrailingStop", False)):
+        pf_kwargs["sl_trail"] = True
 
     # Pass Open/High/Low when SL or TP is active so VectorBT can detect
     # intra-bar trigger points rather than only checking at bar close.
     # This matches the reference Colab script behaviour and produces
     # accurate fill prices.
-    if df is not None and (sl_pct > 0 or tp_pct > 0):
+    if df is not None and (sl_pct > 0 or tp_pct > 0 or tsl_pct > 0):
         for col, kwarg in [("Open", "open"), ("High", "high"), ("Low", "low")]:
             if col in df.columns:
                 pf_kwargs[kwarg] = df[col].reindex(close.index)

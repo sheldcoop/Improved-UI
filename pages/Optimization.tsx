@@ -26,8 +26,8 @@ const Optimization: React.FC = () => {
         timeframe, paramRanges,
         wfoConfig, setWfoConfig,
         capital, commission, slippage, pyramiding, positionSizing, positionSizeValue,
-        stopLossPct, takeProfitPct, useTrailingStop,
-        setStopLossPct, setTakeProfitPct, setUseTrailingStop,
+        stopLossPct, takeProfitPct,
+        setStopLossPct, setTakeProfitPct, setTrailingStopPct,
         optResults, setOptResults,
         dataStatus,
         // Split is set on the Backtest page and shared via context
@@ -40,6 +40,7 @@ const Optimization: React.FC = () => {
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [optunaMetric, setOptunaMetric] = useState('sharpe');
     const [selectedParams, setSelectedParams] = useState<Record<string, number> | null>(null);
+    const [selectedRiskParams, setSelectedRiskParams] = useState<Record<string, number> | null>(null);
 
     // ── Phase 1 params ────────────────────────────────────────────────────────
     const [params, setParams] = useState<ParamConfig[]>([]);
@@ -74,9 +75,9 @@ const Optimization: React.FC = () => {
     // ── Phase 2 state ─────────────────────────────────────────────────────────
     const [enableRiskSearch, setEnableRiskSearch] = useState(false);
     const [riskParams, setRiskParams] = useState<ParamConfig[]>([
-        { id: 'r0', name: 'stopLossPct',     min: 0, max: 5, step: 1 },
-        { id: 'r1', name: 'takeProfitPct',   min: 0, max: 5, step: 1 },
-        { id: 'r2', name: 'useTrailingStop', min: 0, max: 1, step: 1 },
+        { id: 'r0', name: 'stopLossPct',     min: 0, max: 5,  step: 0.5 },
+        { id: 'r1', name: 'takeProfitPct',   min: 0, max: 10, step: 0.5 },
+        { id: 'r2', name: 'trailingStopPct', min: 0, max: 3,  step: 0.5 },
     ]);
     // ── Derived wizard step ───────────────────────────────────────────────────
     const wizardStep: WizardStep =
@@ -97,11 +98,11 @@ const Optimization: React.FC = () => {
     const toRanges = (list: ParamConfig[]) =>
         list.reduce((acc, p) => { acc[p.name] = { min: p.min, max: p.max, step: p.step }; return acc; }, {} as any);
 
-    const applyParamsAndRun = (paramSet: Record<string, number>) => {
+    const applyParams = (paramSet: Record<string, number>) => {
         setGlobalParams(paramSet);
         if (paramSet.stopLossPct !== undefined) setStopLossPct(paramSet.stopLossPct);
         if (paramSet.takeProfitPct !== undefined) setTakeProfitPct(paramSet.takeProfitPct);
-        if (paramSet.useTrailingStop !== undefined) setUseTrailingStop(Boolean(paramSet.useTrailingStop));
+        if (paramSet.trailingStopPct !== undefined) setTrailingStopPct(paramSet.trailingStopPct);
         navigate('/backtest', { state: { appliedParams: paramSet } });
     };
 
@@ -110,6 +111,7 @@ const Optimization: React.FC = () => {
         setRunning(true);
         setOptResults(null);
         setSelectedParams(null);
+        setSelectedRiskParams(null);
         setErrorMessage(null);
 
         try {
@@ -140,6 +142,15 @@ const Optimization: React.FC = () => {
             setErrorMessage('Optimization failed: ' + e);
         }
         setRunning(false);
+    };
+
+    // When user selects a Phase 1 row: store selection + auto-run Phase 2
+    const handleSelectPhase1 = (paramSet: Record<string, number>) => {
+        setSelectedParams(paramSet);
+        setSelectedRiskParams(null);
+        // Clear existing riskGrid so Phase 2 re-runs fresh
+        if (optResults) setOptResults({ ...(optResults as any), riskGrid: [], combinedParams: undefined });
+        handleRunPhase2(paramSet);
     };
 
     const handleRunPhase2 = async (fixedParamSet: Record<string, number>) => {
@@ -236,13 +247,14 @@ const Optimization: React.FC = () => {
                         results={optResults.grid}
                         optunaMetric={optunaMetric}
                         enableRiskSearch={enableRiskSearch}
+                        hasPhase2Results={wizardStep === 'risk'}
                         selectedParams={selectedParams}
-                        setSelectedParams={setSelectedParams}
+                        setSelectedParams={enableRiskSearch ? handleSelectPhase1 : setSelectedParams}
                         running={running}
                         dataStatus={dataStatus}
-                        onApply={applyParamsAndRun}
+                        onApply={applyParams}
                         onRunPhase2={handleRunPhase2}
-                        onReset={() => { setOptResults(null); setSelectedParams(null); }}
+                        onReset={() => { setOptResults(null); setSelectedParams(null); setSelectedRiskParams(null); }}
                         dataStartDate={(optResults as any).dataStartDate}
                         dataEndDate={(optResults as any).dataEndDate}
                         totalBars={(optResults as any).totalBars}
@@ -257,13 +269,35 @@ const Optimization: React.FC = () => {
                             optunaMetric={optunaMetric}
                             splitRatio={optResults.splitRatio}
                             combinedParams={optResults.combinedParams}
-                            onApply={applyParamsAndRun}
+                            selectedRiskParams={selectedRiskParams}
+                            setSelectedRiskParams={setSelectedRiskParams}
+                            onApply={applyParams}
                             phase2StartDate={(optResults as any).phase2StartDate}
                             phase2Bars={(optResults as any).phase2Bars}
                             dataEndDate={(optResults as any).dataEndDate}
                             dataStartDate={(optResults as any).dataStartDate}
                             totalBars={(optResults as any).totalBars}
                         />
+                    )}
+
+                    {/* Combined Apply button — only when both phases are selected */}
+                    {enableRiskSearch && selectedParams && selectedRiskParams && (
+                        <div className="flex items-center justify-between gap-4 bg-emerald-900/20 border border-emerald-700/40 rounded-xl px-5 py-4">
+                            <div className="space-y-1">
+                                <p className="text-sm font-semibold text-emerald-300">Ready to backtest with selected params</p>
+                                <p className="text-xs text-slate-400 font-mono">
+                                    Strategy: {Object.entries(selectedParams).map(([k,v]) => `${k}=${v}`).join(', ')}
+                                    {'  ·  '}
+                                    Risk: {Object.entries(selectedRiskParams).map(([k,v]) => `${k}=${v}`).join(', ')}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => applyParams({ ...selectedParams, ...selectedRiskParams })}
+                                className="shrink-0 flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
+                            >
+                                Apply to Backtest →
+                            </button>
+                        </div>
                     )}
                 </div>
             )}

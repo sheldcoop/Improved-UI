@@ -5,8 +5,8 @@ interface RiskControlsProps {
     setStopLossEnabled: (v: boolean) => void;
     stopLossPct: number;
     setStopLossPct: (v: number) => void;
-    useTrailingStop: boolean;
-    setUseTrailingStop: (v: boolean) => void;
+    trailingStopPct: number;
+    setTrailingStopPct: (v: number) => void;
     takeProfitEnabled: boolean;
     setTakeProfitEnabled: (v: boolean) => void;
     takeProfitPct: number;
@@ -14,86 +14,79 @@ interface RiskControlsProps {
 }
 
 /**
- * Stop Loss (+ Trailing Stop) and Take Profit toggle controls.
- * Each shows a checkbox; checking reveals the value input.
- * TSL is nested inside the SL group — only visible when SL is enabled.
+ * Always-visible SL / TSL / TP number inputs — no checkboxes needed.
+ * Value of 0 means disabled (same UX as Period/Lower/Upper params above).
+ * TSL > 0 overrides fixed SL distance and activates trailing mode.
  */
 const RiskControls: React.FC<RiskControlsProps> = ({
-    stopLossEnabled, setStopLossEnabled, stopLossPct, setStopLossPct,
-    useTrailingStop, setUseTrailingStop,
-    takeProfitEnabled, setTakeProfitEnabled, takeProfitPct, setTakeProfitPct,
+    stopLossPct, setStopLossPct,
+    trailingStopPct, setTrailingStopPct,
+    takeProfitPct, setTakeProfitPct,
+    // kept in props signature for backward compat — no longer used for gating display
+    setStopLossEnabled, setTakeProfitEnabled,
 }) => {
-    const checkboxCls = 'rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-emerald-500';
     const inputCls = 'w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 focus:ring-1 focus:ring-emerald-500 outline-none';
-    const labelCls = 'flex items-center space-x-2 text-xs text-slate-400 cursor-pointer';
+
+    const handleSLChange = (val: number) => {
+        setStopLossPct(val);
+        setStopLossEnabled(val > 0);
+    };
+    const handleTPChange = (val: number) => {
+        setTakeProfitPct(val);
+        setTakeProfitEnabled(val > 0);
+    };
+    const handleTSLChange = (val: number) => {
+        setTrailingStopPct(val);
+        // TSL implies SL is active
+        setStopLossEnabled(val > 0 || stopLossPct > 0);
+    };
 
     return (
-        <div className="space-y-3 pt-3 border-t border-slate-700/50">
-            {/* Stop Loss */}
-            <div className={stopLossEnabled ? 'p-2 bg-slate-900/60 rounded-lg border border-slate-700/60 space-y-2' : 'space-y-2'}>
-                <label className={labelCls}>
-                    <input
-                        type="checkbox"
-                        checked={stopLossEnabled}
-                        onChange={e => {
-                            setStopLossEnabled(e.target.checked);
-                            if (!e.target.checked) {
-                                setStopLossPct(0);
-                                setUseTrailingStop(false);
-                            }
-                        }}
-                        className={checkboxCls}
-                    />
-                    <span>Stop Loss %</span>
-                </label>
-                {stopLossEnabled && (
-                    <>
-                        <input
-                            type="number"
-                            min="0.1"
-                            step="0.1"
-                            value={stopLossPct || 2}
-                            onChange={e => setStopLossPct(parseFloat(e.target.value))}
-                            className={inputCls}
-                        />
-                        <label className={`${labelCls} pt-1 border-t border-slate-700/50`}>
-                            <input
-                                type="checkbox"
-                                checked={useTrailingStop}
-                                onChange={e => setUseTrailingStop(e.target.checked)}
-                                className={checkboxCls}
-                            />
-                            <span>Trailing Stop</span>
-                        </label>
-                    </>
-                )}
-            </div>
-
-            {/* Take Profit */}
-            <div>
-                <label className={`${labelCls} mb-1`}>
-                    <input
-                        type="checkbox"
-                        checked={takeProfitEnabled}
-                        onChange={e => {
-                            setTakeProfitEnabled(e.target.checked);
-                            if (!e.target.checked) setTakeProfitPct(0);
-                        }}
-                        className={checkboxCls}
-                    />
-                    <span>Take Profit %</span>
-                </label>
-                {takeProfitEnabled && (
+        <div className="pt-3 border-t border-slate-700/50">
+            <label className="text-xs text-slate-500 block mb-2">Risk Controls <span className="text-slate-600">(0 = off)</span></label>
+            <div className="grid grid-cols-3 gap-3">
+                <div>
+                    <label className="text-xs text-slate-500 block mb-1">Stop Loss %</label>
                     <input
                         type="number"
-                        min="0.1"
-                        step="0.1"
-                        value={takeProfitPct || 2}
-                        onChange={e => setTakeProfitPct(parseFloat(e.target.value))}
+                        min="0"
+                        step="0.5"
+                        value={stopLossPct}
+                        onChange={e => handleSLChange(parseFloat(e.target.value) || 0)}
                         className={inputCls}
+                        placeholder="0"
                     />
-                )}
+                </div>
+                <div>
+                    <label className="text-xs text-slate-500 block mb-1">Trail Stop %</label>
+                    <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={trailingStopPct}
+                        onChange={e => handleTSLChange(parseFloat(e.target.value) || 0)}
+                        className={inputCls}
+                        placeholder="0"
+                    />
+                </div>
+                <div>
+                    <label className="text-xs text-slate-500 block mb-1">Take Profit %</label>
+                    <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={takeProfitPct}
+                        onChange={e => handleTPChange(parseFloat(e.target.value) || 0)}
+                        className={inputCls}
+                        placeholder="0"
+                    />
+                </div>
             </div>
+            {trailingStopPct > 0 && stopLossPct > 0 && (
+                <p className="text-[10px] text-indigo-400 mt-1">
+                    Trail Stop overrides fixed SL distance
+                </p>
+            )}
         </div>
     );
 };

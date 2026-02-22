@@ -6,10 +6,14 @@ interface RiskParamConfigProps {
     setRiskParams: (params: ParamConfig[]) => void;
 }
 
-const riskLabel = (name: string) => {
-    if (name === 'useTrailingStop') return 'Trailing Stop (0/1)';
-    return name.replace(/_/g, ' ').toUpperCase();
+const RISK_LABELS: Record<string, string> = {
+    stopLossPct:     'Stop Loss %',
+    takeProfitPct:   'Take Profit %',
+    trailingStopPct: 'Trailing Stop Loss %',
 };
+
+const riskLabel = (name: string) =>
+    RISK_LABELS[name] ?? name.replace(/_/g, ' ').toUpperCase();
 
 /**
  * Phase 2 configuration section — SL/TP/TSL search ranges only.

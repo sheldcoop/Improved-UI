@@ -15,6 +15,7 @@ interface Phase1ResultsTableProps {
     results: ResultRow[];
     optunaMetric: string;
     enableRiskSearch: boolean;
+    hasPhase2Results?: boolean;
     selectedParams: Record<string, number> | null;
     setSelectedParams: (params: Record<string, number> | null) => void;
     running: boolean;
@@ -35,7 +36,7 @@ interface Phase1ResultsTableProps {
  * Phase 1 results table + data range banner + Phase 2 "Choose → Run" control.
  */
 const Phase1ResultsTable: React.FC<Phase1ResultsTableProps> = ({
-    results, optunaMetric, enableRiskSearch,
+    results, optunaMetric, enableRiskSearch, hasPhase2Results,
     selectedParams, setSelectedParams,
     running, dataStatus,
     onApply, onRunPhase2, onReset,
@@ -50,11 +51,16 @@ const Phase1ResultsTable: React.FC<Phase1ResultsTableProps> = ({
             <div className="flex items-center justify-between">
                 <div>
                     <h3 className="text-xl font-bold text-slate-200">
-                        {enableRiskSearch ? 'Step 1 of 2 — ' : ''}Top Configurations Found
+                        {hasPhase2Results
+                            ? 'Phase 1 — Strategy Params (reference)'
+                            : enableRiskSearch ? 'Step 1 of 2 — Top Configurations Found'
+                            : 'Top Configurations Found'}
                     </h3>
                     <p className="text-xs text-amber-400 flex items-center mt-1">
                         <AlertTriangle className="w-3 h-3 mr-1" />
-                        In-sample results — verify with Walk-Forward before trading
+                        {hasPhase2Results
+                            ? 'These params are locked — scroll down to Phase 2 for the final result'
+                            : 'In-sample results — verify with Walk-Forward before trading'}
                     </p>
                 </div>
                 <Button variant="secondary" onClick={onReset}>Reset</Button>
@@ -106,8 +112,11 @@ const Phase1ResultsTable: React.FC<Phase1ResultsTableProps> = ({
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800">
-                        {results.slice(0, 10).map((res, idx) => (
-                            <tr key={idx} className="hover:bg-slate-800/50 group transition-colors">
+                        {results.slice(0, 10).map((res, idx) => {
+                            const isSelected = selectedParams !== null &&
+                                JSON.stringify(selectedParams) === JSON.stringify(res.paramSet);
+                            return (
+                            <tr key={idx} className={`hover:bg-slate-800/50 group transition-colors ${isSelected ? 'bg-indigo-900/20 border-l-2 border-indigo-500' : ''}`}>
                                 <td className="p-4 font-bold text-emerald-500">#{idx + 1}</td>
                                 <td className="p-4 font-mono text-xs text-slate-300">
                                     <div className="flex gap-2 flex-wrap">
@@ -126,25 +135,28 @@ const Phase1ResultsTable: React.FC<Phase1ResultsTableProps> = ({
                                     {enableRiskSearch && (
                                         <Button
                                             size="sm"
-                                            variant={selectedParams === res.paramSet ? 'secondary' : 'ghost'}
+                                            variant={isSelected ? 'secondary' : 'ghost'}
                                             onClick={() => setSelectedParams(res.paramSet)}
                                             className="opacity-0 group-hover:opacity-100 transition-opacity"
                                             icon={<CheckCircle2 className="w-4 h-4" />}
                                         >
-                                            {selectedParams === res.paramSet ? 'Selected' : 'Choose'}
+                                            {isSelected ? 'Selected' : 'Choose'}
                                         </Button>
                                     )}
-                                    <Button
-                                        size="sm"
-                                        onClick={() => onApply(res.paramSet)}
-                                        className="opacity-0 group-hover:opacity-100 transition-opacity"
-                                        icon={<ArrowRight className="w-4 h-4" />}
-                                    >
-                                        Apply
-                                    </Button>
+                                    {!hasPhase2Results && (
+                                        <Button
+                                            size="sm"
+                                            onClick={() => onApply(res.paramSet)}
+                                            className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                            icon={<ArrowRight className="w-4 h-4" />}
+                                        >
+                                            Apply &amp; Simulate
+                                        </Button>
+                                    )}
                                 </td>
                             </tr>
-                        ))}
+                            );
+                        })}
                     </tbody>
                 </table>
             </Card>

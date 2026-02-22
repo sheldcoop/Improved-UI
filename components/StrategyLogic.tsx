@@ -27,8 +27,8 @@ interface StrategyLogicProps {
     setStopLossEnabled: (enabled: boolean) => void;
     stopLossPct: number;
     setStopLossPct: (pct: number) => void;
-    useTrailingStop: boolean;
-    setUseTrailingStop: (enabled: boolean) => void;
+    trailingStopPct: number;
+    setTrailingStopPct: (pct: number) => void;
     takeProfitEnabled: boolean;
     setTakeProfitEnabled: (enabled: boolean) => void;
     takeProfitPct: number;
@@ -50,7 +50,7 @@ const StrategyLogic: React.FC<StrategyLogicProps> = ({
     customStrategies,
     params, setParams,
     stopLossEnabled, setStopLossEnabled, stopLossPct, setStopLossPct,
-    useTrailingStop, setUseTrailingStop,
+    trailingStopPct, setTrailingStopPct,
     takeProfitEnabled, setTakeProfitEnabled, takeProfitPct, setTakeProfitPct,
     dataStatus, navigate,
     startDate, endDate,
@@ -61,7 +61,7 @@ const StrategyLogic: React.FC<StrategyLogicProps> = ({
         ?? customStrategies.find(s => s.id === strategyId)?.description
         ?? 'Custom strategy loaded from your Strategy Builder.';
 
-    const cardCls = 'bg-slate-900/40 rounded-xl border border-slate-800 p-4 flex flex-col gap-4';
+    const cardCls = 'bg-slate-900/40 rounded-xl border border-slate-800 p-4';
 
     // Live boundary date for split preview
     const boundaryDate = computeSplitDate(startDate, endDate, splitRatio);
@@ -80,12 +80,12 @@ const StrategyLogic: React.FC<StrategyLogicProps> = ({
                 )}
             </div>
 
-            {/* Two-card layout */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Single unified card */}
+            <div className={`${cardCls} ${!dataReady ? 'opacity-50 pointer-events-none' : ''} space-y-4`}>
 
-                {/* ── Left card: strategy selector + description + Tune button ── */}
-                <div className={cardCls}>
-                    <div>
+                {/* Row 1: Strategy selector */}
+                <div className="flex items-start gap-4">
+                    <div className="flex-1">
                         <label className="text-xs text-slate-500 block mb-1">Strategy</label>
                         <select
                             value={strategyId}
@@ -105,60 +105,51 @@ const StrategyLogic: React.FC<StrategyLogicProps> = ({
                                 </optgroup>
                             )}
                         </select>
+                        <p className="text-[11px] text-slate-600 mt-1 leading-snug">{description}</p>
                     </div>
+                </div>
 
-                    {/* Strategy description */}
-                    <p className="text-xs text-slate-500 leading-relaxed flex-1">{description}</p>
-
-                    {/* Tune Parameters button — always shown */}
-                    <div className="mt-auto pt-2 border-t border-slate-800">
-                        <p className="text-[11px] text-slate-500 mb-2">
-                            Not sure what values to use? The optimizer can find them scientifically.
-                        </p>
+                {/* Row 2: Strategy params — labelled, always visible */}
+                <div>
+                    <div className="flex items-center justify-between mb-2">
+                        <label className="text-xs text-slate-500">Parameters</label>
                         <button
                             onClick={() => navigate('/optimization')}
                             disabled={!dataReady}
-                            className={`w-full flex items-center justify-center gap-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 text-xs font-bold px-4 py-2 rounded border border-indigo-600/30 transition-all ${!dataReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            className="flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors disabled:opacity-40"
                         >
-                            <Sliders className="w-3.5 h-3.5" />
-                            {dataReady ? 'Tune Parameters' : 'Load Data First'}
+                            <Sliders className="w-3 h-3" />
+                            Auto-tune →
                         </button>
                     </div>
-                </div>
-
-                {/* ── Right card: strategy params + risk controls ── */}
-                <div className={`${cardCls} ${!dataReady ? 'opacity-50 pointer-events-none' : ''}`}>
-                    <div>
-                        <label className="text-xs text-slate-500 block mb-2">Parameters</label>
-                        <StrategyParamInputs
-                            strategyId={strategyId}
-                            customStrategies={customStrategies}
-                            params={params}
-                            setParams={setParams}
-                        />
-                        {!customStrategies.find(s => s.id === strategyId)?.params?.length
-                            && strategyId !== '1' && strategyId !== '3' && (
-                            <p className="text-xs text-slate-600 italic">No configurable parameters.</p>
-                        )}
-                    </div>
-
-                    <RiskControls
-                        stopLossEnabled={stopLossEnabled}
-                        setStopLossEnabled={setStopLossEnabled}
-                        stopLossPct={stopLossPct}
-                        setStopLossPct={setStopLossPct}
-                        useTrailingStop={useTrailingStop}
-                        setUseTrailingStop={setUseTrailingStop}
-                        takeProfitEnabled={takeProfitEnabled}
-                        setTakeProfitEnabled={setTakeProfitEnabled}
-                        takeProfitPct={takeProfitPct}
-                        setTakeProfitPct={setTakeProfitPct}
+                    <StrategyParamInputs
+                        strategyId={strategyId}
+                        customStrategies={customStrategies}
+                        params={params}
+                        setParams={setParams}
                     />
+                    {!customStrategies.find(s => s.id === strategyId)?.params?.length
+                        && strategyId !== '1' && strategyId !== '3' && (
+                        <p className="text-xs text-slate-600 italic">No configurable parameters.</p>
+                    )}
                 </div>
 
+                {/* Row 3: Risk controls — always visible, same grid style as params */}
+                <RiskControls
+                    stopLossEnabled={stopLossEnabled}
+                    setStopLossEnabled={setStopLossEnabled}
+                    stopLossPct={stopLossPct}
+                    setStopLossPct={setStopLossPct}
+                    trailingStopPct={trailingStopPct}
+                    setTrailingStopPct={setTrailingStopPct}
+                    takeProfitEnabled={takeProfitEnabled}
+                    setTakeProfitEnabled={setTakeProfitEnabled}
+                    takeProfitPct={takeProfitPct}
+                    setTakeProfitPct={setTakeProfitPct}
+                />
             </div>
 
-            {/* ── Third card: Optimization data split ── */}
+            {/* Optimization data split card */}
             <div className={cardCls}>
                 <div className="flex items-center justify-between">
                     <label className="text-sm text-slate-300 flex items-center gap-2">
@@ -175,7 +166,7 @@ const StrategyLogic: React.FC<StrategyLogicProps> = ({
                 </div>
 
                 {enableDataSplit ? (
-                    <div className="space-y-3">
+                    <div className="space-y-3 mt-3">
                         <div className="rounded-lg bg-slate-950 border border-slate-800 p-3 space-y-2">
                             <div className="flex items-center gap-2 text-xs">
                                 <span className="text-indigo-400 font-medium w-24 shrink-0">Phase 1 (params)</span>
@@ -203,7 +194,7 @@ const StrategyLogic: React.FC<StrategyLogicProps> = ({
                         </p>
                     </div>
                 ) : (
-                    <p className="text-[10px] text-slate-500 italic">
+                    <p className="text-[10px] text-slate-500 italic mt-2">
                         When disabled, both optimization phases train on the full date range. Enable to prevent Phase 1 results from leaking into Phase 2.
                     </p>
                 )}

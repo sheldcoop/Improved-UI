@@ -57,6 +57,8 @@ interface BacktestContextType {
     setTakeProfitEnabled: (val: boolean) => void;
     useTrailingStop: boolean;
     setUseTrailingStop: (val: boolean) => void;
+    trailingStopPct: number;
+    setTrailingStopPct: (val: number) => void;
     pyramiding: number;
     setPyramiding: (val: number) => void;
     positionSizing: string;
@@ -151,6 +153,7 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
     const [takeProfitPct, setTakeProfitPct] = useState(0);
     const [takeProfitEnabled, setTakeProfitEnabled] = useState(false);
     const [useTrailingStop, setUseTrailingStop] = useState(false);
+    const [trailingStopPct, setTrailingStopPct] = useState(0);
     const [pyramiding, setPyramiding] = useState(1);
     const [positionSizing, setPositionSizing] = useState('Fixed Capital');
     const [positionSizeValue, setPositionSizeValue] = useState(100000);
@@ -210,6 +213,7 @@ export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }
         stopLossPct, setStopLossPct, stopLossEnabled, setStopLossEnabled,
         takeProfitPct, setTakeProfitPct, takeProfitEnabled, setTakeProfitEnabled,
         useTrailingStop, setUseTrailingStop,
+        trailingStopPct, setTrailingStopPct,
         pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
         fullReportData, setFullReportData, isReportOpen, setIsReportOpen,
         useLookback, setUseLookback, lookbackMonths, setLookbackMonths,

@@ -23,13 +23,15 @@ const Backtest: React.FC = () => {
 
   // when navigated from optimization with autoRun flag we may need to load data
   const [autoRunRequested, setAutoRunRequested] = useState(false);
+  // guard: prevent handleLoadData from being called more than once per autoRun
+  const autoLoadFiredRef = React.useRef(false);
   const {
     running, mode, segment, symbol, symbolSearchQuery, searchResults, selectedInstrument,
     isSearching, universe, timeframe, strategyId, customStrategies, startDate, endDate,
     params, capital, slippage, commission, showAdvanced, dataStatus, healthReport,
     isDynamic, wfoConfig, paramRanges, showRanges,
     top5Trials, oosResults, isOosValidating,
-    stopLossPct, stopLossEnabled, takeProfitPct, takeProfitEnabled, useTrailingStop, pyramiding, positionSizing, positionSizeValue,
+    stopLossPct, stopLossEnabled, takeProfitPct, takeProfitEnabled, trailingStopPct, pyramiding, positionSizing, positionSizeValue,
     fullReportData, isReportOpen, useLookback, lookbackMonths,
     enableDataSplit, splitRatio
   } = state;
@@ -40,53 +42,51 @@ const Backtest: React.FC = () => {
     setDataStatus, setHealthReport, setRunning, setIsDynamic, setWfoConfig,
     setParamRanges, setShowRanges, setTop5Trials,
     setOosResults, setIsOosValidating,
-    setStopLossPct, setStopLossEnabled, setTakeProfitPct, setTakeProfitEnabled, setUseTrailingStop, setPyramiding, setPositionSizing, setPositionSizeValue,
+    setStopLossPct, setStopLossEnabled, setTakeProfitPct, setTakeProfitEnabled, setTrailingStopPct, setPyramiding, setPositionSizing, setPositionSizeValue,
     setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths,
     setEnableDataSplit, setSplitRatio
   } = setters;
   const { handleLoadData, handleRun, handleOOSValidation } = handlers;
 
   // When the optimization page brings us here it may supply a parameter set
-  // under ``appliedParams``.  In the old flow we also passed an ``autoRun``
-  // flag which triggered an immediate simulation; the new behaviour leaves the
-  // decision to the user.  We still clear the history state afterwards so a
-  // page refresh doesn't reapply or rerun unexpectedly.
+  // under ``appliedParams``.  Run once on mount (location.state changes only
+  // when navigating here fresh — we clear the state immediately after reading
+  // so subsequent re-renders do not re-trigger this effect).
   useEffect(() => {
     if (!location.state) return;
 
     const { appliedParams, autoRun } = location.state as any;
-    if (appliedParams) {
-      setParams(appliedParams);
-      // if we don't already have validated market data for this configuration,
-      // trigger a load.  previously we simply checked ``dataStatus`` but that
-      // would reset to IDLE after navigating away; now we also look for a
-      // cached report object which persists across page changes.
-      if (dataStatus !== 'READY' && !fullReportData) {
-        handleLoadData();
-      }
-    }
-    if (autoRun) {
-      setAutoRunRequested(true);
-    }
 
+    // Clear history state first so a page refresh never re-applies these
     if (appliedParams || autoRun) {
       navigate(location.pathname, { replace: true, state: {} as any });
     }
-  }, [navigate, location.pathname, location.state, setParams, dataStatus, fullReportData, handleLoadData]);
 
-  // when an auto-run is requested we need to ensure market data is loaded
-  // before calling handleRun.  The hook's handleRun already alerts if data
-  // isn't ready, so we intercept here and trigger load instead.
+    if (appliedParams) {
+      setParams(appliedParams);
+    }
+    if (autoRun) {
+      autoLoadFiredRef.current = false; // reset guard for this new autoRun
+      setAutoRunRequested(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);  // only re-run when navigation state actually changes
+
+  // When autoRun is requested: wait for data to be ready then fire handleRun
+  // exactly once.  The ref guard prevents handleLoadData from being called on
+  // every re-render while data is still loading.
   useEffect(() => {
     if (!autoRunRequested) return;
 
-    if (dataStatus !== 'READY') {
-      handleLoadData();
-    } else {
-      handleRun();
+    if (dataStatus === 'READY') {
       setAutoRunRequested(false);
+      handleRun();
+    } else if (!autoLoadFiredRef.current) {
+      autoLoadFiredRef.current = true;
+      handleLoadData();
     }
-  }, [autoRunRequested, dataStatus, handleLoadData, handleRun]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRunRequested, dataStatus]); // intentionally omit handleRun/handleLoadData to avoid loop
 
   const renderHealthBadge = (status: string | undefined) => {
     switch (status) {
@@ -212,8 +212,8 @@ const Backtest: React.FC = () => {
             setStopLossEnabled={setStopLossEnabled}
             stopLossPct={stopLossPct}
             setStopLossPct={setStopLossPct}
-            useTrailingStop={useTrailingStop}
-            setUseTrailingStop={setUseTrailingStop}
+            trailingStopPct={trailingStopPct}
+            setTrailingStopPct={setTrailingStopPct}
             takeProfitEnabled={takeProfitEnabled}
             setTakeProfitEnabled={setTakeProfitEnabled}
             takeProfitPct={takeProfitPct}

@@ -153,7 +153,9 @@ const SetupCard: React.FC<SetupCardProps> = ({
                         ? 'Load Data First'
                         : activeTab === 'WFO'
                             ? 'Start Walk-Forward Analysis'
-                            : 'Start Manual Optuna Study'}
+                            : enableRiskSearch
+                                ? 'Run Full Optimization (Phase 1 + 2)'
+                                : 'Run Phase 1: Strategy Params'}
                 </button>
             </div>
         </Card>
