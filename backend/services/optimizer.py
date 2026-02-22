@@ -232,7 +232,7 @@ class OptimizationEngine:
                 entries, exits = strategy.generate_signals(df)
 
                 pf = OptimizationEngine._build_portfolio(
-                    df["Close"], entries, exits, config, vbt_freq
+                    df["Close"], entries, exits, {**config, **trial_params}, vbt_freq
                 )
 
                 # extract scoring components
