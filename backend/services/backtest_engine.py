@@ -391,6 +391,7 @@ class BacktestEngine:
                         "entryDate": str(row["Entry Timestamp"]),
                         "exitDate": str(row["Exit Timestamp"]),
                         "side": "LONG" if row["Direction"] == "Long" else "SHORT",
+                        "qty": round(float(row["Size"]), 4) if "Size" in row.index else None,
                         "entryPrice": round(row["Avg Entry Price"], 2),
                         "exitPrice": round(row["Avg Exit Price"], 2),
                         "pnl": round(row["PnL"], 2),
@@ -453,7 +454,7 @@ class BacktestEngine:
         results: dict = {
             "metrics": metrics,
             "equityCurve": equity_curve,
-            "trades": trades[::-1],
+            "trades": trades,  # chronological order (oldest first); frontend TradeTable handles sorting
             "monthlyReturns": monthly_returns_data,
             "startDate": start_date,
             "endDate": end_date,

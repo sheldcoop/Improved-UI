@@ -173,6 +173,7 @@ export interface Trade {
   entryDate: string;
   exitDate: string;
   side: 'LONG' | 'SHORT';
+  qty?: number;           // number of shares / units bought
   entryPrice: number;
   exitPrice: number;
   pnl: number;

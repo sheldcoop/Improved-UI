@@ -13,6 +13,7 @@ import { Button } from '../components/ui/Button';
 import { logAlert, logWFOBreakdown, logActiveRun } from '../components/DebugConsole';
 import AlertBanner from '../components/ui/AlertBanner';
 import { formatDateDisplay } from '../utils/dateUtils';
+import TradeTable from '../components/TradeTable';
 // Reusable Metric Box
 const MetricBox: React.FC<{ label: string; value: string; subValue?: string; good?: boolean; icon?: React.ReactNode }> = ({ label, value, subValue, good, icon }) => (
   <div className="bg-slate-900 border border-slate-800 p-4 rounded-lg hover:border-slate-700 transition-colors">
@@ -35,48 +36,6 @@ const safeToFixed = (val: number | null | undefined, decimals: number = 2): stri
   return val.toFixed(decimals);
 };
 
-const TradeTable: React.FC<{ trades: Trade[], onRowClick: (trade: Trade) => void }> = ({ trades, onRowClick }) => (
-  <div className="overflow-x-auto max-h-[400px]">
-    <table className="w-full text-left text-sm text-slate-400">
-      <thead className="bg-slate-950 text-xs uppercase sticky top-0 z-10">
-        <tr>
-          <th className="px-4 py-3">Entry</th>
-          <th className="px-4 py-3">Side</th>
-          <th className="px-4 py-3 text-right">Entry Price</th>
-          <th className="px-4 py-3 text-right">Exit Price</th>
-          <th className="px-4 py-3 text-right">PnL</th>
-          <th className="px-4 py-3 text-right">Return %</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-slate-800">
-        {trades.length === 0 ? (
-          <tr>
-            <td colSpan={6} className="px-4 py-8 text-center text-slate-500">No trades recorded in this simulation.</td>
-          </tr>
-        ) : trades.map((trade) => (
-          <tr
-            key={trade.id}
-            className="hover:bg-slate-800/80 cursor-pointer transition-colors"
-            onClick={() => onRowClick(trade)}
-          >
-            <td className="px-4 py-3">{formatDateDisplay(trade.entryDate)}</td>
-            <td className="px-4 py-3">
-              <Badge variant={trade.side === 'LONG' ? 'success' : 'danger'}>{trade.side}</Badge>
-            </td>
-            <td className="px-4 py-3 text-right">{safeToFixed(trade.entryPrice)}</td>
-            <td className="px-4 py-3 text-right">{safeToFixed(trade.exitPrice)}</td>
-            <td className={`px-4 py-3 text-right font-medium ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {safeToFixed(trade.pnl)}
-            </td>
-            <td className={`px-4 py-3 text-right ${trade.pnlPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {safeToFixed(trade.pnlPct)}%
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-);
 
 const Results: React.FC = () => {
   const location = useLocation();
@@ -457,7 +416,7 @@ const Results: React.FC = () => {
       )}
 
       {activeTab === 'TRADES' && (
-        <Card title="Trade Log (Click to Zoom)">
+        <Card title="Trade Log">
           <TradeTable trades={result.trades || []} onRowClick={handleTradeClick} />
         </Card>
       )}
