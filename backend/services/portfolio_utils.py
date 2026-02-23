@@ -176,12 +176,16 @@ def build_portfolio(
     elif sl_pct > 0 and bool(config.get("useTrailingStop", False)):
         pf_kwargs["sl_trail"] = True
 
-    # Pass Open/High/Low when SL or TP is active so VectorBT can detect
-    # intra-bar trigger points rather than only checking at bar close.
-    # This matches the reference Colab script behaviour and produces
-    # accurate fill prices.
+    # Always execute at the Open of the next bar — this is realistic live-bot
+    # behaviour: signal fires at bar close → order sent → fills at next open.
+    # Matches the reference Python script which passes price=open_price.
+    if df is not None and "Open" in df.columns:
+        pf_kwargs["open"] = df["Open"].reindex(close.index)
+
+    # Additionally pass High/Low when SL/TP is active so VectorBT can detect
+    # intra-bar trigger points (not just at bar close).
     if df is not None and (sl_pct > 0 or tp_pct > 0 or tsl_pct > 0):
-        for col, kwarg in [("Open", "open"), ("High", "high"), ("Low", "low")]:
+        for col, kwarg in [("High", "high"), ("Low", "low")]:
             if col in df.columns:
                 pf_kwargs[kwarg] = df[col].reindex(close.index)
 
