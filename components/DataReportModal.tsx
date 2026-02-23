@@ -178,7 +178,6 @@ export const DataReportModal: React.FC<DataReportProps> = ({ isOpen, onClose, re
                                         );
                                     })}
                                 </tbody>
-                                </tbody>
                             </table>
                         </div>
                     </div>
