@@ -152,16 +152,32 @@ export const DataReportModal: React.FC<DataReportProps> = ({ isOpen, onClose, re
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-900 font-mono">
-                                    {(sample || []).map((s, i) => (
-                                        <tr key={i} className="hover:bg-slate-900/50 transition-colors">
-                                            <td className="px-4 py-3 text-slate-400">{s.timestamp || 'N/A'}</td>
-                                            <td className="px-4 py-3 text-right text-slate-200">{(s.open ?? 0).toFixed(2)}</td>
-                                            <td className="px-4 py-3 text-right text-slate-200">{(s.high ?? 0).toFixed(2)}</td>
-                                            <td className="px-4 py-3 text-right text-slate-200">{(s.low ?? 0).toFixed(2)}</td>
-                                            <td className="px-4 py-3 text-right text-white font-bold">{(s.close ?? 0).toFixed(2)}</td>
-                                            <td className="px-4 py-3 text-right text-slate-400">{(s.volume ?? 0).toLocaleString()}</td>
+                                    {(sample || []).length === 0 ? (
+                                        <tr>
+                                            <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
+                                                No sample data available
+                                            </td>
                                         </tr>
-                                    ))}
+                                    ) : (sample || []).map((s, i) => {
+                                        // Handle both uppercase and lowercase column names from backend
+                                        const open = s.open ?? s.Open ?? null;
+                                        const high = s.high ?? s.High ?? null;
+                                        const low = s.low ?? s.Low ?? null;
+                                        const close = s.close ?? s.Close ?? null;
+                                        const volume = s.volume ?? s.Volume ?? null;
+
+                                        return (
+                                            <tr key={i} className="hover:bg-slate-900/50 transition-colors">
+                                                <td className="px-4 py-3 text-slate-400">{s.timestamp || 'N/A'}</td>
+                                                <td className="px-4 py-3 text-right text-slate-200">{open !== null ? Number(open).toFixed(2) : '-'}</td>
+                                                <td className="px-4 py-3 text-right text-slate-200">{high !== null ? Number(high).toFixed(2) : '-'}</td>
+                                                <td className="px-4 py-3 text-right text-slate-200">{low !== null ? Number(low).toFixed(2) : '-'}</td>
+                                                <td className="px-4 py-3 text-right text-white font-bold">{close !== null ? Number(close).toFixed(2) : '-'}</td>
+                                                <td className="px-4 py-3 text-right text-slate-400">{volume !== null ? Number(volume).toLocaleString() : '-'}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
                                 </tbody>
                             </table>
                         </div>

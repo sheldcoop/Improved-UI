@@ -107,7 +107,19 @@ def fetch_data():
         # Index column name may vary; normalize to 'timestamp', then drop any duplicates
         sample_data = sample_data.rename(columns={sample_data.columns[0]: 'timestamp'})
         sample_data = sample_data.loc[:, ~sample_data.columns.duplicated()]
-        sample_data['timestamp'] = sample_data['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
+
+        # Format timestamp safely
+        try:
+            if hasattr(sample_data['timestamp'].iloc[0], 'strftime'):
+                # It's a datetime object
+                sample_data['timestamp'] = sample_data['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
+            else:
+                # Convert to string if not already datetime
+                sample_data['timestamp'] = sample_data['timestamp'].astype(str).str.slice(0, 16)
+        except Exception as e:
+            logger.warning(f"Failed to format timestamp: {e}")
+            sample_data['timestamp'] = sample_data['timestamp'].astype(str).str.slice(0, 16)
+
         # Replace NaN with None so JSON serializes as null (not NaN/0)
         # Must cast to object dtype first — float columns convert None back to NaN otherwise
         import math
@@ -116,6 +128,8 @@ def fetch_data():
             {k: (None if isinstance(v, float) and math.isnan(v) else v) for k, v in row.items()}
             for row in raw_list
         ]
+
+        logger.info(f"Sample data for {symbol}: {len(sample_list)} rows, columns: {list(sample_data.columns)}")
 
         return jsonify({
             "status": "success", 
