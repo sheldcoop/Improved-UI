@@ -36,7 +36,18 @@ class DataHealthService:
             # Standardize columns to lowercase and deduplicate
             df.columns = [c.lower() for c in df.columns]
             df = df.loc[:, ~df.columns.duplicated()]
-            df = df[(df.index >= start_dt) & (df.index <= end_dt)]
+
+            # Date Range Filtering (Localized logic matching DataFetcher)
+            if df.index.tz:
+                if not start_dt.tz:
+                    start_dt = start_dt.tz_localize(df.index.tz)
+                if not end_dt.tz:
+                    end_dt = end_dt.tz_localize(df.index.tz)
+            
+            # Use inclusive end for daily data consistency
+            inclusive_end = end_dt + pd.Timedelta(days=1, microseconds=-1)
+            
+            df = df[(df.index >= start_dt) & (df.index <= inclusive_end)]
         except Exception as e:
             logger.warning(f"Failed to read cache for health check: {e}")
             return DataHealthService._build_empty_report("Failed to read cache file.")

@@ -50,7 +50,7 @@ def _load_scrip_master() -> pd.DataFrame:
         age_hours = (time.time() - CACHE_FILE.stat().st_mtime) / 3600
         if age_hours < CACHE_TTL_HOURS:
             logger.info("Loading Scrip Master from cache")
-            df = pd.read_csv(CACHE_FILE)
+            df = pd.read_csv(CACHE_FILE, low_memory=False)
             # Rename columns to normalized names
             df = df.rename(columns={k: v for k, v in COLUMN_MAP.items() if k in df.columns})
             return df
@@ -65,7 +65,7 @@ def _load_scrip_master() -> pd.DataFrame:
         CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         CACHE_FILE.write_text(resp.text)
         
-        df = pd.read_csv(StringIO(resp.text))
+        df = pd.read_csv(StringIO(resp.text), low_memory=False)
         # Rename columns to normalized names
         df = df.rename(columns={k: v for k, v in COLUMN_MAP.items() if k in df.columns})
         
@@ -76,7 +76,7 @@ def _load_scrip_master() -> pd.DataFrame:
         # Try to use stale cache if available
         if CACHE_FILE.exists():
             logger.warning("Using stale cache")
-            df = pd.read_csv(CACHE_FILE)
+            df = pd.read_csv(CACHE_FILE, low_memory=False)
             df = df.rename(columns={k: v for k, v in COLUMN_MAP.items() if k in df.columns})
             return df
         raise
