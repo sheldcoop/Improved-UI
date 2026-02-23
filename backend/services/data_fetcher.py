@@ -55,10 +55,9 @@ class DataFetcher:
         Returns:
             DataFrame with OHLCV data or None on failure.
         """
-        # Build cache key exactly as tests expect: symbol spaces -> underscores
-        # and append source identifier so different providers can coexist.
+        # Build cache key: symbol spaces -> underscores
         safe_symbol = symbol.replace(" ", "_")
-        cache_key = f"{safe_symbol}_{timeframe}_alphavantage"
+        cache_key = f"{safe_symbol}_{timeframe}"
         
         # 1. Load from cache (respect custom cache_dir when tests override it)
         if hasattr(self, "cache_dir") and self.cache_dir:
@@ -79,16 +78,13 @@ class DataFetcher:
         fresh_df = self._fetch_from_api(symbol, timeframe, from_date, to_date)
 
         if fresh_df is None or fresh_df.empty:
-            # try external services in priority order
+            # try external services in priority order (placeholders for future use)
             fresh_df = self._fetch_alphavantage(symbol, timeframe, from_date, to_date)
         if fresh_df is None or fresh_df.empty:
             fresh_df = self._fetch_yfinance(symbol, timeframe, from_date, to_date)
-        if fresh_df is None or fresh_df.empty:
-            # last resort: synthetic data
-            fresh_df = self._generate_synthetic(from_date, to_date)
 
         if fresh_df is None or fresh_df.empty:
-            # nothing available at all
+            # Return cached data if available, otherwise fail. No synthetic fallback.
             return self._filter_and_standardize(cached_df, start_req, end_req) if cached_df is not None else None
 
         # 4. Merge and Update Cache
@@ -128,7 +124,7 @@ class DataFetcher:
             )
             
             if df is not None and not df.empty:
-                df.columns = [c.lower() for c in df.columns]
+                # Casing and cleaning is handled by the provider service and DataCleaner
                 return df
             return None
         except Exception as e:
@@ -156,51 +152,31 @@ class DataFetcher:
         _fetch_alphavantage."""
         return None
 
-    def _generate_synthetic(
-        self, from_date: Optional[str], to_date: Optional[str]
-    ) -> pd.DataFrame:
-        """Produce a small synthetic OHLCV DataFrame for demo/testing.
-
-        The date range is based on the requested bounds; if none supplied a
-        default of 30 business days ending today is used.
-        """
-        # determine range
-        try:
-            end = pd.Timestamp(to_date) if to_date else pd.Timestamp.now()
-        except Exception:
-            end = pd.Timestamp.now()
-        try:
-            start = pd.Timestamp(from_date) if from_date else end - pd.Timedelta(days=30)
-        except Exception:
-            start = end - pd.Timedelta(days=30)
-        idx = pd.bdate_range(start, end, freq="B")
-        if idx.empty:
-            idx = pd.bdate_range(end - pd.Timedelta(days=29), end, freq="B")
-        n = len(idx)
-        rng = np.random.default_rng(0)
-        close = 100 + np.cumsum(rng.normal(0, 1, n))
-        df = pd.DataFrame(
-            {
-                "open": close * 0.99,
-                "high": close * 1.01,
-                "low": close * 0.98,
-                "close": close,
-                "volume": rng.integers(100_000, 1_000_000, n).astype(float),
-            },
-            index=idx,
-        )
-        # standardize column names to Title Case (returned df is filtered later)
-        df.columns = [c.capitalize() for c in df.columns]
-        return df
+    # _generate_synthetic removed for financial integrity.
 
     def _is_range_covered(
         self, df: Optional[pd.DataFrame], start: Optional[pd.Timestamp], end: Optional[pd.Timestamp]
     ) -> bool:
-        """Check if DataFrame covers requested range."""
-        if df is None or df.empty or not start or not end:
-            return df is not None and not df.empty
+        """Check if DataFrame covers requested range.
+        
+        Handles the common mismatch where the request starts at 00:00 but market
+        data only starts at 09:15.
+        """
+        if df is None or df.empty:
+            return False
+        if not start or not end:
+            return True
             
-        return df.index.min() <= start and df.index.max() >= end
+        # If cache starts on or before requested date, we consider it covered
+        # (allowing for the 09:15 market open vs 00:00 request start)
+        cache_start = df.index.min().floor('D')
+        cache_end = df.index.max().ceil('D')
+        
+        # Buffer: consider it covered if start is within same day
+        start_date = start.floor('D')
+        end_date = end.floor('D')
+        
+        return cache_start <= start_date and cache_end >= end_date
 
     def _filter_and_standardize(
         self, df: pd.DataFrame, start: Optional[pd.Timestamp], end: Optional[pd.Timestamp]
@@ -212,14 +188,10 @@ class DataFetcher:
         Normalise here — the single exit point — so no downstream code needs
         to rename columns and duplicate-column bugs cannot arise.
         """
-        if df.empty:
-            return df
-
-        # Normalise to Title-Case and drop any duplicate column names that the
-        # Dhan API sometimes produces (e.g. two 'close' columns in one response).
+        # Drop any duplicate column names
         df = df.copy()
+        # Standardise to lowercase (open, high, low, close, volume)
         df.columns = [c.lower() for c in df.columns]
-        df = df.loc[:, ~df.columns.duplicated()]
 
         res = df
         if start:

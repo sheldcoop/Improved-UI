@@ -91,7 +91,7 @@ class TestColumnNormalisation:
         assert result.get("status") != "failed", f"run() failed: {result}"
 
     def test_titlecase_columns_also_work(self):
-        """BacktestEngine must also accept Title-Case columns."""
+        """BacktestEngine must also accept Title-Case columns and convert them."""
         df = _make_oscillating_ohlcv()
         df.columns = [c.capitalize() for c in df.columns]
         result = BacktestEngine.run(df, "1", {"initial_capital": 100_000})
@@ -104,7 +104,7 @@ class TestColumnNormalisation:
         """
         from strategies import StrategyFactory
         df = _make_oscillating_ohlcv()
-        df.columns = [c.capitalize() for c in df.columns]
+        df.columns = [c.lower() for c in df.columns]
         strategy = StrategyFactory.get_strategy("1", {"period": 14, "lower": 30, "upper": 70})
         entries, exits = strategy.generate_signals(df)
         assert isinstance(entries, pd.Series), f"entries is {type(entries)}, expected pd.Series"
@@ -201,7 +201,7 @@ class TestOptimizationEngine:
 
     def test_find_best_params_returns_dict(self):
         df = _make_oscillating_ohlcv(n=300)
-        df.columns = [c.capitalize() for c in df.columns]
+        df.columns = [c.lower() for c in df.columns]
         best, grid = OptimizationEngine._find_best_params(
             df, "1", {**self.RANGES}, "sharpe",
             return_trials=True, n_trials=5
@@ -211,7 +211,7 @@ class TestOptimizationEngine:
 
     def test_grid_has_correct_structure(self):
         df = _make_oscillating_ohlcv(n=300)
-        df.columns = [c.capitalize() for c in df.columns]
+        df.columns = [c.lower() for c in df.columns]
         _, grid = OptimizationEngine._find_best_params(
             df, "1", {**self.RANGES}, "sharpe",
             return_trials=True, n_trials=5
@@ -227,7 +227,7 @@ class TestOptimizationEngine:
     def test_grid_sorted_by_score_descending(self):
         """Best trial must be first in the grid."""
         df = _make_oscillating_ohlcv(n=300)
-        df.columns = [c.capitalize() for c in df.columns]
+        df.columns = [c.lower() for c in df.columns]
         _, grid = OptimizationEngine._find_best_params(
             df, "1", {**self.RANGES}, "sharpe",
             return_trials=True, n_trials=8
@@ -238,7 +238,7 @@ class TestOptimizationEngine:
     def test_best_params_within_ranges(self):
         """Best params must respect the min/max bounds."""
         df = _make_oscillating_ohlcv(n=300)
-        df.columns = [c.capitalize() for c in df.columns]
+        df.columns = [c.lower() for c in df.columns]
         best, _ = OptimizationEngine._find_best_params(
             df, "1", {**self.RANGES}, "sharpe",
             return_trials=True, n_trials=5
@@ -257,7 +257,7 @@ class TestOptimizationEngine:
         # 1. run optimisation via endpoint – patch the data fetcher so that Optuna
         # sees a sufficiently long DataFrame and actually returns candidates.
         df = _make_oscillating_ohlcv(n=300)
-        df.columns = [c.capitalize() for c in df.columns]
+        df.columns = [c.lower() for c in df.columns]
         from unittest.mock import patch
         with patch("services.data_fetcher.DataFetcher.fetch_historical_data", return_value=df):
             payload = {
@@ -307,10 +307,8 @@ class TestOptimizationEngine:
         import pandas as pd
         from unittest.mock import patch
 
-        df = pd.DataFrame({"Open": [100, 101], "High": [101, 102],
-                           "Low": [99, 100], "Close": [100, 101],
-                           "Volume": [1000, 1000]},
-                          index=pd.bdate_range("2023-01-01", periods=2, freq="B"))
+        df = _make_oscillating_ohlcv(n=300)
+        df.columns = [c.lower() for c in df.columns]
         with patch("services.data_fetcher.DataFetcher.fetch_historical_data", return_value=df):
             payload = {
                 "symbol": "TEST",
@@ -343,7 +341,7 @@ class TestOptimizationEngine:
         import pandas as pd
         from services.backtest_engine import BacktestEngine
         idx = pd.date_range('2023-01-01','2023-03-01', freq='B')
-        df = pd.DataFrame({'Open':1,'High':1,'Low':1,'Close':1,'Volume':1}, index=idx)
+        df = pd.DataFrame({'open':1,'high':1,'low':1,'close':1,'volume':1}, index=idx)
         res = BacktestEngine.run(df, '1', {})
         assert isinstance(res.get('monthlyReturns'), list)
         assert len(res['monthlyReturns']) >= 2
@@ -375,9 +373,9 @@ class TestOptimizationEngine:
         import pandas as pd
         from unittest.mock import patch
 
-        df = pd.DataFrame({"Open": [100, 101], "High": [101, 102],
-                           "Low": [99, 100], "Close": [100, 101],
-                           "Volume": [1000, 1000]},
+        df = pd.DataFrame({"open": [100, 101], "high": [101, 102],
+                           "low": [99, 100], "close": [100, 101],
+                           "volume": [1000, 1000]},
                           index=pd.bdate_range("2023-01-01", periods=2, freq="B"))
         with patch("services.data_fetcher.DataFetcher.fetch_historical_data", return_value=df):
             payload = {
@@ -398,18 +396,19 @@ class TestOptimizationEngine:
                 },
             }
             resp = client.post("/api/v1/market/backtest/run", json=payload)
-        assert resp.status_code == 200
-        data = resp.get_json() or {}
-        assert data.get("statsParams") == {"freq": "D", "window": 1}
-        assert "returnsStats" in data
-        assert isinstance(data["returnsStats"], dict)
-        # ensure when using monthly alias it still returns something (normalisation)
-        payload["parameters"]["statsFreq"] = "1M"
-        resp2 = client.post("/api/v1/market/backtest/run", json=payload)
-        assert resp2.status_code == 200
-        data2 = resp2.get_json() or {}
-        assert "returnsStats" in data2
-        assert data2["returnsStats"], "monthly stats should not be empty"
+            assert resp.status_code == 200
+            data = resp.get_json() or {}
+            assert data.get("statsParams") == {"freq": "D", "window": 1}
+            assert "returnsStats" in data
+            assert isinstance(data["returnsStats"], dict)
+
+            # ensure when using monthly alias it still returns something (normalisation)
+            payload["parameters"]["statsFreq"] = "1M"
+            resp2 = client.post("/api/v1/market/backtest/run", json=payload)
+            assert resp2.status_code == 200
+            data2 = resp2.get_json() or {}
+            assert "returnsStats" in data2
+            assert data2["returnsStats"], "monthly stats should not be empty"
 
     def test_build_portfolio_tolerates_object_dtype(self):
         """_build_portfolio should accept object-dtype signal series without error.
@@ -417,11 +416,11 @@ class TestOptimizationEngine:
         This guards against numba typing failures seen during optimisation trials.
         """
         df = _make_oscillating_ohlcv(n=100)
-        df.columns = [c.capitalize() for c in df.columns]
+        df.columns = [c.lower() for c in df.columns]
         # alternating True/False with dtype object
         entries = pd.Series([True, False] * 50, index=df.index).astype(object)
         exits = pd.Series([False, True] * 50, index=df.index).astype(object)
-        pf = OptimizationEngine._build_portfolio(df["Close"], entries, exits, {}, "1d")
+        pf = OptimizationEngine._build_portfolio(df["close"], entries, exits, {}, "1d")
         assert pf is not None
         # the portfolio should be constructed without error; casting the
         # trade count should succeed.
@@ -433,7 +432,7 @@ class TestOptimizationEngine:
         This is a regression for the numba typing error seen during optimisation trials.
         """
         df = _make_oscillating_ohlcv(n=300)
-        df.columns = [c.capitalize() for c in df.columns]
+        df.columns = [c.lower() for c in df.columns]
 
         class FakeStrategy:
             def generate_signals(self, df_):
@@ -452,7 +451,7 @@ class TestOptimizationEngine:
             except ValueError as e:
                 # acceptable if optimizer found no valid parameter sets; the
                 # failure mode should still be descriptive and not a numba crash.
-                assert "No valid parameter sets" in str(e)
+                assert "Optimization produced no valid results" in str(e)
 
     def test_run_optuna_full_response_structure(self):
         """run_optuna must return grid, wfo, and bestParams keys."""
@@ -463,7 +462,7 @@ class TestOptimizationEngine:
 
         # Patch DataFetcher so no Dhan API call is made
         from unittest.mock import patch
-        with patch("services.optimizer.DataFetcher") as MockFetcher:
+        with patch("services.grid_engine.DataFetcher") as MockFetcher:
             MockFetcher.return_value.fetch_historical_data.return_value = df
             result = OptimizationEngine.run_optuna(
                 symbol="TEST", strategy_id="1",
@@ -480,7 +479,7 @@ class TestOptimizationEngine:
     def test_reproducible_flag_gives_same_result(self):
         """reproducible=True (via ranges dict) must produce the same bestParams across two runs."""
         df = _make_oscillating_ohlcv(n=300)
-        df.columns = [c.capitalize() for c in df.columns]
+        df.columns = [c.lower() for c in df.columns]
         # reproducible lives in ranges dict (optimizer reads ranges.get("reproducible"))
         ranges_with_seed = {**self.RANGES, "reproducible": True}
 
@@ -497,7 +496,7 @@ class TestOptimizationEngine:
     def test_different_scoring_metrics(self):
         """Optimizer must work with all supported scoring metrics."""
         df = _make_oscillating_ohlcv(n=300)
-        df.columns = [c.capitalize() for c in df.columns]
+        df.columns = [c.lower() for c in df.columns]
         for metric in ("sharpe", "return", "calmar"):
             best, _ = OptimizationEngine._find_best_params(
                 df.copy(), "1", {**self.RANGES}, metric,
@@ -626,11 +625,11 @@ class TestMarketRoute:
 
         # minimal data frame
         df = pd.DataFrame({
-            "Open": [100, 101],
-            "High": [101, 102],
-            "Low": [99, 100],
-            "Close": [100, 101],
-            "Volume": [1000, 1000],
+            "open": [100, 101],
+            "high": [101, 102],
+            "low": [99, 100],
+            "close": [100, 101],
+            "volume": [1000, 1000],
         }, index=pd.bdate_range("2023-01-01", periods=2, freq="B"))
 
         # patch fetcher to return our df, and strategy to produce object signals
@@ -676,7 +675,11 @@ class TestMarketRoute:
                 "strategy_logic": {"period": 10, "lower": 20, "upper": 80}
             },
         }
-        resp = client.post("/api/v1/market/backtest/run", json=payload)
+        from unittest.mock import patch
+        df = _make_oscillating_ohlcv()
+        df.columns = [c.lower() for c in df.columns]
+        with patch("services.data_fetcher.DataFetcher.fetch_historical_data", return_value=df):
+            resp = client.post("/api/v1/market/backtest/run", json=payload)
         assert resp.status_code == 200, f"Expected success, got {resp.status_code}"
         data = resp.get_json() or {}
         # paramSet should exactly match the strategy_logic we sent
@@ -737,11 +740,11 @@ class TestMarketRoute:
         from unittest.mock import patch
 
         df = pd.DataFrame({
-            "Open": [100, 101],
-            "High": [101, 102],
-            "Low": [99, 100],
-            "Close": [100, 101],
-            "Volume": [1000, 1000],
+            "open": [100, 101],
+            "high": [101, 102],
+            "low": [99, 100],
+            "close": [100, 101],
+            "volume": [1000, 1000],
         }, index=pd.bdate_range("2023-01-01", periods=2, freq="B"))
 
         with patch("services.data_fetcher.DataFetcher.fetch_historical_data", return_value=df):
@@ -776,11 +779,11 @@ class TestMarketRoute:
         from unittest.mock import patch
 
         df = pd.DataFrame({
-            "Open": [100, 101],
-            "High": [101, 102],
-            "Low": [99, 100],
-            "Close": [100, 101],
-            "Volume": [1000, 1000],
+            "open": [100, 101],
+            "high": [101, 102],
+            "low": [99, 100],
+            "close": [100, 101],
+            "volume": [1000, 1000],
         }, index=pd.bdate_range("2023-01-01", periods=2, freq="B"))
 
         with patch("services.data_fetcher.DataFetcher.fetch_historical_data", return_value=df):

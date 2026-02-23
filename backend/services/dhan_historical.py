@@ -146,8 +146,8 @@ class DhanHistoricalService:
             
         df = pd.DataFrame(response["data"])
         # Standardize column names to lowercase and deduplicate
-        df.columns = [c.lower() for c in df.columns]
-        df = df.loc[:, ~df.columns.duplicated()]
+        # Dataset columns will be standardized and cleaned by DataCleaner in the next step
+        pass
        
         # Handle Timestamps
         if "timestamp" in df.columns:

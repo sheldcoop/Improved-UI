@@ -5,12 +5,19 @@ import { executeWithFallback, fetchClient } from './http';
 import { generateMockOptionChain, generateMockDataHealthReport } from './mockData';
 
 export interface DataHealthReport {
-    score: number;
-    missingCandles: number;
-    zeroVolumeCandles: number;
+    symbol: string;
+    timeframe: string;
     totalCandles: number;
+    nullCandles: number;
+    gapCount: number;
+    zeroVolumeCandles: number;
+    geometricFailures: number;
+    spikeFailures: number;
+    sessionFailures: number;
+    staleFailures: number;
     gaps: string[];
-    status: 'EXCELLENT' | 'GOOD' | 'POOR' | 'CRITICAL';
+    details: string[];
+    status: 'AUDITED' | 'ANOMALIES_DETECTED';
     note?: string;
 }
 

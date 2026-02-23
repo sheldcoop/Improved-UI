@@ -132,12 +132,19 @@ export const generateMockOptionChain = async (symbol: string, expiry: string): P
 export const generateMockDataHealthReport = async (): Promise<any> => {
     await delay(800);
     return {
-        score: 95,
-        missingCandles: 0,
-        zeroVolumeCandles: 0,
+        symbol: 'MOCK',
+        timeframe: '1d',
         totalCandles: 1500,
+        nullCandles: 0,
+        gapCount: 0,
+        zeroVolumeCandles: 0,
+        geometricFailures: 0,
+        spikeFailures: 0,
+        sessionFailures: 0,
+        staleFailures: 0,
         gaps: [],
-        status: 'EXCELLENT',
+        details: [],
+        status: 'AUDITED',
         note: 'Mock validation passed.'
     };
 };

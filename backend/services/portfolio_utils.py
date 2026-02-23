@@ -68,7 +68,7 @@ def detect_freq(df: pd.DataFrame) -> str:
     Returns one of: ``"1m"``, ``"5m"``, ``"15m"``, ``"1h"``, ``"1D"``.
     """
     try:
-        sample = df if isinstance(df, pd.DataFrame) else df["Close"]
+        sample = df if isinstance(df, pd.DataFrame) else df["close"]
         if len(sample) > 1:
             diffs = sample.index.to_series().diff()
             mode_diff = diffs.mode()[0]
@@ -179,13 +179,13 @@ def build_portfolio(
     # Always execute at the Open of the next bar — this is realistic live-bot
     # behaviour: signal fires at bar close → order sent → fills at next open.
     # Matches the reference Python script which passes price=open_price.
-    if df is not None and "Open" in df.columns:
-        pf_kwargs["open"] = df["Open"].reindex(close.index)
+    if df is not None and "open" in df.columns:
+        pf_kwargs["open"] = df["open"].reindex(close.index)
 
     # Additionally pass High/Low when SL/TP is active so VectorBT can detect
     # intra-bar trigger points (not just at bar close).
     if df is not None and (sl_pct > 0 or tp_pct > 0 or tsl_pct > 0):
-        for col, kwarg in [("High", "high"), ("Low", "low")]:
+        for col, kwarg in [("high", "high"), ("low", "low")]:
             if col in df.columns:
                 pf_kwargs[kwarg] = df[col].reindex(close.index)
 

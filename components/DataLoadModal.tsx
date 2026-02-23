@@ -2,14 +2,12 @@ import React from 'react';
 import { X, Calendar, BarChart, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { Button } from './ui/Button';
 
+import { DataHealthReport } from '../services/marketService';
+
 interface DataLoadModalProps {
   isOpen: boolean;
   onClose: () => void;
-  report: {
-    score: number;
-    status: string;
-    totalCandles: number;
-    missingCandles: number;
+  report: DataHealthReport & {
     startDate: string;
     endDate: string;
     previewRows: Array<{
@@ -20,7 +18,6 @@ interface DataLoadModalProps {
       close: number;
       volume: number;
     }>;
-    note?: string;
   };
   onAcknowledge: () => void;
 }
@@ -35,32 +32,75 @@ const DataLoadModal: React.FC<DataLoadModalProps> = ({ isOpen, onClose, report, 
           <X className="w-5 h-5" />
         </button>
         <h3 className="text-xl font-bold text-slate-100 mb-2 flex items-center">
-          <BarChart className="w-5 h-5 mr-2 text-emerald-400" /> Data Load Complete
+          <ShieldCheck className="w-5 h-5 mr-2 text-emerald-400" /> Market Data Integrity Audit
         </h3>
-        <p className="text-sm text-slate-400 mb-6">Integrity report for loaded data</p>
-        <div className="grid grid-cols-2 gap-6 mb-6">
-          <div className="bg-slate-800 rounded-xl p-4 flex flex-col items-center">
-            <span className="text-3xl font-bold text-emerald-400">{report.score}%</span>
-            <span className="mt-2 text-xs font-semibold text-emerald-300">{report.status}</span>
-            <span className="mt-1 text-xs text-slate-400">Institutional Integrity Score</span>
+        <p className="text-sm text-slate-400 mb-6 font-medium">Technical validation of dataset health</p>
+
+        <div className="bg-slate-800/50 border border-slate-800 rounded-2xl p-6 mb-6">
+          <div className="flex items-center justify-between mb-4 pb-4 border-b border-slate-700/50">
+            <div className="flex items-center gap-3">
+              <div className="bg-blue-500/20 p-2 rounded-lg">
+                <BarChart className="w-5 h-5 text-blue-400" />
+              </div>
+              <div>
+                <div className="text-xl font-bold text-white">{report.totalCandles.toLocaleString()}</div>
+                <div className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Total Dataset Size</div>
+              </div>
+            </div>
+            <div className="bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800 flex items-center gap-2">
+              <Calendar className="w-3.5 h-3.5 text-pink-400" />
+              <span className="text-[10px] text-slate-400 font-mono">{report.startDate} - {report.endDate}</span>
+            </div>
           </div>
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <BarChart className="w-4 h-4 text-blue-400" />
-              <span className="text-sm text-slate-200 font-bold">{report.totalCandles.toLocaleString()}</span>
-              <span className="text-xs text-slate-400">Total Candles</span>
+
+          <div className="grid grid-cols-4 gap-4">
+            <div className="flex flex-col items-center bg-slate-900/50 p-3 rounded-xl border border-slate-800/50 transition-colors hover:border-slate-700">
+              <div className={`text-sm font-bold ${report.nullCandles > 0 ? 'text-red-400' : 'text-slate-100'}`}>{report.nullCandles}</div>
+              <div className="text-[9px] text-slate-500 font-bold uppercase mt-1">Nulls / NaNs</div>
             </div>
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-yellow-400" />
-              <span className="text-sm text-slate-200 font-bold">{report.missingCandles}</span>
-              <span className="text-xs text-slate-400">Missing Candles</span>
+            <div className="flex flex-col items-center bg-slate-900/50 p-3 rounded-xl border border-slate-800/50 transition-colors hover:border-slate-700">
+              <div className={`text-sm font-bold ${report.gapCount > 0 ? 'text-red-400' : 'text-slate-100'}`}>{report.gapCount}</div>
+              <div className="text-[9px] text-slate-500 font-bold uppercase mt-1">Timeline Gaps</div>
             </div>
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-pink-400" />
-              <span className="text-xs text-slate-400">{report.startDate} - {report.endDate}</span>
+            <div className="flex flex-col items-center bg-slate-900/50 p-3 rounded-xl border border-slate-800/50 transition-colors hover:border-slate-700">
+              <div className={`text-sm font-bold ${report.sessionFailures > 0 ? 'text-amber-400' : 'text-slate-100'}`}>{report.sessionFailures}</div>
+              <div className="text-[9px] text-slate-500 font-bold uppercase mt-1">Session Leak</div>
+            </div>
+            <div className="flex flex-col items-center bg-slate-900/50 p-3 rounded-xl border border-slate-800/50 transition-colors hover:border-slate-700">
+              <div className={`text-sm font-bold ${report.spikeFailures > 0 ? 'text-amber-400' : 'text-slate-100'}`}>{report.spikeFailures}</div>
+              <div className="text-[9px] text-slate-500 font-bold uppercase mt-1">Flash Spikes</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4 mt-4">
+            <div className="flex flex-col items-center bg-slate-900/50 p-3 rounded-xl border border-slate-800/50 transition-colors hover:border-slate-700">
+              <div className={`text-sm font-bold ${report.geometricFailures > 0 ? 'text-red-400' : 'text-slate-100'}`}>{report.geometricFailures}</div>
+              <div className="text-[9px] text-slate-500 font-bold uppercase mt-1">Geometry Fail</div>
+            </div>
+            <div className="flex flex-col items-center bg-slate-900/50 p-3 rounded-xl border border-slate-800/50 transition-colors hover:border-slate-700">
+              <div className={`text-sm font-bold ${report.zeroVolumeCandles > 0 ? 'text-amber-400' : 'text-slate-100'}`}>{report.zeroVolumeCandles}</div>
+              <div className="text-[9px] text-slate-500 font-bold uppercase mt-1">0 Volume</div>
+            </div>
+            <div className="flex flex-col items-center bg-slate-900/50 p-3 rounded-xl border border-slate-800/50 transition-colors hover:border-slate-700">
+              <div className={`text-sm font-bold ${report.staleFailures > 0 ? 'text-amber-400' : 'text-slate-100'}`}>{report.staleFailures}</div>
+              <div className="text-[9px] text-slate-500 font-bold uppercase mt-1">Stale Feed</div>
             </div>
           </div>
         </div>
+
+        {/* Details List */}
+        {report.details && report.details.length > 0 && (
+          <div className="mb-6 bg-red-500/5 border border-red-500/10 rounded-xl p-3">
+            <h4 className="text-[10px] font-bold text-red-400 uppercase mb-2">Detailed Anomalies</h4>
+            <div className="flex flex-wrap gap-1">
+              {report.details.map((detail, idx) => (
+                <span key={idx} className="bg-red-500/10 text-red-400/80 text-[9px] px-1.5 py-0.5 rounded border border-red-500/5">
+                  {detail}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="mb-6">
           <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Recent Data Preview</h4>
           <table className="w-full text-xs text-slate-200 bg-slate-800 rounded-xl">

@@ -51,7 +51,7 @@ class TestParquetCache:
         fetcher.cache_dir = str(tmp_path)
 
         df_original = _make_ohlcv(30)
-        cache_key = "NIFTY_50_1d_alphavantage"
+        cache_key = "NIFTY_50_1d"
         fetcher._save_parquet(cache_key, df_original)
 
         parquet_file = tmp_path / f"{cache_key}.parquet"
@@ -72,7 +72,7 @@ class TestParquetCache:
         df = _make_ohlcv(10)
         # Simulate what fetch_historical_data does internally
         safe_symbol = "NIFTY 50".replace(" ", "_")
-        cache_key = f"{safe_symbol}_1d_alphavantage"
+        cache_key = f"{safe_symbol}_1d"
         fetcher._save_parquet(cache_key, df)
 
         # Filename must not contain spaces
@@ -98,7 +98,7 @@ class TestParquetCache:
         fetcher.cache_ttl_hours = 0  # Expire immediately
 
         df = _make_ohlcv(10)
-        cache_key = "RELIANCE_1d_alphavantage"
+        cache_key = "RELIANCE_1d"
         fetcher._save_parquet(cache_key, df)
 
         # TTL = 0 hours means any existing file is expired
@@ -110,46 +110,19 @@ class TestParquetCache:
 # Synthetic fallback
 # ---------------------------------------------------------------------------
 
-class TestSyntheticFallback:
-    def test_synthetic_data_has_correct_columns(self):
-        """Synthetic fallback must return a DataFrame with OHLCV columns."""
+class TestNoFallback:
+    def test_no_synthetic_fallback(self):
+        """DataFetcher must NOT return synthetic data when API fails (Rule: Financial Integrity)."""
         from services.data_fetcher import DataFetcher
 
         fetcher = DataFetcher({})
-        # No API key → should fall through to synthetic data
-        with patch.object(fetcher, "_fetch_alphavantage", return_value=None), \
+        # Mocking all fetchers to fail
+        with patch.object(fetcher, "_fetch_from_api", return_value=None), \
+             patch.object(fetcher, "_fetch_alphavantage", return_value=None), \
              patch.object(fetcher, "_fetch_yfinance", return_value=None):
             df = fetcher.fetch_historical_data("FAKE_SYMBOL", "1d")
 
-        assert df is not None
-        # fetch_historical_data normalises column names to lowercase internally
-        for col in ("Open", "High", "Low", "Close", "Volume"):
-            assert col.lower() in df.columns, f"Missing column: {col} (got {df.columns})"
-
-    def test_synthetic_data_has_datetime_index(self):
-        """Synthetic fallback must return a DataFrame with a DatetimeIndex."""
-        from services.data_fetcher import DataFetcher
-
-        fetcher = DataFetcher({})
-        with patch.object(fetcher, "_fetch_alphavantage", return_value=None), \
-             patch.object(fetcher, "_fetch_yfinance", return_value=None):
-            df = fetcher.fetch_historical_data("FAKE_SYMBOL", "1d")
-
-        assert isinstance(df.index, pd.DatetimeIndex), (
-            "DataFrame index must be DatetimeIndex"
-        )
-
-    def test_synthetic_data_no_nan_close(self):
-        """Synthetic fallback Close prices must not contain NaN."""
-        from services.data_fetcher import DataFetcher
-
-        fetcher = DataFetcher({})
-        with patch.object(fetcher, "_fetch_alphavantage", return_value=None), \
-             patch.object(fetcher, "_fetch_yfinance", return_value=None):
-            df = fetcher.fetch_historical_data("FAKE_SYMBOL", "1d")
-
-        # column names are lowercase after processing
-        assert not df["close"].isna().any(), "Close prices must not contain NaN"
+        assert df is None, "Should return None instead of synthetic data for financial integrity"
 
 # ---------------------------------------------------------------------------
 # fetch_historical_data — cache hit path
@@ -165,7 +138,7 @@ class TestCacheHitPath:
         fetcher.cache_ttl_hours = 24
 
         df_cached = _make_ohlcv(20)
-        cache_key = "NIFTY_50_1d_alphavantage"
+        cache_key = "NIFTY_50_1d"
         fetcher._save_parquet(cache_key, df_cached)
 
         with patch.object(fetcher, "_fetch_alphavantage") as mock_av, \

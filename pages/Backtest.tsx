@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
-import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Database, Sliders, AlertCircle, CheckCircle, Split, Info, AlertTriangle, CheckSquare, Clock, Shield, Activity, FileQuestionMark } from 'lucide-react';
+import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Database, Sliders, AlertCircle, CheckCircle, Split, Info, AlertTriangle, CheckSquare, Clock, Shield, Activity, FileQuestionMark, ShieldCheck } from 'lucide-react';
 import { UNIVERSES } from '../constants';
 import { Timeframe, Strategy } from '../types';
 import { Card } from '../components/ui/Card';
@@ -69,7 +69,7 @@ const Backtest: React.FC = () => {
       autoLoadFiredRef.current = false; // reset guard for this new autoRun
       setAutoRunRequested(true);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);  // only re-run when navigation state actually changes
 
   // When autoRun is requested: wait for data to be ready then fire handleRun
@@ -85,18 +85,16 @@ const Backtest: React.FC = () => {
       autoLoadFiredRef.current = true;
       handleLoadData();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRunRequested, dataStatus]); // intentionally omit handleRun/handleLoadData to avoid loop
 
-  const renderHealthBadge = (status: string | undefined) => {
-    switch (status) {
-      case 'EXCELLENT': return <Badge variant="success" className="flex items-center"><CheckCircle className="w-3 h-3 mr-1" /> Excellent Quality</Badge>;
-      case 'GOOD': return <Badge variant="info" className="flex items-center"><CheckSquare className="w-3 h-3 mr-1" /> Good Quality</Badge>;
-      case 'POOR': return <Badge variant="warning" className="flex items-center"><AlertTriangle className="w-3 h-3 mr-1" /> Poor Quality</Badge>;
-      case 'CRITICAL': return <Badge variant="danger" className="flex items-center"><AlertCircle className="w-3 h-3 mr-1" /> Critical Issues</Badge>;
-      default:
-        // unknown/empty report – render a placeholder so user knows something went wrong
-        return <Badge variant="neutral" className="flex items-center"><FileQuestionMark className="w-3 h-3 mr-1" /> Unknown</Badge>;
+  const renderHealthBadge = (report: any | undefined) => {
+    if (!report) return <Badge variant="neutral" className="flex items-center"><FileQuestionMark className="w-3 h-3 mr-1" /> No Audit</Badge>;
+
+    if (report.status === 'AUDITED') {
+      return <Badge variant="success" className="flex items-center"><ShieldCheck className="w-3 h-3 mr-1" /> Audit Passed</Badge>;
+    } else {
+      return <Badge variant="warning" className="flex items-center"><AlertTriangle className="w-3 h-3 mr-1" /> Anomalies Found</Badge>;
     }
   };
 
@@ -262,10 +260,19 @@ const Backtest: React.FC = () => {
         isOpen={isReportOpen}
         onClose={() => setIsReportOpen(false)}
         report={{
-          score: healthReport?.score ?? 0,
-          status: healthReport?.status ?? 'Unknown',
+          symbol: symbol,
+          timeframe: timeframe,
           totalCandles: healthReport?.totalCandles ?? 0,
-          missingCandles: healthReport?.missingCandles ?? 0,
+          nullCandles: healthReport?.nullCandles ?? 0,
+          gapCount: healthReport?.gapCount ?? 0,
+          zeroVolumeCandles: healthReport?.zeroVolumeCandles ?? 0,
+          geometricFailures: healthReport?.geometricFailures ?? 0,
+          spikeFailures: healthReport?.spikeFailures ?? 0,
+          sessionFailures: healthReport?.sessionFailures ?? 0,
+          staleFailures: healthReport?.staleFailures ?? 0,
+          gaps: healthReport?.gaps ?? [],
+          details: healthReport?.details ?? [],
+          status: healthReport?.status ?? 'AUDITED',
           startDate: startDate,
           endDate: endDate,
           previewRows: fullReportData?.sample ?? [],

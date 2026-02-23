@@ -171,7 +171,7 @@ class GridEngine:
                 entries, exits = strategy.generate_signals(df)
 
                 pf = build_portfolio(
-                    df["Close"], entries, exits,
+                    df["close"], entries, exits,
                     {**config, **trial_params},
                     vbt_freq,
                     df=df,          # ← pass full df for accurate intra-bar SL/TP fills

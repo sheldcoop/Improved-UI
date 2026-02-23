@@ -1,66 +1,86 @@
 import React from 'react';
 import { Badge } from './ui/Badge';
-import { CheckCircle, CheckSquare, AlertTriangle, AlertCircle, FileQuestionMark } from 'lucide-react';
+import { CheckCircle, AlertTriangle } from 'lucide-react';
+import { DataHealthReport } from '../services/marketService';
 
 interface HealthReportCardProps {
-  healthReport: {
-    score: number;
-    status: string;
-    totalCandles: number;
-    missingCandles: number;
-    zeroVolumeCandles: number;
-    gaps: string[];
-    note?: string;
-  };
+  healthReport: DataHealthReport;
 }
 
 const renderHealthBadge = (status: string | undefined) => {
-  switch (status) {
-    case 'EXCELLENT': return <Badge variant="success" className="flex items-center"><CheckCircle className="w-3 h-3 mr-1" /> Excellent Quality</Badge>;
-    case 'GOOD': return <Badge variant="info" className="flex items-center"><CheckSquare className="w-3 h-3 mr-1" /> Good Quality</Badge>;
-    case 'POOR': return <Badge variant="warning" className="flex items-center"><AlertTriangle className="w-3 h-3 mr-1" /> Poor Quality</Badge>;
-    case 'CRITICAL': return <Badge variant="danger" className="flex items-center"><AlertCircle className="w-3 h-3 mr-1" /> Critical Issues</Badge>;
-    default:
-      return <Badge variant="neutral" className="flex items-center"><FileQuestionMark className="w-3 h-3 mr-1" /> Unknown</Badge>;
+  if (status === 'AUDITED') {
+    return <Badge variant="success" className="flex items-center"><CheckCircle className="w-3 h-3 mr-1" /> Audit Passed</Badge>;
   }
+  return <Badge variant="warning" className="flex items-center"><AlertTriangle className="w-3 h-3 mr-1" /> Anomalies Found</Badge>;
 };
 
 const HealthReportCard: React.FC<HealthReportCardProps> = ({ healthReport }) => {
   if (!healthReport) return null;
+
+  const hasAnomalies = healthReport.nullCandles > 0 ||
+    healthReport.gapCount > 0 ||
+    healthReport.sessionFailures > 0 ||
+    healthReport.spikeFailures > 0;
+
   return (
-    <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 animate-in fade-in slide-in-from-top-2">
+    <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 animate-in fade-in slide-in-from-top-2 shadow-sm">
       <div className="flex justify-between items-center mb-3">
-        <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Health Report</h4>
+        <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Market Data Audit</h4>
         {renderHealthBadge(healthReport.status)}
       </div>
-      <div className="grid grid-cols-2 gap-y-2 text-sm">
-        <div className="flex justify-between pr-2 border-r border-slate-800">
-          <span className="text-slate-500">Quality Score</span>
-          <span className={`font-mono font-bold ${healthReport.score > 90 ? 'text-emerald-400' : 'text-yellow-400'}`}>{healthReport.score}%</span>
+
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+        <div className="space-y-1">
+          <div className="flex justify-between items-center">
+            <span className="text-[11px] text-slate-500">Null Candles</span>
+            <span className={`text-xs font-mono font-bold ${healthReport.nullCandles > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+              {healthReport.nullCandles}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-[11px] text-slate-500">Timeline Gaps</span>
+            <span className={`text-xs font-mono font-bold ${healthReport.gapCount > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+              {healthReport.gapCount}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-[11px] text-slate-500">Session Leaks</span>
+            <span className={`text-xs font-mono font-bold ${healthReport.sessionFailures > 0 ? 'text-yellow-400' : 'text-slate-400'}`}>
+              {healthReport.sessionFailures}
+            </span>
+          </div>
         </div>
-        <div className="flex justify-between pl-2">
-          <span className="text-slate-500">Total Candles</span>
-          <span className="font-mono text-slate-200">{healthReport.totalCandles}</span>
-        </div>
-        <div className="flex justify-between pr-2 border-r border-slate-800">
-          <span className="text-slate-500">Missing</span>
-          <span className={`font-mono ${healthReport.missingCandles > 0 ? 'text-red-400' : 'text-slate-200'}`}>{healthReport.missingCandles}</span>
-        </div>
-        <div className="flex justify-between pl-2">
-          <span className="text-slate-500">Zero Volume</span>
-          <span className={`font-mono ${healthReport.zeroVolumeCandles > 0 ? 'text-yellow-400' : 'text-slate-200'}`}>{healthReport.zeroVolumeCandles}</span>
+
+        <div className="space-y-1">
+          <div className="flex justify-between items-center">
+            <span className="text-[11px] text-slate-500">Flash Spikes</span>
+            <span className={`text-xs font-mono font-bold ${healthReport.spikeFailures > 0 ? 'text-red-400' : 'text-slate-400'}`}>
+              {healthReport.spikeFailures}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-[11px] text-slate-500">Stale Prices</span>
+            <span className={`text-xs font-mono font-bold ${healthReport.staleFailures > 0 ? 'text-orange-400' : 'text-slate-400'}`}>
+              {healthReport.staleFailures}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-[11px] text-slate-500">Zero Volume</span>
+            <span className={`text-xs font-mono font-bold ${healthReport.zeroVolumeCandles > 0 ? 'text-yellow-400' : 'text-slate-400'}`}>
+              {healthReport.zeroVolumeCandles}
+            </span>
+          </div>
         </div>
       </div>
-      {healthReport.gaps.length > 0 && (
-        <div className="mt-2 pt-2 border-t border-slate-800">
-          <p className="text-xs text-red-400 flex items-center"><AlertTriangle className="w-3 h-3 mr-1" /> Gap detected near {healthReport.gaps[0]}</p>
-        </div>
-      )}
-      {healthReport.note && (
-        <div className="mt-2 pt-2 border-t border-slate-800">
-          <p className="text-xs text-yellow-400">{healthReport.note}</p>
-        </div>
-      )}
+
+      <div className="mt-3 pt-2 border-t border-slate-900 flex justify-between items-center">
+        <span className="text-[10px] text-slate-600">Total Sample: {healthReport.totalCandles} bars</span>
+        {hasAnomalies && (
+          <p className="text-[10px] text-red-500/80 font-medium flex items-center">
+            <AlertTriangle className="w-2.5 h-2.5 mr-1" /> Tech. Risk Detected
+          </p>
+        )}
+      </div>
     </div>
   );
 };
