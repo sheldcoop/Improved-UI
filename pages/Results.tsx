@@ -88,7 +88,7 @@ const Results: React.FC = () => {
   const [activeOosIndex, setActiveOosIndex] = useState(0);
   const [isOOSArray, setIsOOSArray] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'TRADES' | 'DISTRIBUTION' | 'STATS'>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'TRADES' | 'DISTRIBUTION' | 'STATS' | 'ADVANCED_STATS'>('OVERVIEW');
   const [distributionData, setDistributionData] = useState<any[]>([]);
 
   // Zoom State
@@ -259,6 +259,7 @@ const Results: React.FC = () => {
           <Button variant={activeTab === 'TRADES' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('TRADES')} icon={<List className="w-4 h-4" />}>Trades</Button>
           <Button variant={activeTab === 'DISTRIBUTION' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('DISTRIBUTION')} icon={<BarChartIcon className="w-4 h-4" />}>Distribution</Button>
           <Button variant={activeTab === 'STATS' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('STATS')} icon={<Activity className="w-4 h-4" />}>Stats</Button>
+          <Button variant={activeTab === 'ADVANCED_STATS' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('ADVANCED_STATS')} icon={<BarChartIcon className="w-4 h-4" />}>Advanced Stats</Button>
         </div>
       </div>
 
@@ -462,16 +463,69 @@ const Results: React.FC = () => {
       )}
 
       {activeTab === 'STATS' && (
-        <Card title="Return Statistics">
-          {result.returnsStats ? (
-            <ReturnsStatsTable stats={result.returnsStats} />
-          ) : (
-            <div className="text-slate-500 italic">No detailed stats available.</div>
-          )}
-          {result.statsParams && (
-            <div className="text-slate-400 text-xs mt-2">
-              Calculated with freq={result.statsParams.freq || 'auto'} window={result.statsParams.window || 'auto'}
+        <Card title="Portfolio Stats">
+          {result.pfStats && Object.keys(result.pfStats).length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {Object.entries(result.pfStats).map(([key, val]) => {
+                const isPercent = key.includes('[%]');
+                const numVal = typeof val === 'number' ? val : parseFloat(val as string);
+                const isNum = !isNaN(numVal) && val !== null && val !== '';
+                const displayVal = val === null || val === undefined
+                  ? '—'
+                  : isNum
+                    ? isPercent
+                      ? `${numVal.toFixed(2)}%`
+                      : Number.isInteger(numVal)
+                        ? numVal.toString()
+                        : numVal.toFixed(4)
+                    : String(val);
+                const colorClass = isNum && isPercent
+                  ? numVal > 0 ? 'text-emerald-400' : numVal < 0 ? 'text-red-400' : 'text-slate-100'
+                  : 'text-slate-100';
+                return (
+                  <div key={key} className="bg-slate-900 border border-slate-800 rounded-lg p-3 hover:border-slate-700 transition-colors">
+                    <div className="text-slate-500 text-xs uppercase tracking-wider font-semibold mb-1 leading-tight">{key}</div>
+                    <div className={`text-base font-bold font-mono ${colorClass}`}>{displayVal}</div>
+                  </div>
+                );
+              })}
             </div>
+          ) : (
+            <div className="text-slate-500 italic">No stats available. Run a backtest to see results.</div>
+          )}
+        </Card>
+      )}
+
+      {activeTab === 'ADVANCED_STATS' && (
+        <Card title="Advanced Returns Stats">
+          {result.advancedStats && Object.keys(result.advancedStats).length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {Object.entries(result.advancedStats).map(([key, val]) => {
+                const isPercent = key.includes('[%]');
+                const numVal = typeof val === 'number' ? val : parseFloat(val as string);
+                const isNum = !isNaN(numVal) && val !== null && val !== '';
+                const displayVal = val === null || val === undefined
+                  ? '—'
+                  : isNum
+                    ? isPercent
+                      ? `${numVal.toFixed(2)}%`
+                      : Number.isInteger(numVal)
+                        ? numVal.toString()
+                        : numVal.toFixed(4)
+                    : String(val);
+                const colorClass = isNum && isPercent
+                  ? numVal > 0 ? 'text-emerald-400' : numVal < 0 ? 'text-red-400' : 'text-slate-100'
+                  : 'text-slate-100';
+                return (
+                  <div key={key} className="bg-slate-900 border border-slate-800 rounded-lg p-3 hover:border-slate-700 transition-colors">
+                    <div className="text-slate-500 text-xs uppercase tracking-wider font-semibold mb-1 leading-tight">{key}</div>
+                    <div className={`text-base font-bold font-mono ${colorClass}`}>{displayVal}</div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-slate-500 italic">No advanced stats available. Run a backtest to see results.</div>
           )}
         </Card>
       )}

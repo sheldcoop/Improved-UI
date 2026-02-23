@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, CheckCircle2, ArrowRight, Calendar, Info } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Calendar, Info } from 'lucide-react';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 
@@ -14,14 +14,10 @@ interface ResultRow {
 interface Phase1ResultsTableProps {
     results: ResultRow[];
     optunaMetric: string;
-    enableRiskSearch: boolean;
     hasPhase2Results?: boolean;
     selectedParams: Record<string, number> | null;
-    setSelectedParams: (params: Record<string, number> | null) => void;
-    running: boolean;
-    dataStatus: string;
-    onApply: (paramSet: Record<string, number>) => void;
-    onRunPhase2: (selectedParams: Record<string, number>) => void;
+    setSelectedParams: (params: Record<string, number>) => void;
+    phase2Running: boolean;
     onReset: () => void;
     // Data range metadata from backend
     dataStartDate?: string;
@@ -33,17 +29,17 @@ interface Phase1ResultsTableProps {
 }
 
 /**
- * Phase 1 results table + data range banner + Phase 2 "Choose → Run" control.
+ * Phase 1 results table + data range banner.
+ * Clicking a row auto-triggers Phase 2 via setSelectedParams (which calls handleSelectPhase1).
  */
 const Phase1ResultsTable: React.FC<Phase1ResultsTableProps> = ({
-    results, optunaMetric, enableRiskSearch, hasPhase2Results,
+    results, optunaMetric, hasPhase2Results,
     selectedParams, setSelectedParams,
-    running, dataStatus,
-    onApply, onRunPhase2, onReset,
+    phase2Running,
+    onReset,
     dataStartDate, dataEndDate, totalBars,
     phase1EndDate, phase1Bars, splitRatio,
 }) => {
-    const dataReady = dataStatus === 'READY';
     const splitActive = splitRatio != null && splitRatio > 0 && phase1EndDate;
 
     return (
@@ -53,14 +49,13 @@ const Phase1ResultsTable: React.FC<Phase1ResultsTableProps> = ({
                     <h3 className="text-xl font-bold text-slate-200">
                         {hasPhase2Results
                             ? 'Phase 1 — Strategy Params (reference)'
-                            : enableRiskSearch ? 'Step 1 of 2 — Top Configurations Found'
-                            : 'Top Configurations Found'}
+                            : 'Step 1 of 2 — Top Configurations Found'}
                     </h3>
                     <p className="text-xs text-amber-400 flex items-center mt-1">
                         <AlertTriangle className="w-3 h-3 mr-1" />
                         {hasPhase2Results
                             ? 'These params are locked — scroll down to Phase 2 for the final result'
-                            : 'In-sample results — verify with Walk-Forward before trading'}
+                            : 'In-sample results — click a row to run Phase 2 (SL/TP/TSL search)'}
                     </p>
                 </div>
                 <Button variant="secondary" onClick={onReset}>Reset</Button>
@@ -88,11 +83,9 @@ const Phase1ResultsTable: React.FC<Phase1ResultsTableProps> = ({
                             <span className="font-semibold">Phase 1 trained on full dataset:</span>{' '}
                             {dataStartDate} → {dataEndDate}{' '}
                             <span className="text-amber-400/70">({totalBars?.toLocaleString()} bars)</span>
-                            {enableRiskSearch && (
-                                <span className="text-amber-400/80 ml-1">
-                                    — Phase 2 will also use the full dataset. Enable "Split data between phases" to prevent Phase 1/2 overlap.
-                                </span>
-                            )}
+                            <span className="text-amber-400/80 ml-1">
+                                — Phase 2 will also use the full dataset. Enable "Split data between phases" on the Backtest page to prevent overlap.
+                            </span>
                         </div>
                     </div>
                 )
@@ -116,7 +109,11 @@ const Phase1ResultsTable: React.FC<Phase1ResultsTableProps> = ({
                             const isSelected = selectedParams !== null &&
                                 JSON.stringify(selectedParams) === JSON.stringify(res.paramSet);
                             return (
-                            <tr key={idx} className={`hover:bg-slate-800/50 group transition-colors ${isSelected ? 'bg-indigo-900/20 border-l-2 border-indigo-500' : ''}`}>
+                            <tr
+                                key={idx}
+                                onClick={() => setSelectedParams(res.paramSet)}
+                                className={`cursor-pointer hover:bg-slate-800/50 group transition-colors ${isSelected ? 'bg-indigo-900/20 border-l-2 border-indigo-500' : ''}`}
+                            >
                                 <td className="p-4 font-bold text-emerald-500">#{idx + 1}</td>
                                 <td className="p-4 font-mono text-xs text-slate-300">
                                     <div className="flex gap-2 flex-wrap">
@@ -131,27 +128,20 @@ const Phase1ResultsTable: React.FC<Phase1ResultsTableProps> = ({
                                 <td className="p-4">{res.winRate?.toFixed(1)}%</td>
                                 <td className="p-4"><span className="text-red-400">-{res.drawdown?.toFixed(2)}%</span></td>
                                 <td className="p-4">{res.trades}</td>
-                                <td className="p-4 text-right flex space-x-2 justify-end">
-                                    {enableRiskSearch && (
-                                        <Button
-                                            size="sm"
-                                            variant={isSelected ? 'secondary' : 'ghost'}
-                                            onClick={() => setSelectedParams(res.paramSet)}
-                                            className="opacity-0 group-hover:opacity-100 transition-opacity"
-                                            icon={<CheckCircle2 className="w-4 h-4" />}
-                                        >
-                                            {isSelected ? 'Selected' : 'Choose'}
-                                        </Button>
-                                    )}
-                                    {!hasPhase2Results && (
-                                        <Button
-                                            size="sm"
-                                            onClick={() => onApply(res.paramSet)}
-                                            className="opacity-0 group-hover:opacity-100 transition-opacity"
-                                            icon={<ArrowRight className="w-4 h-4" />}
-                                        >
-                                            Apply &amp; Simulate
-                                        </Button>
+                                <td className="p-4 text-right">
+                                    {isSelected && phase2Running ? (
+                                        <span className="inline-flex items-center gap-1.5 text-xs text-indigo-400">
+                                            <span className="w-3.5 h-3.5 border-2 border-indigo-400/30 border-t-indigo-400 rounded-full animate-spin" />
+                                            Running Phase 2...
+                                        </span>
+                                    ) : isSelected ? (
+                                        <span className="inline-flex items-center gap-1 text-xs text-indigo-400 font-medium">
+                                            <CheckCircle2 className="w-3.5 h-3.5" /> Selected
+                                        </span>
+                                    ) : (
+                                        <span className="text-xs text-slate-600 group-hover:text-slate-400 transition-colors">
+                                            Click to run Phase 2
+                                        </span>
                                     )}
                                 </td>
                             </tr>
@@ -161,31 +151,10 @@ const Phase1ResultsTable: React.FC<Phase1ResultsTableProps> = ({
                 </table>
             </Card>
 
-            {/* Phase 2 control section */}
-            {enableRiskSearch && (
-                <div className="mt-4 px-4 py-3 rounded bg-slate-800 border border-slate-700">
-                    {!selectedParams ? (
-                        <p className="text-sm text-slate-300">
-                            <strong className="text-indigo-400">Step 2 of 2</strong> — Pick the best config above and click{' '}
-                            <strong>Choose</strong>, then <strong>Run SL/TP Search</strong> to find optimal stop-loss and take-profit.
-                        </p>
-                    ) : (
-                        <div className="flex items-center justify-between gap-4">
-                            <div>
-                                <p className="text-xs text-slate-500 mb-1">Step 2 of 2 — RSI params locked:</p>
-                                <span className="text-sm text-slate-200 font-mono">
-                                    {Object.entries(selectedParams).map(([k, v]) => `${k}: ${v}`).join(', ')}
-                                </span>
-                            </div>
-                            <Button
-                                size="sm"
-                                disabled={!dataReady || running}
-                                onClick={() => onRunPhase2(selectedParams)}
-                            >
-                                Run SL/TP Search
-                            </Button>
-                        </div>
-                    )}
+            {/* Hint for the user when no row is selected yet */}
+            {!selectedParams && (
+                <div className="px-4 py-3 rounded bg-slate-800/60 border border-slate-700 text-sm text-slate-400">
+                    <strong className="text-indigo-400">Step 2 of 2</strong> — Click any row above to run Phase 2 (SL / TP / TSL search) locked to that RSI configuration.
                 </div>
             )}
         </div>

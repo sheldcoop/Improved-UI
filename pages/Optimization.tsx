@@ -12,6 +12,7 @@ import SetupCard from '../components/optimization/SetupCard';
 import ExplainerPanel from '../components/optimization/ExplainerPanel';
 import Phase1ResultsTable from '../components/optimization/Phase1ResultsTable';
 import Phase2ResultsTable from '../components/optimization/Phase2ResultsTable';
+import RiskParamConfig from '../components/optimization/RiskParamConfig';
 import { ParamConfig } from '../components/optimization/ParamRangeRow';
 
 const PRESET_NAMES: Record<string, string> = {
@@ -73,12 +74,13 @@ const Optimization: React.FC = () => {
         setParams(params.map(p => p.id === id ? { ...p, [field]: value } : p));
 
     // ── Phase 2 state ─────────────────────────────────────────────────────────
-    const [enableRiskSearch, setEnableRiskSearch] = useState(false);
     const [riskParams, setRiskParams] = useState<ParamConfig[]>([
         { id: 'r0', name: 'stopLossPct',     min: 0, max: 5,  step: 0.5 },
         { id: 'r1', name: 'takeProfitPct',   min: 0, max: 10, step: 0.5 },
         { id: 'r2', name: 'trailingStopPct', min: 0, max: 3,  step: 0.5 },
     ]);
+    const [phase2Running, setPhase2Running] = useState(false);
+
     // ── Derived wizard step ───────────────────────────────────────────────────
     const wizardStep: WizardStep =
         !optResults ? 'setup' :
@@ -123,7 +125,7 @@ const Optimization: React.FC = () => {
                     config: buildConfigPayload(),
                     phase2SplitRatio: enableDataSplit ? splitRatio / 100 : 0.0,
                 };
-                if (enableRiskSearch) optConfig.riskRanges = toRanges(riskParams);
+                // Phase 1 only — no riskRanges. Phase 2 runs separately after user picks a row.
                 const res = await runOptimization(symbol || 'NIFTY 50', strategyId || '1', toRanges(params), optConfig);
                 setOptResults({ ...res, wfo: [], period: undefined });
             } else {
@@ -144,17 +146,17 @@ const Optimization: React.FC = () => {
         setRunning(false);
     };
 
-    // When user selects a Phase 1 row: store selection + auto-run Phase 2
+    // When user selects a Phase 1 row: store selection + always auto-run Phase 2
     const handleSelectPhase1 = (paramSet: Record<string, number>) => {
         setSelectedParams(paramSet);
         setSelectedRiskParams(null);
-        // Clear existing riskGrid so Phase 2 re-runs fresh
+        // Clear existing riskGrid so Phase 2 re-runs fresh for this RSI selection
         if (optResults) setOptResults({ ...(optResults as any), riskGrid: [], combinedParams: undefined });
         handleRunPhase2(paramSet);
     };
 
     const handleRunPhase2 = async (fixedParamSet: Record<string, number>) => {
-        setRunning(true);
+        setPhase2Running(true);
         setErrorMessage(null);
         const fixedRanges = Object.fromEntries(
             Object.entries(fixedParamSet).map(([k, v]) => [k, { min: v, max: v, step: 1 }])
@@ -166,7 +168,6 @@ const Optimization: React.FC = () => {
                 startDate, endDate, timeframe,
                 config: buildConfigPayload(),
                 riskRanges: toRanges(riskParams),
-                // Use the same split ratio set on the Backtest page (from context).
                 // Phase 2 trains on the OOS slice so it doesn't see Phase 1's data.
                 phase2SplitRatio: enableDataSplit ? splitRatio / 100 : 0.0,
             });
@@ -174,7 +175,7 @@ const Optimization: React.FC = () => {
         } catch (e) {
             setErrorMessage('Risk optimisation failed: ' + e);
         }
-        setRunning(false);
+        setPhase2Running(false);
     };
 
     // ── Render ────────────────────────────────────────────────────────────────
@@ -203,12 +204,12 @@ const Optimization: React.FC = () => {
             {/* Inline error banner */}
             <ErrorBanner message={errorMessage} onDismiss={() => setErrorMessage(null)} />
 
-            {/* Running spinner */}
+            {/* Running spinner — Phase 1 full-screen */}
             {running && (
                 <div className="flex flex-col items-center justify-center py-20">
                     <div className="w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin mb-6" />
                     <h3 className="text-lg font-medium text-slate-200">
-                        {activeTab === 'WFO' ? 'Processing rolling WFO windows...' : 'Running Optuna trials...'}
+                        {activeTab === 'WFO' ? 'Processing rolling WFO windows...' : 'Running Phase 1: Strategy Params...'}
                     </h3>
                     <p className="text-slate-400 text-sm mt-1">
                         {activeTab === 'WFO' ? 'Train → Test across all windows' : 'Maximizing objective across 30 trials'}
@@ -224,10 +225,6 @@ const Optimization: React.FC = () => {
                         setActiveTab={setActiveTab}
                         params={params}
                         updateParam={updateParam}
-                        enableRiskSearch={enableRiskSearch}
-                        setEnableRiskSearch={setEnableRiskSearch}
-                        riskParams={riskParams}
-                        setRiskParams={setRiskParams}
                         optunaMetric={optunaMetric}
                         setOptunaMetric={setOptunaMetric}
                         wfoConfig={wfoConfig}
@@ -246,14 +243,10 @@ const Optimization: React.FC = () => {
                     <Phase1ResultsTable
                         results={optResults.grid}
                         optunaMetric={optunaMetric}
-                        enableRiskSearch={enableRiskSearch}
                         hasPhase2Results={wizardStep === 'risk'}
                         selectedParams={selectedParams}
-                        setSelectedParams={enableRiskSearch ? handleSelectPhase1 : setSelectedParams}
-                        running={running}
-                        dataStatus={dataStatus}
-                        onApply={applyParams}
-                        onRunPhase2={handleRunPhase2}
+                        setSelectedParams={handleSelectPhase1}
+                        phase2Running={phase2Running}
                         onReset={() => { setOptResults(null); setSelectedParams(null); setSelectedRiskParams(null); }}
                         dataStartDate={(optResults as any).dataStartDate}
                         dataEndDate={(optResults as any).dataEndDate}
@@ -262,6 +255,30 @@ const Optimization: React.FC = () => {
                         phase1Bars={(optResults as any).phase1Bars}
                         splitRatio={(optResults as any).splitRatio}
                     />
+
+                    {/* Phase 2 risk param config — always shown after Phase 1, so user can tune ranges before selecting a row */}
+                    <div className="bg-slate-800/50 border border-slate-700 rounded-xl px-5 py-4 space-y-3">
+                        <div>
+                            <p className="text-sm font-semibold text-slate-200">Phase 2 — SL / TP / TSL Search Ranges</p>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                                Configure the search ranges below, then click any row above to run Phase 2 locked to that RSI config.
+                            </p>
+                        </div>
+                        <RiskParamConfig riskParams={riskParams} setRiskParams={setRiskParams} />
+                    </div>
+
+                    {/* Phase 2 spinner — inline, below Phase 1 table */}
+                    {phase2Running && (
+                        <div className="flex items-center gap-3 px-5 py-4 bg-indigo-900/20 border border-indigo-700/40 rounded-xl">
+                            <div className="w-5 h-5 border-2 border-indigo-500/30 border-t-indigo-400 rounded-full animate-spin shrink-0" />
+                            <div>
+                                <p className="text-sm font-medium text-indigo-300">Running Phase 2: SL / TP / TSL search...</p>
+                                <p className="text-xs text-slate-400">
+                                    Locked to selected RSI params · Maximizing objective across 30 trials
+                                </p>
+                            </div>
+                        </div>
+                    )}
 
                     {wizardStep === 'risk' && optResults.riskGrid && optResults.riskGrid.length > 0 && (
                         <Phase2ResultsTable
@@ -280,8 +297,8 @@ const Optimization: React.FC = () => {
                         />
                     )}
 
-                    {/* Combined Apply button — only when both phases are selected */}
-                    {enableRiskSearch && selectedParams && selectedRiskParams && (
+                    {/* Combined Apply button — shown when both RSI and risk params are selected */}
+                    {selectedParams && selectedRiskParams && (
                         <div className="flex items-center justify-between gap-4 bg-emerald-900/20 border border-emerald-700/40 rounded-xl px-5 py-4">
                             <div className="space-y-1">
                                 <p className="text-sm font-semibold text-emerald-300">Ready to backtest with selected params</p>

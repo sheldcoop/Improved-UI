@@ -3,17 +3,12 @@ import { Play, AlertTriangle } from 'lucide-react';
 import { Card } from '../ui/Card';
 import WorkflowToggle from './WorkflowToggle';
 import ParamRangeRow, { ParamConfig } from './ParamRangeRow';
-import RiskParamConfig from './RiskParamConfig';
 
 interface SetupCardProps {
     activeTab: 'WFO' | 'GRID';
     setActiveTab: (tab: 'WFO' | 'GRID') => void;
     params: ParamConfig[];
     updateParam: (id: string, field: keyof ParamConfig, value: number) => void;
-    enableRiskSearch: boolean;
-    setEnableRiskSearch: (v: boolean) => void;
-    riskParams: ParamConfig[];
-    setRiskParams: (params: ParamConfig[]) => void;
     optunaMetric: string;
     setOptunaMetric: (v: string) => void;
     wfoConfig: { trainWindow: number; testWindow: number };
@@ -31,8 +26,6 @@ interface SetupCardProps {
 const SetupCard: React.FC<SetupCardProps> = ({
     activeTab, setActiveTab,
     params, updateParam,
-    enableRiskSearch, setEnableRiskSearch,
-    riskParams, setRiskParams,
     optunaMetric, setOptunaMetric,
     wfoConfig, setWfoConfig,
     dataStatus, running, onRun,
@@ -50,44 +43,17 @@ const SetupCard: React.FC<SetupCardProps> = ({
 
                 {/* Phase 1 param rows */}
                 <div className="space-y-3">
-                    {enableRiskSearch && (
-                        <div className="flex items-center space-x-1 text-[10px] text-amber-400 bg-amber-900/20 border border-amber-700/30 rounded px-2 py-1">
-                            <span>🔒</span>
-                            <span>Phase 1 parameters are fixed — Phase 2 will search SL/TP with these values locked.</span>
-                        </div>
-                    )}
                     {params.map(param => (
                         <ParamRangeRow
                             key={param.id}
                             param={param}
                             onUpdate={updateParam}
-                            disabled={enableRiskSearch}
                         />
                     ))}
                     {params.length === 0 && (
                         <div className="text-sm text-yellow-500 p-4 bg-yellow-900/20 rounded border border-yellow-900">
                             No tunable parameters defined for this strategy.
                         </div>
-                    )}
-
-                    {/* Phase 2 enable toggle */}
-                    <div className="mt-2">
-                        <label className="inline-flex items-center space-x-2 cursor-pointer">
-                            <input
-                                type="checkbox"
-                                checked={enableRiskSearch}
-                                onChange={() => setEnableRiskSearch(!enableRiskSearch)}
-                                className="form-checkbox"
-                            />
-                            <span className="text-sm text-slate-300">Enable Phase 2: Optimize Stop-Loss / Take-Profit</span>
-                        </label>
-                    </div>
-
-                    {enableRiskSearch && (
-                        <RiskParamConfig
-                            riskParams={riskParams}
-                            setRiskParams={setRiskParams}
-                        />
                     )}
                 </div>
 
@@ -153,9 +119,7 @@ const SetupCard: React.FC<SetupCardProps> = ({
                         ? 'Load Data First'
                         : activeTab === 'WFO'
                             ? 'Start Walk-Forward Analysis'
-                            : enableRiskSearch
-                                ? 'Run Full Optimization (Phase 1 + 2)'
-                                : 'Run Phase 1: Strategy Params'}
+                            : 'Run Phase 1: Strategy Params'}
                 </button>
             </div>
         </Card>

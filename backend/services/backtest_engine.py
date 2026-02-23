@@ -293,6 +293,8 @@ class BacktestEngine:
         trades: list[dict] = []
         equity_curve: list[dict] = []
         monthly_returns_data: list[dict] = []
+        pf_stats_result: dict = {}
+        adv_stats_result: dict = {}
 
         if is_universe:
             total_value = pf.value().sum(axis=1)
@@ -324,6 +326,53 @@ class BacktestEngine:
             }
         else:
             stats = pf.stats()
+
+            # --- Full pf.stats() for Stats tab ---
+            try:
+                pf_stats_raw = stats.to_dict() if hasattr(stats, "to_dict") else dict(stats)
+                # Convert any non-serialisable values (Timedelta, Timestamp, NaN) to strings
+                pf_stats_serialized = {}
+                for k, v in pf_stats_raw.items():
+                    try:
+                        import math
+                        if isinstance(v, float) and math.isnan(v):
+                            pf_stats_serialized[str(k)] = None
+                        elif hasattr(v, "isoformat"):      # datetime / Timestamp
+                            pf_stats_serialized[str(k)] = v.isoformat()
+                        elif hasattr(v, "total_seconds"):  # Timedelta
+                            pf_stats_serialized[str(k)] = str(v)
+                        else:
+                            pf_stats_serialized[str(k)] = v
+                    except Exception:
+                        pf_stats_serialized[str(k)] = str(v)
+                pf_stats_result = pf_stats_serialized
+            except Exception as e:
+                logger.warning(f"Failed to serialize pf.stats(): {e}")
+                pf_stats_result = {}
+
+            # --- pf.returns().vbt.returns.stats() for Advanced Stats tab ---
+            try:
+                ret_stats = pf.returns().vbt.returns.stats()
+                ret_stats_raw = ret_stats.to_dict() if hasattr(ret_stats, "to_dict") else dict(ret_stats)
+                adv_stats_serialized = {}
+                for k, v in ret_stats_raw.items():
+                    try:
+                        import math
+                        if isinstance(v, float) and math.isnan(v):
+                            adv_stats_serialized[str(k)] = None
+                        elif hasattr(v, "isoformat"):
+                            adv_stats_serialized[str(k)] = v.isoformat()
+                        elif hasattr(v, "total_seconds"):
+                            adv_stats_serialized[str(k)] = str(v)
+                        else:
+                            adv_stats_serialized[str(k)] = v
+                    except Exception:
+                        adv_stats_serialized[str(k)] = str(v)
+                adv_stats_result = adv_stats_serialized
+            except Exception as e:
+                logger.warning(f"Failed to serialize returns.stats(): {e}")
+                adv_stats_result = {}
+
             # VectorBT 0.20+ uses methods for returns and drawdown
             equity = pf.value()
             returns_series = pf.returns() if callable(pf.returns) else pf.returns
@@ -408,6 +457,8 @@ class BacktestEngine:
             "monthlyReturns": monthly_returns_data,
             "startDate": start_date,
             "endDate": end_date,
+            "pfStats": pf_stats_result,
+            "advancedStats": adv_stats_result,
         }
         if config is not None:
             results["statsParams"] = {"freq": config.get("statsFreq"), "window": config.get("statsWindow")}

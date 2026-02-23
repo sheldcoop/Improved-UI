@@ -136,11 +136,10 @@ def build_portfolio(
         bt_size: float | None = bt_size_val / 100.0
         bt_size_type: str | None = "percent"
     elif sizing_mode == "Fixed Capital":
-        # Use VectorBT's default (np.inf / amount) so that the full available
-        # capital is deployed per trade — this matches the reference Colab script
-        # which passes no explicit size kwarg.
-        bt_size = np.inf
-        bt_size_type = "amount"
+        # Deploy exactly bt_size_val per trade (e.g. ₹1,00,000), no compounding.
+        # Matches backtest_engine.py and the reference Python script behaviour.
+        bt_size = bt_size_val
+        bt_size_type = "value"
     else:
         bt_size = np.inf
         bt_size_type = "amount"

@@ -431,7 +431,7 @@ class StrategyFactory:
                     "conditions": [{
                         "indicator": "RSI",
                         "period": config.get("period", 14),
-                        "operator": "<",
+                        "operator": "Crosses Below",  # fires ONCE at the crossing bar
                         "compareType": "STATIC",
                         "value": config.get("lower", 30),
                     }],
@@ -442,7 +442,7 @@ class StrategyFactory:
                     "conditions": [{
                         "indicator": "RSI",
                         "period": config.get("period", 14),
-                        "operator": ">",
+                        "operator": "Crosses Above",  # fires ONCE at the crossing bar
                         "compareType": "STATIC",
                         "value": config.get("upper", 70),
                     }],

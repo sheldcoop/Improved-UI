@@ -229,6 +229,8 @@ export interface BacktestResult {
   // `statsFreq`/`statsWindow` via the integration payloads.
   returnsStats?: Record<string, any>;
   statsParams?: { freq?: string; window?: number };
+  pfStats?: Record<string, any>;        // full pf.stats() output — for Stats tab
+  advancedStats?: Record<string, any>;  // pf.returns().vbt.returns.stats() — for Advanced Stats tab
 }
 export interface MarketData {
   symbol: string;
