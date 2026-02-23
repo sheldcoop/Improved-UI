@@ -178,7 +178,7 @@ class DynamicStrategy(BaseStrategy):
         if node.get("type") == "GROUP":
             children = node.get("conditions", [])
             if not children:
-                return True
+                return False  # Empty group = no signals (neutral, not fire-all)
 
             results = [self._evaluate_node(df, child) for child in children]
             final_mask = results[0]
@@ -316,6 +316,13 @@ class DynamicStrategy(BaseStrategy):
                 exits = entries
             else:
                 entries = self._evaluate_node(df, entry_group)
+                # Scalar True (empty group) → broadcast to full Series/DataFrame
+                if isinstance(entries, (bool, np.bool_)):
+                    if is_universe:
+                        entries = pd.DataFrame(entries, index=target_index, columns=df["close"].columns)
+                    else:
+                        entries = pd.Series(entries, index=target_index)
+
                 if not exit_group:
                     if is_universe:
                         exits = pd.DataFrame(False, index=target_index, columns=df["close"].columns)
@@ -323,6 +330,12 @@ class DynamicStrategy(BaseStrategy):
                         exits = pd.Series(False, index=target_index)
                 else:
                     exits = self._evaluate_node(df, exit_group)
+                    # Scalar True (empty group) → broadcast to full Series/DataFrame
+                    if isinstance(exits, (bool, np.bool_)):
+                        if is_universe:
+                            exits = pd.DataFrame(exits, index=target_index, columns=df["close"].columns)
+                        else:
+                            exits = pd.Series(exits, index=target_index)
 
             entries, exits = self._apply_time_filter(df, entries, exits)
 

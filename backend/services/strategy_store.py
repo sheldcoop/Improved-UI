@@ -120,3 +120,35 @@ class StrategyStore:
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
         with open(DATA_FILE, "w") as f:
             json.dump(strategies, f, indent=2)
+
+    @staticmethod
+    def _write_direct(strategies: list[dict]) -> None:
+        """Write strategies list to disk with its own lock acquisition.
+
+        Use this when you need to write but are not already holding the lock
+        (e.g., from delete operations in route handlers).
+        """
+        lock = FileLock(LOCK_FILE, timeout=LOCK_TIMEOUT_SECONDS)
+        try:
+            with lock:
+                StrategyStore._write(strategies)
+        except Timeout:
+            logger.error(f"Could not acquire file lock for {DATA_FILE} within {LOCK_TIMEOUT_SECONDS}s")
+            raise
+
+    @staticmethod
+    def delete_by_id(strategy_id: str) -> bool:
+        """Delete a strategy by ID. Returns True if found and deleted, False if not found."""
+        lock = FileLock(LOCK_FILE, timeout=LOCK_TIMEOUT_SECONDS)
+        try:
+            with lock:
+                strategies = StrategyStore.load_all()
+                updated = [s for s in strategies if s.get("id") != strategy_id]
+                if len(updated) == len(strategies):
+                    return False
+                StrategyStore._write(updated)
+                logger.info(f"Deleted strategy: {strategy_id}")
+                return True
+        except Timeout:
+            logger.error(f"Could not acquire file lock for {DATA_FILE} within {LOCK_TIMEOUT_SECONDS}s")
+            raise
