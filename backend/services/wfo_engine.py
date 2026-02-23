@@ -150,7 +150,7 @@ class WFOEngine:
                 # Use build_portfolio so open/high/low are forwarded when
                 # SL/TP is configured, matching the reference Colab behaviour.
                 pf = build_portfolio(
-                    test_df["Close"], entries, exits,
+                    test_df["close"], entries, exits,
                     {"commission": 20.0, "initial_capital": 100000},
                     vbt_freq,
                     df=test_df,
@@ -284,7 +284,7 @@ class WFOEngine:
             return {"error": "Calibration failed - no OOS data generated."}
 
         pf = build_portfolio(
-            oos_df["Close"], oos_entries, oos_exits,
+            oos_df["close"], oos_entries, oos_exits,
             wfo_config,
             vbt_freq,
             df=oos_df,

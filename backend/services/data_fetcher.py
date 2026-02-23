@@ -218,7 +218,7 @@ class DataFetcher:
         # Normalise to Title-Case and drop any duplicate column names that the
         # Dhan API sometimes produces (e.g. two 'close' columns in one response).
         df = df.copy()
-        df.columns = [c.capitalize() for c in df.columns]
+        df.columns = [c.lower() for c in df.columns]
         df = df.loc[:, ~df.columns.duplicated()]
 
         res = df

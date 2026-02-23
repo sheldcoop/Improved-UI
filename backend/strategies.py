@@ -89,8 +89,8 @@ class DynamicStrategy(BaseStrategy):
                     try:
                         if is_universe:
                             agg_rules = {
-                                "Open": "first", "High": "max",
-                                "Low": "min", "Close": "last", "Volume": "sum",
+                                "open": "first", "high": "max",
+                                "low": "min", "close": "last", "volume": "sum",
                             }
                             resampled_dict = {
                                 col: data.resample(pandas_freq).apply(agg_rules.get(col, "last")).dropna()
@@ -99,8 +99,8 @@ class DynamicStrategy(BaseStrategy):
                             base_df = resampled_dict
                         else:
                             base_df = df.resample(pandas_freq).agg({
-                                "Open": "first", "High": "max",
-                                "Low": "min", "Close": "last", "Volume": "sum",
+                                "open": "first", "high": "max",
+                                "low": "min", "close": "last", "volume": "sum",
                             }).dropna()
                         self.resampled_cache[cache_key] = base_df
                     except Exception as exc:
@@ -108,17 +108,17 @@ class DynamicStrategy(BaseStrategy):
                         base_df = df
 
         if isinstance(base_df, dict):
-            close = base_df.get("Close")
-            high = base_df.get("High", close)
-            low = base_df.get("Low", close)
-            volume = base_df.get("Volume", None)
-            open_p = base_df.get("Open", close)
+            close = base_df.get("close")
+            high = base_df.get("high", close)
+            low = base_df.get("low", close)
+            volume = base_df.get("volume", None)
+            open_p = base_df.get("open", close)
         else:
-            close = base_df["Close"]
-            high = base_df.get("High", close)
-            low = base_df.get("Low", close)
-            volume = base_df.get("Volume", None)
-            open_p = base_df.get("Open", None)
+            close = base_df["close"]
+            high = base_df.get("high", close)
+            low = base_df.get("low", close)
+            volume = base_df.get("volume", None)
+            open_p = base_df.get("open", None)
 
         period = int(period) if period else 14
         result_series = None
@@ -159,7 +159,7 @@ class DynamicStrategy(BaseStrategy):
             result_series = close
 
         if timeframe and result_series is not None:
-            target_index = df["Close"].index if isinstance(df, dict) else df.index
+            target_index = df["close"].index if isinstance(df, dict) else df.index
             result_series = result_series.reindex(target_index).ffill()
 
         return result_series
@@ -259,7 +259,7 @@ class DynamicStrategy(BaseStrategy):
         if not start_time and not end_time:
             return entries, exits
 
-        target_index = df["Close"].index if isinstance(df, dict) else df.index
+        target_index = df["close"].index if isinstance(df, dict) else df.index
         if not isinstance(target_index, pd.DatetimeIndex):
             return entries, exits
 
@@ -305,12 +305,12 @@ class DynamicStrategy(BaseStrategy):
         else:
             entry_group = self.config.get("entryLogic")
             exit_group = self.config.get("exitLogic")
-            target_index = df["Close"].index if isinstance(df, dict) else df.index
+            target_index = df["close"].index if isinstance(df, dict) else df.index
             is_universe = isinstance(df, dict)
 
             if not entry_group:
                 if is_universe:
-                    entries = pd.DataFrame(False, index=target_index, columns=df["Close"].columns)
+                    entries = pd.DataFrame(False, index=target_index, columns=df["close"].columns)
                 else:
                     entries = pd.Series(False, index=target_index)
                 exits = entries
@@ -318,7 +318,7 @@ class DynamicStrategy(BaseStrategy):
                 entries = self._evaluate_node(df, entry_group)
                 if not exit_group:
                     if is_universe:
-                        exits = pd.DataFrame(False, index=target_index, columns=df["Close"].columns)
+                        exits = pd.DataFrame(False, index=target_index, columns=df["close"].columns)
                     else:
                         exits = pd.Series(False, index=target_index)
                 else:
@@ -458,9 +458,9 @@ class StrategyFactory:
                 "mode": "CODE",
                 "pythonCode": f"""
 def signal_logic(df):
-    bb = vbt.BBANDS.run(df['Close'], window={period}, alpha={std_dev})
-    entries = df['Close'] < bb.lower
-    exits = df['Close'] > bb.middle
+    bb = vbt.BBANDS.run(df['close'], window={period}, alpha={std_dev})
+    entries = df['close'] < bb.lower
+    exits = df['close'] > bb.middle
     return entries, exits
 """
             })
@@ -475,7 +475,7 @@ def signal_logic(df):
                 "mode": "CODE",
                 "pythonCode": f"""
 def signal_logic(df):
-    macd = vbt.MACD.run(df['Close'], fast_window={fast}, slow_window={slow}, signal_window={signal})
+    macd = vbt.MACD.run(df['close'], fast_window={fast}, slow_window={slow}, signal_window={signal})
     entries = macd.macd.vbt.crossed_above(macd.signal)
     exits = macd.macd.vbt.crossed_below(macd.signal)
     return entries, exits
@@ -491,8 +491,8 @@ def signal_logic(df):
                 "mode": "CODE",
                 "pythonCode": f"""
 def signal_logic(df):
-    fast_ma = vbt.MA.run(df['Close'], {fast}, ewm=True)
-    slow_ma = vbt.MA.run(df['Close'], {slow}, ewm=True)
+    fast_ma = vbt.MA.run(df['close'], {fast}, ewm=True)
+    slow_ma = vbt.MA.run(df['close'], {slow}, ewm=True)
     entries = fast_ma.ma.vbt.crossed_above(slow_ma.ma)
     exits = fast_ma.ma.vbt.crossed_below(slow_ma.ma)
     return entries, exits
@@ -509,9 +509,9 @@ def signal_logic(df):
                 "pythonCode": f"""
 def signal_logic(df):
     # Simplified Supertrend logic using ATR bands
-    high = df['High']
-    low = df['Low']
-    close = df['Close']
+    high = df['high']
+    low = df['low']
+    close = df['close']
     atr = vbt.ATR.run(high, low, close, window={period}).atr
     
     # We use a robust Trend-Follow approach: 
@@ -536,7 +536,7 @@ def signal_logic(df):
                 "mode": "CODE",
                 "pythonCode": f"""
 def signal_logic(df):
-    rsi = vbt.RSI.run(df['Close'], window={rsi_period}).rsi
+    rsi = vbt.RSI.run(df['close'], window={rsi_period}).rsi
     min_rsi = rsi.rolling({k_period}).min()
     max_rsi = rsi.rolling({k_period}).max()
     stoch_rsi = (rsi - min_rsi) / (max_rsi - min_rsi)
@@ -556,12 +556,12 @@ def signal_logic(df):
                 "mode": "CODE",
                 "pythonCode": f"""
 def signal_logic(df):
-    atr = vbt.ATR.run(df['High'], df['Low'], df['Close'], window={period}).atr
-    upper_breakout = df['High'].shift(1) + (atr * {multiplier})
-    lower_breakout = df['Low'].shift(1) - (atr * {multiplier})
+    atr = vbt.ATR.run(df['high'], df['low'], df['close'], window={period}).atr
+    upper_breakout = df['high'].shift(1) + (atr * {multiplier})
+    lower_breakout = df['low'].shift(1) - (atr * {multiplier})
     
-    entries = df['Close'] > upper_breakout
-    exits = df['Close'] < lower_breakout
+    entries = df['close'] > upper_breakout
+    exits = df['close'] < lower_breakout
     return entries, exits
 """
             })

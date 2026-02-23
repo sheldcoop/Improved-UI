@@ -92,11 +92,11 @@ class BacktestEngine:
         # Normalize columns to Title Case before signal generation so strategies
         # can reliably access df['Close'], df['Open'], etc.
         if isinstance(df, pd.DataFrame):
-            df.columns = [c.capitalize() for c in df.columns]
+            df.columns = [c.lower() for c in df.columns]
         elif isinstance(df, dict):
             for k in df:
                 if isinstance(df[k], pd.DataFrame):
-                    df[k].columns = [c.capitalize() for c in df[k].columns]
+                    df[k].columns = [c.lower() for c in df[k].columns]
 
         # --- 2. GENERATE SIGNALS ---
         strategy = StrategyFactory.get_strategy(strategy_id, config)
@@ -106,16 +106,16 @@ class BacktestEngine:
         entries = boolify(entries)
         exits = boolify(exits)
 
-        close_price = df["Close"] if isinstance(df, pd.DataFrame) else df["Close"]
+        close_price = df["close"] if isinstance(df, pd.DataFrame) else df["close"]
         
         # Diagnostic logging for data range
         if isinstance(df, pd.DataFrame):
             logger.info(f"BacktestEngine Execution: symbol={strategy_id}, bars={len(df)}, range={df.index.min()} to {df.index.max()}")
-        elif isinstance(df, dict) and "Close" in df:
-            logger.info(f"BacktestEngine Universe Execution: assets={len(df['Close'].columns)}, bars={len(df['Close'])}")
+        elif isinstance(df, dict) and "close" in df:
+            logger.info(f"BacktestEngine Universe Execution: assets={len(df['close'].columns)}, bars={len(df['close'])}")
 
         # --- 3. FREQUENCY DETECTION ---
-        sample_df = df if isinstance(df, pd.DataFrame) else df["Close"]
+        sample_df = df if isinstance(df, pd.DataFrame) else df["close"]
         vbt_freq = detect_freq(sample_df)
 
         # --- 4. UNIVERSE RANKING ---
@@ -208,7 +208,7 @@ class BacktestEngine:
         """
         ranking_method = config.get("rankingMethod", "No Ranking")
         top_n = int(config.get("rankingTopN", 5))
-        close_price = df["Close"] if isinstance(df, dict) else df["Close"]
+        close_price = df["close"] if isinstance(df, dict) else df["close"]
 
         if (
             isinstance(close_price, pd.DataFrame)
@@ -225,7 +225,7 @@ class BacktestEngine:
             elif ranking_method == "Volatility":
                 rank_metric = close_price.pct_change().rolling(20).std()
             elif ranking_method == "Volume":
-                volume = df["Volume"] if isinstance(df, dict) else df["Volume"]
+                volume = df["volume"] if isinstance(df, dict) else df["volume"]
                 rank_metric = volume.rolling(20).mean()
 
             if rank_metric is not None:
@@ -283,7 +283,7 @@ class BacktestEngine:
 
         # --- Fix Issue #15: derive real dates from data ---
         if isinstance(df, dict):
-            idx = df["Close"].index
+            idx = df["close"].index
         else:
             idx = df.index
         start_date = str(idx[0].date()) if len(idx) > 0 else "N/A"
