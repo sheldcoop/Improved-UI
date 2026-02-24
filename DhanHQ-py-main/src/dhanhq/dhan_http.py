@@ -56,8 +56,10 @@ class DhanHTTP:
             payload["dhanClientId"] = self.client_id
             payload = json_dumps(payload)
         try:
+            # Encode payload as UTF-8 bytes to handle non-latin-1 characters (e.g. ₹)
+            encoded_payload = payload.encode('utf-8') if isinstance(payload, str) else payload
             response = getattr(self.session, method.value.lower())(url,
-                                                                   data=payload,
+                                                                   data=encoded_payload,
                                                                    headers=self.header,
                                                                    timeout=self.timeout)
             return self._parse_response(response)

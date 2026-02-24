@@ -117,6 +117,8 @@ export const useBacktestRunner = () => {
                         start_date: startDate,
                         end_date: endDate,
                         initial_capital: capital,
+                        slippage,
+                        commission,
                         statsFreq: statsFreqFromTimeframe(timeframe),
                         strategy_logic: {
                             id: strategyId,
@@ -128,6 +130,8 @@ export const useBacktestRunner = () => {
                             pyramiding,
                             positionSizing,
                             positionSizeValue,
+                            slippage,
+                            commission,
                             ...params,
                         },
                     },

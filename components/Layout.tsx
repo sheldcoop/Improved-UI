@@ -108,7 +108,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
         {/* Scrollable Page Content */}
         <div className="flex-1 overflow-y-auto p-8 scroll-smooth pb-20 min-h-0">
-          <div className="max-w-7xl mx-auto h-full">
+          <div className="max-w-7xl mx-auto">
             {children}
           </div>
         </div>

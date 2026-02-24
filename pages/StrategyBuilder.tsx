@@ -407,10 +407,10 @@ const StrategyBuilder: React.FC = () => {
     };
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-full min-h-0">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
 
             {/* LEFT: Config Panel (3 Cols) */}
-            <div className="lg:col-span-3 flex flex-col gap-4 overflow-y-auto pr-2 min-h-0">
+            <div className="lg:col-span-3 flex flex-col gap-4">
                 {/* Card 1: Strategy Settings */}
                 <Card className="p-4 space-y-3">
                     <div>
@@ -539,7 +539,7 @@ const StrategyBuilder: React.FC = () => {
                     </div>
                 )}
 
-                <div className="mt-auto space-y-2">
+                <div className="space-y-2">
                     <Button
                         variant="secondary"
                         onClick={handleSave}
@@ -561,7 +561,7 @@ const StrategyBuilder: React.FC = () => {
             </div>
 
             {/* MIDDLE: Builder Area (6 Cols) */}
-            <div className="lg:col-span-6 flex flex-col gap-4 overflow-hidden min-h-0">
+            <div className="lg:col-span-6 flex flex-col gap-4">
                 {/* AI Prompt Bar */}
                 <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
                     <div className="p-1 flex items-center">
@@ -607,7 +607,7 @@ const StrategyBuilder: React.FC = () => {
                 </div>
 
                 {/* MAIN EDITOR CANVAS */}
-                <div className="flex-1 overflow-y-auto pr-2 space-y-6">
+                <div className="pr-2 space-y-6">
                     {activeTab === 'VISUAL' ? (
                         <>
                             <div className="space-y-2">
@@ -624,7 +624,7 @@ const StrategyBuilder: React.FC = () => {
                             </div>
                         </>
                     ) : (
-                        <div className="h-full flex flex-col">
+                        <div className="flex flex-col">
                             <div className="bg-slate-950 border border-slate-800 rounded-t-lg p-2 flex items-center justify-between text-xs text-slate-500">
                                 <span>strategy.py</span>
                                 <span className="text-emerald-500">Python 3.10 Runtime</span>
@@ -632,7 +632,7 @@ const StrategyBuilder: React.FC = () => {
                             <textarea
                                 value={strategy.pythonCode}
                                 onChange={e => setStrategy({ ...strategy, pythonCode: e.target.value })}
-                                className="flex-1 bg-[#0d1117] text-slate-300 font-mono text-sm p-4 outline-none resize-none border border-slate-800 border-t-0 rounded-b-lg leading-relaxed"
+                                className="bg-[#0d1117] text-slate-300 font-mono text-sm p-4 outline-none resize-y border border-slate-800 border-t-0 rounded-b-lg leading-relaxed min-h-[400px]"
                                 spellCheck={false}
                             />
                         </div>
@@ -650,7 +650,7 @@ const StrategyBuilder: React.FC = () => {
             </div>
 
             {/* RIGHT: Preview + Symbol (3 Cols) */}
-            <div className="lg:col-span-3 flex flex-col gap-4 overflow-y-auto min-h-0">
+            <div className="lg:col-span-3 flex flex-col gap-4">
                 <Card title="Live Signal Preview" className="h-[300px] flex flex-col">
                     <div className="flex-1 flex flex-col bg-slate-950 m-[-1rem] mt-0 rounded-b-xl relative overflow-hidden">
                         {/* Chart area */}
