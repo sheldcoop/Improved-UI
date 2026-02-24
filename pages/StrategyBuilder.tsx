@@ -31,9 +31,10 @@ const PRESET_LOGIC: Record<string, { mode: 'VISUAL' | 'CODE'; entryLogic?: RuleG
     "2": {
         mode: 'CODE',
         pythonCode: `def signal_logic(df):
-    import vectorbtpro as vbt
-    period = config.get("period", 20)
-    std_dev = config.get("std_dev", 2.0)
+    # Bollinger Bands Mean Reversion
+    # vbt, pd, np, ta are available. config is a dict of preset params.
+    period = int(config.get("period", 20))
+    std_dev = float(config.get("std_dev", 2.0))
     bb = vbt.BBANDS.run(df["close"], window=period, alpha=std_dev)
     entries = df["close"].vbt.crossed_below(bb.lower)
     exits = df["close"].vbt.crossed_above(bb.middle)
@@ -42,11 +43,12 @@ const PRESET_LOGIC: Record<string, { mode: 'VISUAL' | 'CODE'; entryLogic?: RuleG
     "3": {
         mode: 'CODE',
         pythonCode: `def signal_logic(df):
-    import vectorbtpro as vbt
-    fast = config.get("fast", 12)
-    slow = config.get("slow", 26)
-    signal = config.get("signal", 9)
-    macd = vbt.MACD.run(df["close"], fast_window=fast, slow_window=slow, signal_window=signal)
+    # MACD Crossover
+    # vbt, pd, np, ta are available. config is a dict of preset params.
+    fast = int(config.get("fast", 12))
+    slow = int(config.get("slow", 26))
+    signal_w = int(config.get("signal", 9))
+    macd = vbt.MACD.run(df["close"], fast_window=fast, slow_window=slow, signal_window=signal_w)
     entries = macd.macd.vbt.crossed_above(macd.signal)
     exits = macd.macd.vbt.crossed_below(macd.signal)
     return entries, exits`,
@@ -65,13 +67,14 @@ const PRESET_LOGIC: Record<string, { mode: 'VISUAL' | 'CODE'; entryLogic?: RuleG
     "5": {
         mode: 'CODE',
         pythonCode: `def signal_logic(df):
-    import pandas as pd
-    period = config.get("period", 10)
-    mult = config.get("multiplier", 3.0)
-    import vectorbtpro as vbt
+    # Supertrend (ATR-based trailing stop)
+    # vbt, pd, np, ta are available. config is a dict of preset params.
+    period = int(config.get("period", 10))
+    mult = float(config.get("multiplier", 3.0))
     atr = vbt.ATR.run(df["high"], df["low"], df["close"], window=period).atr
-    upper = df["close"].ewm(span=period).mean() + mult * atr
-    lower = df["close"].ewm(span=period).mean() - mult * atr
+    mid = df["close"].ewm(span=period, adjust=False).mean()
+    upper = mid + mult * atr
+    lower = mid - mult * atr
     entries = df["close"].vbt.crossed_above(lower)
     exits = df["close"].vbt.crossed_below(upper)
     return entries, exits`,
@@ -79,23 +82,25 @@ const PRESET_LOGIC: Record<string, { mode: 'VISUAL' | 'CODE'; entryLogic?: RuleG
     "6": {
         mode: 'CODE',
         pythonCode: `def signal_logic(df):
-    import ta, pandas as pd
-    rsi_period = config.get("rsi_period", 14)
-    k = config.get("k_period", 3)
-    d = config.get("d_period", 3)
+    # Stochastic RSI
+    # vbt, pd, np, ta are available. config is a dict of preset params.
+    rsi_period = int(config.get("rsi_period", 14))
+    k = int(config.get("k_period", 3))
+    d = int(config.get("d_period", 3))
     rsi = ta.momentum.rsi(df["close"], window=rsi_period)
     stoch_k = rsi.rolling(k).mean()
     stoch_d = stoch_k.rolling(d).mean()
-    entries = (stoch_k > stoch_d) & (stoch_k.shift(1) <= stoch_d.shift(1)) & (stoch_k < 80)
-    exits = (stoch_k < stoch_d) & (stoch_k.shift(1) >= stoch_d.shift(1)) & (stoch_k > 20)
-    return entries.fillna(False), exits.fillna(False)`,
+    entries = ((stoch_k > stoch_d) & (stoch_k.shift(1) <= stoch_d.shift(1)) & (stoch_k < 80)).fillna(False)
+    exits = ((stoch_k < stoch_d) & (stoch_k.shift(1) >= stoch_d.shift(1)) & (stoch_k > 20)).fillna(False)
+    return entries, exits`,
     },
     "7": {
         mode: 'CODE',
         pythonCode: `def signal_logic(df):
-    import vectorbtpro as vbt
-    period = config.get("period", 14)
-    mult = config.get("multiplier", 2.0)
+    # ATR Channel Breakout
+    # vbt, pd, np, ta are available. config is a dict of preset params.
+    period = int(config.get("period", 14))
+    mult = float(config.get("multiplier", 2.0))
     atr = vbt.ATR.run(df["high"], df["low"], df["close"], window=period).atr
     upper_band = df["high"].rolling(period).max() + mult * atr
     lower_band = df["low"].rolling(period).min() - mult * atr
@@ -105,8 +110,13 @@ const PRESET_LOGIC: Record<string, { mode: 'VISUAL' | 'CODE'; entryLogic?: RuleG
     },
 };
 
-// --- SYMBOLS ---
-const SYMBOLS = ['NIFTY 50', 'BANKNIFTY', 'NIFTY BANK', 'SENSEX'];
+// --- COMMON SYMBOLS (suggestions only — user can type any NSE symbol) ---
+const COMMON_SYMBOLS = [
+    'NIFTY 50', 'BANKNIFTY', 'SENSEX',
+    'RELIANCE', 'HDFCBANK', 'INFY', 'TCS', 'ICICIBANK',
+    'SBIN', 'MARUTI', 'DLF', 'DIXON', 'BAJAJELEC',
+    'PNB', 'AMBUJACEM', 'HDFCNIF100',
+];
 
 // --- INITIAL STATE ---
 const INITIAL_ENTRY_GROUP: RuleGroup = {
@@ -158,6 +168,8 @@ const StrategyBuilder: React.FC = () => {
     const [presets, setPresets] = useState<StrategyPreset[]>([]);
     const [activePresetId, setActivePresetId] = useState<string>('');
     const [symbol, setSymbol] = useState<string>('NIFTY 50');
+    const [startDate, setStartDate] = useState<string>('');
+    const [endDate, setEndDate] = useState<string>('');
 
     // Saved strategies panel
     const [savedStrategies, setSavedStrategies] = useState<Strategy[]>([]);
@@ -212,7 +224,9 @@ const StrategyBuilder: React.FC = () => {
     useEffect(() => {
         triggerPreview(strategy, symbol);
         return () => { if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current); };
-    }, [strategy.entryLogic, strategy.exitLogic, strategy.mode, strategy.pythonCode, symbol, triggerPreview]);
+        // triggerPreview is stable (useCallback with no deps) — intentionally omitted
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [strategy.entryLogic, strategy.exitLogic, strategy.mode, strategy.pythonCode, symbol]);
 
     // --- PRESET HANDLING ---
     const handlePresetChange = (presetId: string) => {
@@ -271,6 +285,11 @@ const StrategyBuilder: React.FC = () => {
 
     // --- LOAD SAVED ---
     const handleLoadSaved = (s: Strategy) => {
+        // Guard against malformed saved strategies missing logic trees
+        if (!s.entryLogic || !s.exitLogic) {
+            setSaveError('Cannot load strategy: missing entry or exit logic');
+            return;
+        }
         setStrategy(s);
         setActivePresetId('');
         setActiveTab(s.mode === 'CODE' ? 'CODE' : 'VISUAL');
@@ -298,6 +317,8 @@ const StrategyBuilder: React.FC = () => {
                 capital: strategy.positionSizeValue,
                 strategyName: strategy.name,
                 symbol,
+                ...(startDate ? { startDate } : {}),
+                ...(endDate   ? { endDate }   : {}),
             });
             navigate('/results', { state: { result } });
         } catch (e: any) {
@@ -681,13 +702,41 @@ const StrategyBuilder: React.FC = () => {
                     <div className="space-y-3">
                         <div>
                             <label className="text-xs text-slate-500 block mb-1">Symbol</label>
-                            <select
+                            <input
+                                list="symbol-suggestions"
                                 value={symbol}
-                                onChange={e => setSymbol(e.target.value)}
-                                className="w-full bg-slate-950 border border-slate-700 rounded text-xs px-2 py-2 text-slate-200 outline-none"
-                            >
-                                {SYMBOLS.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
+                                onChange={e => setSymbol(e.target.value.toUpperCase())}
+                                placeholder="e.g. RELIANCE, TCS, NIFTY 50"
+                                className="w-full bg-slate-950 border border-slate-700 rounded text-xs px-2 py-2 text-slate-200 outline-none placeholder-slate-600"
+                            />
+                            <datalist id="symbol-suggestions">
+                                {COMMON_SYMBOLS.map(s => <option key={s} value={s} />)}
+                            </datalist>
+                        </div>
+
+                        <div>
+                            <label className="text-xs text-slate-500 block mb-1">Backtest Period</label>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="text-[10px] text-slate-600 block mb-0.5">From</label>
+                                    <input
+                                        type="date"
+                                        value={startDate}
+                                        onChange={e => setStartDate(e.target.value)}
+                                        className="w-full bg-slate-950 border border-slate-700 rounded text-xs px-2 py-1.5 text-slate-200 outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-slate-600 block mb-0.5">To</label>
+                                    <input
+                                        type="date"
+                                        value={endDate}
+                                        onChange={e => setEndDate(e.target.value)}
+                                        className="w-full bg-slate-950 border border-slate-700 rounded text-xs px-2 py-1.5 text-slate-200 outline-none"
+                                    />
+                                </div>
+                            </div>
+                            <p className="text-[10px] text-slate-600 mt-1">Leave blank to use all available data</p>
                         </div>
 
                         <div className="border-t border-slate-800 pt-3">

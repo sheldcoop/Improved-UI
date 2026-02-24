@@ -405,6 +405,8 @@ class DynamicStrategy(BaseStrategy):
                 "pd": pd,
                 "np": np,
                 "ta": ta,
+                # 'config' gives code access to strategy params (e.g. period, multiplier)
+                "config": self.config.get("params", self.config),
             }
             exec(code, safe_globals)  # noqa: S102
 

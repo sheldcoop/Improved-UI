@@ -145,7 +145,7 @@ class BacktestEngine:
         try:
             pf = vbt.Portfolio.from_signals(close_price, entries, exits, **pf_kwargs)
             # extract basic results (metrics, curves, trades etc.)
-            results = BacktestEngine._extract_results(pf, df, config)
+            results = BacktestEngine._extract_results(pf, df, config, vbt_freq=vbt_freq)
 
             # optional detailed returns statistics
             if config is not None:
@@ -263,6 +263,7 @@ class BacktestEngine:
         pf: vbt.Portfolio,
         df: pd.DataFrame | dict,
         config: dict | None = None,
+        vbt_freq: str = "1D",
     ) -> dict:
         """Extract structured results from a VectorBT Portfolio object.
 
@@ -314,7 +315,7 @@ class BacktestEngine:
 
             metrics = {
                 "totalReturnPct": round(total_return * 100, 2),
-                "sharpeRatio": round(pf.sharpe_ratio().mean(), 2),
+                "sharpeRatio": round(pf.sharpe_ratio(freq=vbt_freq).mean(), 2),
                 "maxDrawdownPct": round(abs(pf.max_drawdown().max()) * 100, 2),
                 "winRate": win_rate_val,
                 "profitFactor": profit_factor_val,
@@ -325,7 +326,7 @@ class BacktestEngine:
                 "status": "completed"
             }
         else:
-            stats = pf.stats()
+            stats = pf.stats()  # freq is already set on pf.wrapper via from_signals(freq=vbt_freq)
 
             # --- Full pf.stats() for Stats tab ---
             try:

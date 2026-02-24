@@ -73,15 +73,15 @@ def detect_freq(df: pd.DataFrame) -> str:
             diffs = sample.index.to_series().diff()
             mode_diff = diffs.mode()[0]
             minutes = int(mode_diff.total_seconds() / 60)
-            if minutes == 1:
+            if minutes <= 1:
                 return "1m"
-            elif minutes == 5:
+            elif minutes <= 5:
                 return "5m"
-            elif minutes == 15:
+            elif minutes <= 15:
                 return "15m"
-            elif minutes == 60:
+            elif minutes <= 60:
                 return "1h"
-            elif minutes >= 1440:
+            else:
                 return "1D"
     except Exception as exc:
         logger.warning(f"Freq detection failed: {exc}. Defaulting to 1D")

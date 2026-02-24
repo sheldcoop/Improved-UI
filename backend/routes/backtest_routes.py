@@ -106,11 +106,34 @@ def run_backtest():
 
         fetcher = DataFetcher(request.headers)
         df = fetcher.fetch_historical_data(
-            target, 
+            target,
             timeframe,
             from_date=data.get("startDate"),
             to_date=data.get("endDate")
         )
+
+        # --- Intraday session filtering ---
+        # Only filter when the timeframe is sub-daily AND startTime/endTime are provided.
+        # For daily bars the index has no time component so filtering is skipped.
+        start_time_str = data.get("startTime", "").strip()
+        end_time_str = data.get("endTime", "").strip()
+        if (
+            timeframe in ("1m", "5m", "15m", "1h")
+            and start_time_str
+            and end_time_str
+            and isinstance(df, __import__("pandas").DataFrame)
+            and not df.empty
+            and hasattr(df.index, "time")
+        ):
+            import datetime as _dt
+            try:
+                t_start = _dt.time.fromisoformat(start_time_str)
+                t_end = _dt.time.fromisoformat(end_time_str)
+                bar_times = df.index.time
+                df = df[(bar_times >= t_start) & (bar_times <= t_end)]
+                logger.info(f"Session filter applied: {start_time_str}–{end_time_str}, bars remaining: {len(df)}")
+            except ValueError:
+                logger.warning(f"Invalid startTime/endTime format: '{start_time_str}' / '{end_time_str}' — skipping session filter")
 
         results = BacktestEngine.run(df, strategy_id, config)
 
@@ -124,7 +147,7 @@ def run_backtest():
             "symbol": target,
             "timeframe": timeframe,
             "status": "completed",
-            "syntheticData": fetcher.used_synthetic,  # warn frontend when real data unavailable
+            "syntheticData": False,  # synthetic fallback was removed; data is always real or None
             **results,  # includes startDate, endDate from real data (Issue #15 fix)
         }
         return jsonify(response), 200

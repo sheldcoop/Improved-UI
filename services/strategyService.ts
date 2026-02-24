@@ -94,6 +94,7 @@ export const previewStrategy = async (strategy: Strategy, symbol: string): Promi
         method: 'POST',
         body: JSON.stringify({
             ...strategy,
+            strategyId: strategy.id,   // backend looks up strategyId, not id
             symbol,
             timeframe: strategy.timeframe,
         }),

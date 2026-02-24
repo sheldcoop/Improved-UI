@@ -152,6 +152,24 @@ def preview_signals():
         if df is None or df.empty:
             return jsonify({"status": "error", "message": "No data available for symbol"}), 404
 
+        # Intraday session filtering (same logic as backtest_routes)
+        start_time_str = data.get("startTime", "").strip()
+        end_time_str = data.get("endTime", "").strip()
+        if (
+            timeframe in ("1m", "5m", "15m", "1h")
+            and start_time_str
+            and end_time_str
+            and hasattr(df.index, "time")
+        ):
+            import datetime as _dt
+            try:
+                t_start = _dt.time.fromisoformat(start_time_str)
+                t_end = _dt.time.fromisoformat(end_time_str)
+                bar_times = df.index.time
+                df = df[(bar_times >= t_start) & (bar_times <= t_end)]
+            except ValueError:
+                pass  # bad format — ignore and use all bars
+
         # Use only the last 100 bars for speed
         df = df.tail(100).copy()
         df.columns = [c.lower() for c in df.columns]
@@ -160,7 +178,12 @@ def preview_signals():
         strategy = StrategyFactory.get_strategy(strategy_id, data)
         entries, exits = strategy.generate_signals(df)
 
+        # CODE mode returns (None, None) on error — surface it to the user
+        if entries is None or exits is None:
+            return jsonify({"status": "error", "message": "Signal generation failed — check your Python code for errors"}), 500
+
         # Boolify and get dates
+        import numpy as np
         entries = entries.fillna(False).astype(bool)
         exits = exits.fillna(False).astype(bool)
 
@@ -278,8 +301,12 @@ Rules:
         with urlreq.urlopen(req, timeout=20) as resp:
             result = json.loads(resp.read().decode("utf-8"))
 
-        # Extract text from Gemini response
-        text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+        # Extract text from Gemini response (null-safe — Gemini may return error with no candidates)
+        candidates = result.get("candidates", [])
+        if not candidates:
+            api_error = result.get("error", {}).get("message", "Empty response from Gemini")
+            raise ValueError(f"Gemini API error: {api_error}")
+        text = (candidates[0].get("content", {}).get("parts", [{}])[0].get("text") or "").strip()
 
         # Strip markdown code fences if Gemini adds them
         text = re.sub(r"^```(?:json)?\s*", "", text)
