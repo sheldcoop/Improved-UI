@@ -407,11 +407,12 @@ const StrategyBuilder: React.FC = () => {
     };
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-[calc(100vh-8rem)]">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-full min-h-0">
 
             {/* LEFT: Config Panel (3 Cols) */}
-            <div className="lg:col-span-3 flex flex-col gap-4 overflow-y-auto pr-2">
-                <Card className="p-4 space-y-4">
+            <div className="lg:col-span-3 flex flex-col gap-4 overflow-y-auto pr-2 min-h-0">
+                {/* Card 1: Strategy Settings */}
+                <Card className="p-4 space-y-3">
                     <div>
                         <label className="text-xs text-slate-500 block mb-1">Strategy Name</label>
                         <input
@@ -421,7 +422,6 @@ const StrategyBuilder: React.FC = () => {
                             className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 focus:border-emerald-500 outline-none"
                         />
                     </div>
-
                     <div className="grid grid-cols-2 gap-2">
                         <div>
                             <label className="text-xs text-slate-500 block mb-1">Asset Class</label>
@@ -436,52 +436,35 @@ const StrategyBuilder: React.FC = () => {
                             </select>
                         </div>
                     </div>
-
-                    {/* Preset Selector */}
-                    <div className="border-t border-slate-800 pt-3">
-                        <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Strategy Preset</h4>
+                    <div>
+                        <label className="text-xs text-slate-500 block mb-1">Strategy Preset</label>
                         <select
                             value={activePresetId}
                             onChange={e => handlePresetChange(e.target.value)}
-                            className="w-full bg-slate-950 border border-slate-700 rounded text-xs px-2 py-2 text-slate-200 mb-2"
+                            className="w-full bg-slate-950 border border-slate-700 rounded text-xs px-2 py-2 text-slate-200"
                         >
                             <option value="">Custom Strategy (Builder)</option>
                             {presets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                         </select>
                     </div>
-
-                    {/* My Strategies */}
-                    <div className="border-t border-slate-800 pt-3">
+                    <div>
                         <button
                             onClick={() => setShowSaved(s => !s)}
-                            className="flex items-center justify-between w-full text-xs font-bold text-slate-400 uppercase mb-2 hover:text-slate-200"
+                            className="flex items-center justify-between w-full text-xs font-bold text-slate-400 uppercase hover:text-slate-200"
                         >
                             <span>My Strategies {savedStrategies.length > 0 && `(${savedStrategies.length})`}</span>
                             {showSaved ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                         </button>
                         {showSaved && (
-                            <div className="space-y-1 max-h-40 overflow-y-auto">
+                            <div className="space-y-1 mt-2 max-h-40 overflow-y-auto">
                                 {savedStrategies.length === 0 ? (
                                     <div className="text-xs text-slate-600 py-2 text-center">No saved strategies yet</div>
                                 ) : (
                                     savedStrategies.map(s => (
                                         <div key={s.id} className="flex items-center justify-between p-2 bg-slate-950 rounded border border-slate-800 group">
-                                            <button
-                                                onClick={() => handleLoadSaved(s)}
-                                                className="text-xs text-slate-300 hover:text-emerald-400 truncate flex-1 text-left"
-                                                title={s.name}
-                                            >
-                                                {s.name}
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteSaved(s.id)}
-                                                disabled={deletingId === s.id}
-                                                className="ml-2 text-slate-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                                            >
-                                                {deletingId === s.id
-                                                    ? <div className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin" />
-                                                    : <Trash2 className="w-3 h-3" />
-                                                }
+                                            <button onClick={() => handleLoadSaved(s)} className="text-xs text-slate-300 hover:text-emerald-400 truncate flex-1 text-left" title={s.name}>{s.name}</button>
+                                            <button onClick={() => handleDeleteSaved(s.id)} disabled={deletingId === s.id} className="ml-2 text-slate-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {deletingId === s.id ? <div className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                             </button>
                                         </div>
                                     ))
@@ -489,11 +472,12 @@ const StrategyBuilder: React.FC = () => {
                             </div>
                         )}
                     </div>
+                </Card>
 
-                    {/* Risk Management */}
-                    <div className="border-t border-slate-800 pt-3">
-                        <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Risk Management</h4>
-                        <div className="grid grid-cols-2 gap-2 mb-2">
+                {/* Card 2: Risk Management */}
+                <Card title="Risk Management" className="p-0">
+                    <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-2">
                             <div>
                                 <label className="text-xs text-slate-500 block mb-1">Stop Loss %</label>
                                 <input type="number" min="0" value={strategy.stopLossPct} onChange={e => setStrategy({ ...strategy, stopLossPct: parseFloat(e.target.value) })} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
@@ -508,54 +492,41 @@ const StrategyBuilder: React.FC = () => {
                             <span>Trailing Stop Loss</span>
                         </label>
                     </div>
+                </Card>
 
-                    {/* Execution */}
-                    <div className="border-t border-slate-800 pt-3">
-                        <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Execution</h4>
-                        <div className="space-y-2">
+                {/* Card 3: Execution */}
+                <Card title="Execution" className="p-0">
+                    <div className="space-y-3">
+                        <div>
+                            <label className="text-[10px] text-slate-500 block mb-1">Position Sizing</label>
+                            <select value={strategy.positionSizing} onChange={e => setStrategy({ ...strategy, positionSizing: e.target.value as any })} className="w-full bg-slate-950 border border-slate-700 rounded text-xs px-2 py-1 text-slate-200 mb-1">
+                                {Object.values(PositionSizeMode).map(m => <option key={m}>{m}</option>)}
+                            </select>
+                            <input type="number" value={strategy.positionSizeValue} onChange={e => setStrategy({ ...strategy, positionSizeValue: parseFloat(e.target.value) })} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
                             <div>
-                                <label className="text-[10px] text-slate-500 block">Position Sizing</label>
-                                <select value={strategy.positionSizing} onChange={e => setStrategy({ ...strategy, positionSizing: e.target.value as any })} className="w-full bg-slate-950 border border-slate-700 rounded text-xs px-2 py-1 text-slate-200 mb-1">
-                                    {Object.values(PositionSizeMode).map(m => <option key={m}>{m}</option>)}
-                                </select>
-                                <input type="number" value={strategy.positionSizeValue} onChange={e => setStrategy({ ...strategy, positionSizeValue: parseFloat(e.target.value) })} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                    <label className="text-[10px] text-slate-500 block">Start Time</label>
-                                    <input type="time" value={strategy.startTime} onChange={e => setStrategy({ ...strategy, startTime: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
-                                </div>
-                                <div>
-                                    <label className="text-[10px] text-slate-500 block">End Time</label>
-                                    <input type="time" value={strategy.endTime} onChange={e => setStrategy({ ...strategy, endTime: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
-                                </div>
+                                <label className="text-[10px] text-slate-500 block mb-1">Slippage %</label>
+                                <input type="number" min="0" step="0.01" value={strategy.slippage} onChange={e => setStrategy({ ...strategy, slippage: parseFloat(e.target.value) || 0 })} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
                             </div>
                             <div>
-                                <label className="text-[10px] text-slate-500 block">Pyramiding (Max Entries)</label>
-                                <input type="number" max={10} value={strategy.pyramiding} onChange={e => setStrategy({ ...strategy, pyramiding: parseInt(e.target.value) })} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
+                                <label className="text-[10px] text-slate-500 block mb-1">Commission ₹</label>
+                                <input type="number" min="0" step="1" value={strategy.commission} onChange={e => setStrategy({ ...strategy, commission: parseFloat(e.target.value) || 0 })} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
                             </div>
-                            <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                    <label className="text-[10px] text-slate-500 block">Slippage %</label>
-                                    <input
-                                        type="number"
-                                        min="0" step="0.01"
-                                        value={strategy.slippage}
-                                        onChange={e => setStrategy({ ...strategy, slippage: parseFloat(e.target.value) || 0 })}
-                                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-[10px] text-slate-500 block">Commission ₹</label>
-                                    <input
-                                        type="number"
-                                        min="0" step="1"
-                                        value={strategy.commission}
-                                        onChange={e => setStrategy({ ...strategy, commission: parseFloat(e.target.value) || 0 })}
-                                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
-                                    />
-                                </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label className="text-[10px] text-slate-500 block mb-1">Start Time</label>
+                                <input type="time" value={strategy.startTime} onChange={e => setStrategy({ ...strategy, startTime: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
                             </div>
+                            <div>
+                                <label className="text-[10px] text-slate-500 block mb-1">End Time</label>
+                                <input type="time" value={strategy.endTime} onChange={e => setStrategy({ ...strategy, endTime: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-[10px] text-slate-500 block mb-1">Pyramiding (Max Entries)</label>
+                            <input type="number" min="1" max="10" value={strategy.pyramiding} onChange={e => setStrategy({ ...strategy, pyramiding: parseInt(e.target.value) })} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
                         </div>
                     </div>
                 </Card>
@@ -590,7 +561,7 @@ const StrategyBuilder: React.FC = () => {
             </div>
 
             {/* MIDDLE: Builder Area (6 Cols) */}
-            <div className="lg:col-span-6 flex flex-col gap-4 overflow-hidden">
+            <div className="lg:col-span-6 flex flex-col gap-4 overflow-hidden min-h-0">
                 {/* AI Prompt Bar */}
                 <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
                     <div className="p-1 flex items-center">
@@ -679,7 +650,7 @@ const StrategyBuilder: React.FC = () => {
             </div>
 
             {/* RIGHT: Preview + Symbol (3 Cols) */}
-            <div className="lg:col-span-3 flex flex-col gap-4">
+            <div className="lg:col-span-3 flex flex-col gap-4 overflow-y-auto min-h-0">
                 <Card title="Live Signal Preview" className="h-[300px] flex flex-col">
                     <div className="flex-1 flex flex-col bg-slate-950 m-[-1rem] mt-0 rounded-b-xl relative overflow-hidden">
                         {/* Chart area */}
