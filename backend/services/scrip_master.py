@@ -147,43 +147,76 @@ def search_instruments(segment: str, query: str, limit: int = 20) -> list[dict]:
     return results
 
 
+# Common index aliases: user-facing name -> scrip master symbol
+INDEX_ALIASES = {
+    "NIFTY 50": "NIFTY",
+    "NIFTY50": "NIFTY",
+    "BANKNIFTY": "BANKNIFTY",
+    "NIFTY BANK": "BANKNIFTY",
+    "SENSEX": "SENSEX",
+}
+
+
 def get_instrument_by_symbol(symbol: str, segment: str = "NSE_EQ") -> Optional[dict]:
     """Get instrument details by exact symbol match.
-    
+
     Args:
-        symbol: Exact symbol name (e.g., "RELIANCE")
-        segment: "NSE_EQ" or "NSE_SME"
-    
+        symbol: Exact symbol name (e.g., "RELIANCE") or index alias (e.g., "NIFTY 50")
+        segment: "NSE_EQ", "NSE_SME", or "NSE_IDX"
+
     Returns:
         Instrument dict or None if not found
     """
     df = _load_scrip_master()
     symbol_upper = symbol.upper().strip()
-    
+
+    # Resolve common index aliases before searching
+    resolved = INDEX_ALIASES.get(symbol_upper, symbol_upper)
+
     # Filter by segment first
     if segment == "NSE_EQ":
         mask = (
-            (df["exch_id"] == "NSE") & 
-            (df["segment"] == "E") & 
+            (df["exch_id"] == "NSE") &
+            (df["segment"] == "E") &
             (df["series"] == "EQ")
         )
     elif segment == "NSE_SME":
         mask = (
-            (df["exch_id"] == "NSE") & 
-            (df["segment"] == "E") & 
+            (df["exch_id"] == "NSE") &
+            (df["segment"] == "E") &
             (df["series"].isin(["SM", "ST"]))
         )
     else:
         return None
-    
+
     df_filtered = df[mask]
-    
+
     # Find exact match on symbol OR ticker
     match = df_filtered[
-        (df_filtered["symbol"].str.upper() == symbol_upper) |
-        (df_filtered["ticker"].str.upper() == symbol_upper)
+        (df_filtered["symbol"].str.upper() == resolved) |
+        (df_filtered["ticker"].str.upper() == resolved)
     ]
-    
+
+    # Fallback: search INDEX segment (for NIFTY 50, BANKNIFTY, SENSEX etc.)
+    if len(match) == 0:
+        idx_mask = df["instrument"].str.upper() == "INDEX"
+        df_idx = df[idx_mask]
+        match = df_idx[
+            (df_idx["symbol"].str.upper() == resolved) |
+            (df_idx["display_name"].str.upper() == resolved)
+        ]
+        if len(match) == 0:
+            return None
+        row = match.iloc[0]
+        return {
+            "symbol": str(row["symbol"]),
+            "display_name": str(row["display_name"]) if pd.notna(row["display_name"]) else str(row["symbol"]),
+            "security_id": str(int(row["security_id"])) if pd.notna(row["security_id"]) else "",
+            "instrument_type": "INDEX",
+            "exchange_segment": "NSE_EQ",  # Dhan uses NSE_EQ for index historical data too
+            "series": "",
+        }
+
     if len(match) == 0:
         return None
     
