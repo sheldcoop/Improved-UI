@@ -144,6 +144,8 @@ const makeInitialStrategy = (): Strategy => ({
     pyramiding: 1,
     positionSizing: PositionSizeMode.FIXED_CAPITAL,
     positionSizeValue: 100000,
+    slippage: 0.05,
+    commission: 20,
     rankingMethod: RankingMethod.NONE,
     rankingTopN: 5,
     startTime: '09:15',
@@ -531,6 +533,28 @@ const StrategyBuilder: React.FC = () => {
                             <div>
                                 <label className="text-[10px] text-slate-500 block">Pyramiding (Max Entries)</label>
                                 <input type="number" max={10} value={strategy.pyramiding} onChange={e => setStrategy({ ...strategy, pyramiding: parseInt(e.target.value) })} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="text-[10px] text-slate-500 block">Slippage %</label>
+                                    <input
+                                        type="number"
+                                        min="0" step="0.01"
+                                        value={strategy.slippage}
+                                        onChange={e => setStrategy({ ...strategy, slippage: parseFloat(e.target.value) || 0 })}
+                                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-slate-500 block">Commission ₹</label>
+                                    <input
+                                        type="number"
+                                        min="0" step="1"
+                                        value={strategy.commission}
+                                        onChange={e => setStrategy({ ...strategy, commission: parseFloat(e.target.value) || 0 })}
+                                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
+                                    />
+                                </div>
                             </div>
                         </div>
                     </div>

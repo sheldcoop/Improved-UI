@@ -123,6 +123,10 @@ export interface Strategy {
   positionSizing: PositionSizeMode;
   positionSizeValue: number; // e.g., 1 (lot) or 5 (%) or 100000 (cash)
 
+  // Execution costs
+  slippage: number;   // % per trade, e.g. 0.05
+  commission: number; // flat ₹ per order, e.g. 20
+
   // Universe Ranking (Feature #6)
   rankingMethod?: RankingMethod;
   rankingTopN?: number; // Select top N stocks
