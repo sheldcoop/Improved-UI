@@ -62,6 +62,8 @@ interface PreviewState {
     prices: number[];
     dates: string[];
     error: string | null;
+    warnings: string[];
+    empty_exit: boolean;
 }
 
 const StrategyBuilder: React.FC = () => {
@@ -90,7 +92,8 @@ const StrategyBuilder: React.FC = () => {
     // Preview state
     const [preview, setPreview] = useState<PreviewState>({
         loading: false, entry_count: 0, exit_count: 0,
-        entry_dates: [], exit_dates: [], prices: [], dates: [], error: null
+        entry_dates: [], exit_dates: [], prices: [], dates: [], error: null,
+        warnings: [], empty_exit: false,
     });
     const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const previewAbortControllerRef = useRef<AbortController | null>(null);
@@ -122,6 +125,8 @@ const StrategyBuilder: React.FC = () => {
                     prices: result.prices,
                     dates: result.dates,
                     error: null,
+                    warnings: (result as any).warnings ?? [],
+                    empty_exit: (result as any).empty_exit ?? false,
                 });
             } catch (e: any) {
                 if (e.name === 'AbortError') return; // Ignore cancellations
@@ -603,6 +608,19 @@ const StrategyBuilder: React.FC = () => {
                                 <Badge variant="danger">{preview.exit_count} Sells</Badge>
                             </div>
                         </div>
+                        {/* Warning banners */}
+                        {preview.empty_exit && (
+                            <div className="border-t border-amber-800/50 bg-amber-900/20 px-3 py-2 flex items-start space-x-2">
+                                <AlertCircle className="w-3 h-3 text-amber-400 mt-0.5 shrink-0" />
+                                <span className="text-[10px] text-amber-400 leading-tight">No exit conditions — positions will be held until end of data.</span>
+                            </div>
+                        )}
+                        {strategy.stopLossPct > 0 || strategy.takeProfitPct > 0 ? (
+                            <div className="border-t border-slate-800 px-3 py-1.5 flex items-center space-x-1.5">
+                                <AlertCircle className="w-3 h-3 text-slate-600 shrink-0" />
+                                <span className="text-[10px] text-slate-600">SL/TP applied in full backtest only, not in preview.</span>
+                            </div>
+                        ) : null}
                     </div>
                 </Card>
 

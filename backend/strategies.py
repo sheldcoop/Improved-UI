@@ -428,14 +428,25 @@ class StrategyFactory:
         """Resolve a strategy ID to a configured strategy instance.
 
         Args:
-            strategy_id: Strategy identifier. '3' maps to a preset SMA
-                crossover. All other IDs use the DynamicStrategy with
-                the provided config.
+            strategy_id: Strategy identifier. '1'-'7' map to built-in presets.
+                All other IDs use the DynamicStrategy with the provided config.
             config: Strategy configuration dict passed to the strategy.
 
         Returns:
             A BaseStrategy subclass instance ready to call generate_signals().
+
+        Note:
+            If config already contains user-provided ``entryLogic`` or
+            ``pythonCode``, the factory always uses DynamicStrategy regardless
+            of strategy_id. This prevents the preset override bug where edits
+            made in the Visual Builder or Code editor were silently discarded.
         """
+        # Guard: if the request carries user-defined logic, always respect it.
+        # This prevents the preset override bug — edits in the Visual Builder or
+        # Python Code editor must take precedence over the hardcoded factory logic.
+        if config.get("entryLogic") or config.get("pythonCode"):
+            return DynamicStrategy(config)
+
         if strategy_id == "1":
             # RSI Mean Reversion Preset
             return DynamicStrategy({

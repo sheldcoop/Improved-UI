@@ -222,6 +222,20 @@ def preview_signals():
         prices = df["close"].tolist()
         dates = [str(d.date()) if hasattr(d, 'date') else str(d) for d in df.index]
 
+        # Detect empty exit group — positions would stay open forever in backtest
+        exit_logic = data.get("exitLogic") or {}
+        empty_exit = len(exit_logic.get("conditions", [])) == 0
+
+        # SL/TP settings are not applied in preview — signal a disclaimer to frontend
+        sl_active = float(data.get("stopLossPct", 0)) > 0
+        tp_active = float(data.get("takeProfitPct", 0)) > 0
+
+        warnings = []
+        if empty_exit:
+            warnings.append("No exit conditions defined — positions will be held until end of data.")
+        if sl_active or tp_active:
+            warnings.append("SL/TP settings are not reflected in preview counts — they apply in the full backtest only.")
+
         return jsonify({
             "status": "ok",
             "entry_count": int(entries.sum()),
@@ -230,7 +244,11 @@ def preview_signals():
             "exit_dates": exit_dates,
             "prices": prices,
             "dates": dates,
+            "warnings": warnings,
+            "empty_exit": empty_exit,
+            "sl_tp_ignored": sl_active or tp_active,
         }), 200
+
 
     except Exception as exc:
         logger.error(f"Preview error: {exc}", exc_info=True)

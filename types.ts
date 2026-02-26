@@ -36,7 +36,6 @@ export enum Operator {
   GREATER_THAN = '>',
   LESS_THAN = '<',
   EQUALS = '=',
-  BETWEEN = 'Between'
 }
 
 export enum Logic {
