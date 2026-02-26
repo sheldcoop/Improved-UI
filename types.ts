@@ -22,16 +22,12 @@ export enum IndicatorType {
   BOL_UPPER = 'Bollinger Upper',
   BOL_LOWER = 'Bollinger Lower',
   BOL_MID = 'Bollinger Mid',
-  SUPERTREND = 'SuperTrend',
   ATR = 'ATR',
   CLOSE = 'Close Price',
   OPEN = 'Open Price',
   HIGH = 'High Price',
   LOW = 'Low Price',
   VOLUME = 'Volume',
-  IV = 'Implied Volatility',
-  OI = 'Open Interest',
-  PCR = 'PCR'
 }
 
 export enum Operator {
