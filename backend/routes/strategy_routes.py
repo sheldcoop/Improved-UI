@@ -21,7 +21,16 @@ PRESET_STRATEGIES = [
             {"name": "period", "label": "RSI Period", "min": 5, "max": 30, "default": 14},
             {"name": "lower", "label": "Oversold Level", "min": 10, "max": 40, "default": 30},
             {"name": "upper", "label": "Overbought Level", "min": 60, "max": 90, "default": 70}
-        ]
+        ],
+        "mode": "VISUAL",
+        "entryLogic": {
+            "id": "preset1_entry", "type": "GROUP", "logic": "AND",
+            "conditions": [{"id": "p1e1", "indicator": "RSI", "period": 14, "operator": "Crosses Below", "compareType": "STATIC", "value": 30}]
+        },
+        "exitLogic": {
+            "id": "preset1_exit", "type": "GROUP", "logic": "AND",
+            "conditions": [{"id": "p1x1", "indicator": "RSI", "period": 14, "operator": "Crosses Above", "compareType": "STATIC", "value": 70}]
+        }
     },
     {
         "id": "2",
@@ -30,7 +39,9 @@ PRESET_STRATEGIES = [
         "params": [
             {"name": "period", "label": "Length", "min": 10, "max": 50, "default": 20},
             {"name": "std_dev", "label": "StdDev Multiplier", "min": 1.0, "max": 3.0, "default": 2.0, "step": 0.1}
-        ]
+        ],
+        "mode": "CODE",
+        "pythonCode": "def signal_logic(df):\n    # Bollinger Bands Mean Reversion\n    # vbt, pd, np, ta are available. config is a dict of preset params.\n    period = int(config.get(\"period\", 20))\n    std_dev = float(config.get(\"std_dev\", 2.0))\n    bb = vbt.BBANDS.run(df[\"close\"], window=period, alpha=std_dev)\n    entries = df[\"close\"].vbt.crossed_below(bb.lower)\n    exits = df[\"close\"].vbt.crossed_above(bb.middle)\n    return entries, exits"
     },
     {
         "id": "3",
@@ -40,7 +51,9 @@ PRESET_STRATEGIES = [
             {"name": "fast", "label": "Fast Period", "min": 8, "max": 20, "default": 12},
             {"name": "slow", "label": "Slow Period", "min": 21, "max": 40, "default": 26},
             {"name": "signal", "label": "Signal Period", "min": 5, "max": 15, "default": 9}
-        ]
+        ],
+        "mode": "CODE",
+        "pythonCode": "def signal_logic(df):\n    # MACD Crossover\n    # vbt, pd, np, ta are available. config is a dict of preset params.\n    fast = int(config.get(\"fast\", 12))\n    slow = int(config.get(\"slow\", 26))\n    signal_w = int(config.get(\"signal\", 9))\n    macd = vbt.MACD.run(df[\"close\"], fast_window=fast, slow_window=slow, signal_window=signal_w)\n    entries = macd.macd.vbt.crossed_above(macd.signal)\n    exits = macd.macd.vbt.crossed_below(macd.signal)\n    return entries, exits"
     },
     {
         "id": "4",
@@ -49,7 +62,16 @@ PRESET_STRATEGIES = [
         "params": [
             {"name": "fast", "label": "Fast EMA", "min": 5, "max": 50, "default": 20},
             {"name": "slow", "label": "Slow EMA", "min": 51, "max": 200, "default": 50}
-        ]
+        ],
+        "mode": "VISUAL",
+        "entryLogic": {
+            "id": "preset4_entry", "type": "GROUP", "logic": "AND",
+            "conditions": [{"id": "p4e1", "indicator": "EMA", "period": 20, "operator": "Crosses Above", "compareType": "INDICATOR", "rightIndicator": "EMA", "rightPeriod": 50, "value": 0}]
+        },
+        "exitLogic": {
+            "id": "preset4_exit", "type": "GROUP", "logic": "AND",
+            "conditions": [{"id": "p4x1", "indicator": "EMA", "period": 20, "operator": "Crosses Below", "compareType": "INDICATOR", "rightIndicator": "EMA", "rightPeriod": 50, "value": 0}]
+        }
     },
     {
         "id": "5",
@@ -58,7 +80,9 @@ PRESET_STRATEGIES = [
         "params": [
             {"name": "period", "label": "ATR Period", "min": 7, "max": 20, "default": 10},
             {"name": "multiplier", "label": "Multiplier", "min": 1.0, "max": 5.0, "default": 3.0, "step": 0.1}
-        ]
+        ],
+        "mode": "CODE",
+        "pythonCode": "def signal_logic(df):\n    # Supertrend (ATR-based trailing stop)\n    # vbt, pd, np, ta are available. config is a dict of preset params.\n    period = int(config.get(\"period\", 10))\n    mult = float(config.get(\"multiplier\", 3.0))\n    atr = vbt.ATR.run(df[\"high\"], df[\"low\"], df[\"close\"], window=period).atr\n    mid = df[\"close\"].ewm(span=period, adjust=False).mean()\n    upper = mid + mult * atr\n    lower = mid - mult * atr\n    entries = df[\"close\"].vbt.crossed_above(lower)\n    exits = df[\"close\"].vbt.crossed_below(upper)\n    return entries, exits"
     },
     {
         "id": "6",
@@ -68,7 +92,9 @@ PRESET_STRATEGIES = [
             {"name": "rsi_period", "label": "RSI Period", "min": 10, "max": 30, "default": 14},
             {"name": "k_period", "label": "K Period", "min": 3, "max": 10, "default": 3},
             {"name": "d_period", "label": "D Period", "min": 3, "max": 10, "default": 3}
-        ]
+        ],
+        "mode": "CODE",
+        "pythonCode": "def signal_logic(df):\n    # Stochastic RSI\n    # vbt, pd, np, ta are available. config is a dict of preset params.\n    rsi_period = int(config.get(\"rsi_period\", 14))\n    k = int(config.get(\"k_period\", 3))\n    d = int(config.get(\"d_period\", 3))\n    rsi = ta.momentum.rsi(df[\"close\"], window=rsi_period)\n    stoch_k = rsi.rolling(k).mean()\n    stoch_d = stoch_k.rolling(d).mean()\n    entries = ((stoch_k > stoch_d) & (stoch_k.shift(1) <= stoch_d.shift(1)) & (stoch_k < 80)).fillna(False)\n    exits = ((stoch_k < stoch_d) & (stoch_k.shift(1) >= stoch_d.shift(1)) & (stoch_k > 20)).fillna(False)\n    return entries, exits"
     },
     {
         "id": "7",
@@ -77,7 +103,9 @@ PRESET_STRATEGIES = [
         "params": [
             {"name": "period", "label": "ATR Period", "min": 10, "max": 30, "default": 14},
             {"name": "multiplier", "label": "Distance Multiplier", "min": 1.0, "max": 4.0, "default": 2.0, "step": 0.1}
-        ]
+        ],
+        "mode": "CODE",
+        "pythonCode": "def signal_logic(df):\n    # ATR Channel Breakout\n    # vbt, pd, np, ta are available. config is a dict of preset params.\n    period = int(config.get(\"period\", 14))\n    mult = float(config.get(\"multiplier\", 2.0))\n    atr = vbt.ATR.run(df[\"high\"], df[\"low\"], df[\"close\"], window=period).atr\n    upper_band = df[\"high\"].rolling(period).max() + mult * atr\n    lower_band = df[\"low\"].rolling(period).min() - mult * atr\n    entries = df[\"close\"].vbt.crossed_above(upper_band.shift(1))\n    exits = df[\"close\"].vbt.crossed_below(lower_band.shift(1))\n    return entries, exits"
     }
 ]
 

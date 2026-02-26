@@ -1,114 +1,14 @@
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { PlayCircle, Filter, Code, Cpu, MessageSquare, Zap, Activity, Save, Trash2, ChevronDown, ChevronRight, RefreshCw, AlertCircle } from 'lucide-react';
-import {
-    AssetClass, Timeframe, IndicatorType, Operator, Strategy, Logic,
-    RuleGroup, Condition, PositionSizeMode, RankingMethod
-} from '../types';
-import { saveStrategy, runBacktest, fetchSavedStrategies, deleteStrategy, previewStrategy, generateStrategy } from '../services/api';
-import { fetchStrategies } from '../services/api';
+import { AssetClass, Timeframe, Strategy, RuleGroup, Condition, Logic, IndicatorType, Operator, PositionSizeMode, RankingMethod, StrategyPreset } from '../types';
+import { saveStrategy, runBacktest, fetchSavedStrategies, deleteStrategy, previewStrategy, generateStrategy, fetchStrategies } from '../services/api';
 import { useNavigate } from 'react-router-dom';
-import { StrategyPreset } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { GroupRenderer } from '../components/strategy/GroupRenderer';
 
-// --- PRESET LOGIC MAP ---
-// Maps preset IDs to their visual rule trees so selecting a preset populates the builder.
-const PRESET_LOGIC: Record<string, { mode: 'VISUAL' | 'CODE'; entryLogic?: RuleGroup; exitLogic?: RuleGroup; pythonCode?: string }> = {
-    "1": {
-        mode: 'VISUAL',
-        entryLogic: {
-            id: 'preset1_entry', type: 'GROUP', logic: Logic.AND,
-            conditions: [{ id: 'p1e1', indicator: IndicatorType.RSI, period: 14, operator: Operator.CROSSES_BELOW, compareType: 'STATIC', value: 30 }]
-        },
-        exitLogic: {
-            id: 'preset1_exit', type: 'GROUP', logic: Logic.AND,
-            conditions: [{ id: 'p1x1', indicator: IndicatorType.RSI, period: 14, operator: Operator.CROSSES_ABOVE, compareType: 'STATIC', value: 70 }]
-        },
-    },
-    "2": {
-        mode: 'CODE',
-        pythonCode: `def signal_logic(df):
-    # Bollinger Bands Mean Reversion
-    # vbt, pd, np, ta are available. config is a dict of preset params.
-    period = int(config.get("period", 20))
-    std_dev = float(config.get("std_dev", 2.0))
-    bb = vbt.BBANDS.run(df["close"], window=period, alpha=std_dev)
-    entries = df["close"].vbt.crossed_below(bb.lower)
-    exits = df["close"].vbt.crossed_above(bb.middle)
-    return entries, exits`,
-    },
-    "3": {
-        mode: 'CODE',
-        pythonCode: `def signal_logic(df):
-    # MACD Crossover
-    # vbt, pd, np, ta are available. config is a dict of preset params.
-    fast = int(config.get("fast", 12))
-    slow = int(config.get("slow", 26))
-    signal_w = int(config.get("signal", 9))
-    macd = vbt.MACD.run(df["close"], fast_window=fast, slow_window=slow, signal_window=signal_w)
-    entries = macd.macd.vbt.crossed_above(macd.signal)
-    exits = macd.macd.vbt.crossed_below(macd.signal)
-    return entries, exits`,
-    },
-    "4": {
-        mode: 'VISUAL',
-        entryLogic: {
-            id: 'preset4_entry', type: 'GROUP', logic: Logic.AND,
-            conditions: [{ id: 'p4e1', indicator: IndicatorType.EMA, period: 20, operator: Operator.CROSSES_ABOVE, compareType: 'INDICATOR', rightIndicator: IndicatorType.EMA, rightPeriod: 50, value: 0 }]
-        },
-        exitLogic: {
-            id: 'preset4_exit', type: 'GROUP', logic: Logic.AND,
-            conditions: [{ id: 'p4x1', indicator: IndicatorType.EMA, period: 20, operator: Operator.CROSSES_BELOW, compareType: 'INDICATOR', rightIndicator: IndicatorType.EMA, rightPeriod: 50, value: 0 }]
-        },
-    },
-    "5": {
-        mode: 'CODE',
-        pythonCode: `def signal_logic(df):
-    # Supertrend (ATR-based trailing stop)
-    # vbt, pd, np, ta are available. config is a dict of preset params.
-    period = int(config.get("period", 10))
-    mult = float(config.get("multiplier", 3.0))
-    atr = vbt.ATR.run(df["high"], df["low"], df["close"], window=period).atr
-    mid = df["close"].ewm(span=period, adjust=False).mean()
-    upper = mid + mult * atr
-    lower = mid - mult * atr
-    entries = df["close"].vbt.crossed_above(lower)
-    exits = df["close"].vbt.crossed_below(upper)
-    return entries, exits`,
-    },
-    "6": {
-        mode: 'CODE',
-        pythonCode: `def signal_logic(df):
-    # Stochastic RSI
-    # vbt, pd, np, ta are available. config is a dict of preset params.
-    rsi_period = int(config.get("rsi_period", 14))
-    k = int(config.get("k_period", 3))
-    d = int(config.get("d_period", 3))
-    rsi = ta.momentum.rsi(df["close"], window=rsi_period)
-    stoch_k = rsi.rolling(k).mean()
-    stoch_d = stoch_k.rolling(d).mean()
-    entries = ((stoch_k > stoch_d) & (stoch_k.shift(1) <= stoch_d.shift(1)) & (stoch_k < 80)).fillna(False)
-    exits = ((stoch_k < stoch_d) & (stoch_k.shift(1) >= stoch_d.shift(1)) & (stoch_k > 20)).fillna(False)
-    return entries, exits`,
-    },
-    "7": {
-        mode: 'CODE',
-        pythonCode: `def signal_logic(df):
-    # ATR Channel Breakout
-    # vbt, pd, np, ta are available. config is a dict of preset params.
-    period = int(config.get("period", 14))
-    mult = float(config.get("multiplier", 2.0))
-    atr = vbt.ATR.run(df["high"], df["low"], df["close"], window=period).atr
-    upper_band = df["high"].rolling(period).max() + mult * atr
-    lower_band = df["low"].rolling(period).min() - mult * atr
-    entries = df["close"].vbt.crossed_above(upper_band.shift(1))
-    exits = df["close"].vbt.crossed_below(lower_band.shift(1))
-    return entries, exits`,
-    },
-};
 
 // --- COMMON SYMBOLS (suggestions only — user can type any NSE symbol) ---
 const COMMON_SYMBOLS = [
@@ -193,6 +93,7 @@ const StrategyBuilder: React.FC = () => {
         entry_dates: [], exit_dates: [], prices: [], dates: [], error: null
     });
     const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const previewAbortControllerRef = useRef<AbortController | null>(null);
 
     // --- INIT ---
     useEffect(() => {
@@ -204,9 +105,14 @@ const StrategyBuilder: React.FC = () => {
     const triggerPreview = useCallback((strat: Strategy, sym: string) => {
         if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
         previewDebounceRef.current = setTimeout(async () => {
+            if (previewAbortControllerRef.current) {
+                previewAbortControllerRef.current.abort();
+            }
+            previewAbortControllerRef.current = new AbortController();
+
             setPreview(p => ({ ...p, loading: true, error: null }));
             try {
-                const result = await previewStrategy(strat, sym);
+                const result = await previewStrategy(strat, sym, previewAbortControllerRef.current.signal);
                 setPreview({
                     loading: false,
                     entry_count: result.entry_count,
@@ -218,6 +124,7 @@ const StrategyBuilder: React.FC = () => {
                     error: null,
                 });
             } catch (e: any) {
+                if (e.name === 'AbortError') return; // Ignore cancellations
                 setPreview(p => ({ ...p, loading: false, error: e?.message || 'Preview failed' }));
             }
         }, 500);
@@ -236,36 +143,23 @@ const StrategyBuilder: React.FC = () => {
         if (!presetId) return;
 
         const preset = presets.find(p => p.id === presetId);
-        const logic = PRESET_LOGIC[presetId];
         if (!preset) return;
 
         const defaultParams: Record<string, any> = {};
         preset.params.forEach(p => { defaultParams[p.name] = p.default; });
 
-        if (logic) {
-            setStrategy(prev => ({
-                ...prev,
-                id: preset.id,
-                name: preset.name,
-                description: preset.description,
-                mode: logic.mode,
-                params: defaultParams,
-                ...(logic.entryLogic ? { entryLogic: logic.entryLogic } : {}),
-                ...(logic.exitLogic ? { exitLogic: logic.exitLogic } : {}),
-                ...(logic.pythonCode ? { pythonCode: logic.pythonCode } : {}),
-            }));
-            setActiveTab(logic.mode);
-        } else {
-            setStrategy(prev => ({
-                ...prev,
-                id: preset.id,
-                name: preset.name,
-                description: preset.description,
-                mode: 'CODE',
-                params: defaultParams,
-            }));
-            setActiveTab('CODE');
-        }
+        setStrategy(prev => ({
+            ...prev,
+            id: preset.id,
+            name: preset.name,
+            description: preset.description,
+            mode: preset.mode || 'CODE',
+            params: defaultParams,
+            ...(preset.entryLogic ? { entryLogic: Object.assign({}, preset.entryLogic) } : {}),
+            ...(preset.exitLogic ? { exitLogic: Object.assign({}, preset.exitLogic) } : {}),
+            ...(preset.pythonCode ? { pythonCode: preset.pythonCode } : {}),
+        }));
+        setActiveTab(preset.mode || 'CODE');
     };
 
     // --- SAVE ---
@@ -312,6 +206,15 @@ const StrategyBuilder: React.FC = () => {
 
     // --- RUN ---
     const handleRun = async () => {
+        if (!symbol) {
+            alert('Please select a valid symbol before running the backtest.');
+            return;
+        }
+        if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+            alert('Start date must be before end date.');
+            return;
+        }
+
         setRunning(true);
         try {
             const result = await runBacktest(strategy.id !== 'new' ? strategy.id : null, symbol, {
@@ -320,7 +223,7 @@ const StrategyBuilder: React.FC = () => {
                 strategyName: strategy.name,
                 symbol,
                 ...(startDate ? { startDate } : {}),
-                ...(endDate   ? { endDate }   : {}),
+                ...(endDate ? { endDate } : {}),
             });
             navigate('/results', { state: { result } });
         } catch (e: any) {
@@ -377,11 +280,13 @@ const StrategyBuilder: React.FC = () => {
 
         const minP = Math.min(...prices);
         const maxP = Math.max(...prices);
-        const range = maxP - minP || 1;
+        const range = Math.max(maxP - minP, minP * 0.05) || 1; // Minimum 5% padding
+        const plotMin = minP - range * 0.1;
+        const plotRange = range * 1.2;
         const W = 300, H = 120;
 
         const toX = (i: number) => (i / (prices.length - 1)) * W;
-        const toY = (p: number) => H - ((p - minP) / range) * H;
+        const toY = (p: number) => H - ((p - plotMin) / plotRange) * H;
 
         const pathD = prices.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(p).toFixed(1)}`).join(' ');
 
@@ -607,7 +512,15 @@ const StrategyBuilder: React.FC = () => {
                 </div>
 
                 {/* MAIN EDITOR CANVAS */}
-                <div className="pr-2 space-y-6">
+                <div className="pr-2 space-y-6 relative">
+                    {isAiLoading && (
+                        <div className="absolute inset-0 z-10 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center rounded-lg border border-purple-500/30">
+                            <div className="flex flex-col items-center space-y-3">
+                                <div className="w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full animate-spin" />
+                                <div className="text-sm font-bold text-purple-400 shadow-md">AI is generating logic...</div>
+                            </div>
+                        </div>
+                    )}
                     {activeTab === 'VISUAL' ? (
                         <>
                             <div className="space-y-2">

@@ -149,6 +149,10 @@ export interface StrategyPreset {
   name: string;
   description: string;
   params: StrategyParam[];
+  mode?: 'VISUAL' | 'CODE';
+  entryLogic?: RuleGroup;
+  exitLogic?: RuleGroup;
+  pythonCode?: string;
 }
 
 export interface OptionLeg {
