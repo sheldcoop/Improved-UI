@@ -102,6 +102,14 @@ def run_backtest():
             if key not in config:
                 config[key] = val
 
+        # For daily bars: always execute on the NEXT bar's open after signal fires.
+        # This prevents look-ahead bias — on daily data you can't trade at today's
+        # close the same moment the signal appears (bar isn't closed yet).
+        # Intraday timeframes are exempt — live algos can react within the same bar.
+        if timeframe == "1d" and "nextBarEntry" not in config:
+            config["nextBarEntry"] = True
+
+
         logger.info(f"Backtest Target: {target} [{timeframe}] | Strategy: {strategy_id}")
 
         fetcher = DataFetcher(request.headers)
