@@ -4,15 +4,17 @@ Fixes applied:
   - Type hints on all public methods (Issue #4)
   - Docstrings on all public methods (Issue #5)
   - exec() sandbox hardened with object introspection guard (Issue #13)
+  - Multi-timeframe analysis via TimeframeResampler (MTF)
 """
 from __future__ import annotations
-
 
 import pandas as pd
 import numpy as np
 import vectorbt as vbt
 from logging import getLogger
-import ta  # replaces pandas_ta (no Python 3.9 build available for pandas_ta)
+import ta
+
+from services.timeframe_resampler import TimeframeResampler
 
 logger = getLogger(__name__)
 
@@ -31,7 +33,6 @@ class BaseStrategy:
 
     def __init__(self, config: dict) -> None:
         self.config = config
-        self.resampled_cache: dict = {}
 
     def generate_signals(self, df: pd.DataFrame | dict) -> tuple:
         """Generate entry and exit signal arrays from OHLCV data.
@@ -64,61 +65,49 @@ class DynamicStrategy(BaseStrategy):
     ) -> pd.Series | pd.DataFrame | None:
         """Compute an indicator series, with optional MTF resampling.
 
+        When *timeframe* is provided and is different from the base
+        timeframe, the OHLCV data is resampled to that higher timeframe
+        (using :class:`~services.timeframe_resampler.TimeframeResampler`),
+        the indicator is computed on the resampled data, and the result is
+        forward-filled back to the base index so it aligns with every
+        original bar.
+
         Args:
             df: OHLCV DataFrame or dict of DataFrames.
             indicator_type: Indicator name (e.g. 'RSI', 'SMA', 'Close Price').
             period: Lookback period for the indicator. Default 14.
             timeframe: Optional higher timeframe for MTF resampling
-                (e.g. '1h'). If None, uses the base timeframe.
+                (e.g. '1W', '1ME'). If None or 'Curr', uses the base
+                timeframe unchanged.
 
         Returns:
-            Indicator Series (or DataFrame for universe mode), reindexed
-            to the original timeline if MTF resampling was applied.
+            Indicator Series (or DataFrame for universe mode), re-indexed
+            to the original timeline when MTF resampling is applied.
         """
-        base_df = df
-        is_universe = isinstance(df, dict)
-
-        if timeframe:
-            cache_key = f"{timeframe}_{'UNIVERSE' if is_universe else 'SINGLE'}"
-            if cache_key in self.resampled_cache:
-                base_df = self.resampled_cache[cache_key]
-            else:
-                tf_map = {"1m": "1T", "5m": "5T", "15m": "15T", "1h": "1H", "1d": "1D"}
-                pandas_freq = tf_map.get(timeframe)
-                if pandas_freq:
-                    try:
-                        if is_universe:
-                            agg_rules = {
-                                "open": "first", "high": "max",
-                                "low": "min", "close": "last", "volume": "sum",
-                            }
-                            resampled_dict = {
-                                col: data.resample(pandas_freq).apply(agg_rules.get(col, "last")).dropna()
-                                for col, data in df.items()
-                            }
-                            base_df = resampled_dict
-                        else:
-                            base_df = df.resample(pandas_freq).agg({
-                                "open": "first", "high": "max",
-                                "low": "min", "close": "last", "volume": "sum",
-                            }).dropna()
-                        self.resampled_cache[cache_key] = base_df
-                    except Exception as exc:
-                        logger.warning(f"MTF Resample Failed: {exc}. Using base dataframe.")
-                        base_df = df
-
-        if isinstance(base_df, dict):
-            close = base_df.get("close")
-            high = base_df.get("high", close)
-            low = base_df.get("low", close)
-            volume = base_df.get("volume", None)
-            open_p = base_df.get("open", close)
+        # --- MTF resampling -------------------------------------------------
+        # Use the shared TimeframeResampler (cached on this instance) so that
+        # multiple conditions sharing the same higher TF reuse one DataFrame.
+        if timeframe and timeframe not in ("Curr", "curr", ""):
+            if not hasattr(self, "_resampler") or self._resampler is None:
+                self._resampler = TimeframeResampler(df)
+            base_df = self._resampler.get_ohlcv(timeframe)
         else:
-            close = base_df["close"]
-            high = base_df.get("high", close)
-            low = base_df.get("low", close)
+            base_df = df
+
+        is_universe = isinstance(base_df, dict)
+
+        if is_universe:
+            close  = base_df.get("close")
+            high   = base_df.get("high", close)
+            low    = base_df.get("low",  close)
             volume = base_df.get("volume", None)
-            open_p = base_df.get("open", None)
+            open_p = base_df.get("open",  close)
+        else:
+            close  = base_df["close"]
+            high   = base_df.get("high",   close)
+            low    = base_df.get("low",    close)
+            volume = base_df.get("volume", None)
+            open_p = base_df.get("open",   None)
 
         period = int(period) if period else 14
         result_series = None
@@ -158,11 +147,16 @@ class DynamicStrategy(BaseStrategy):
             logger.error(f"Indicator Error ({indicator_type}): {exc}")
             result_series = close
 
-        if timeframe and result_series is not None:
-            target_index = df["close"].index if isinstance(df, dict) else df.index
-            result_series = result_series.reindex(target_index).ffill()
+        # --- Align back to base index (MTF only) ----------------------------
+        # When we resampled to a higher timeframe, align the computed series
+        # back to the original daily index via forward-fill so that every
+        # base bar has the most recent higher-TF indicator value.
+        if timeframe and timeframe not in ("Curr", "curr", "") and result_series is not None:
+            if hasattr(self, "_resampler") and self._resampler is not None:
+                result_series = self._resampler.align_to_base(result_series)
 
         return result_series
+
 
     def _evaluate_node(self, df: pd.DataFrame | dict, node: dict) -> pd.Series | bool:
         """Recursively evaluate a RuleGroup or Condition node.
