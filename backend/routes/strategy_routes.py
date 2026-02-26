@@ -12,6 +12,68 @@ strategy_bp = Blueprint("strategy", __name__)
 logger = logging.getLogger(__name__)
 
 
+def build_logic_summary(data: dict) -> str:
+    """Build a plain-English summary of the strategy logic tree.
+
+    Generates a human-readable description from the entryLogic / exitLogic
+    rule trees, or from the Python Code mode.  The summary is generated
+    server-side from the same tree that was evaluated, so it is always
+    accurate regardless of what the frontend renders.
+
+    Args:
+        data: Request payload containing mode, entryLogic, exitLogic,
+            and optionally pythonCode.
+
+    Returns:
+        Plain-English string describing the strategy entry and exit rules.
+    """
+    mode = data.get("mode", "VISUAL")
+
+    if mode == "CODE":
+        code = (data.get("pythonCode") or "").strip()
+        fn_name = ""
+        for line in code.splitlines():
+            if line.startswith("def ") and "(" in line:
+                fn_name = line.split("def ")[1].split("(")[0].strip()
+                break
+        return f"Python Code strategy — custom '{fn_name}' function."
+
+    def describe_node(node: dict | None) -> str:
+        if not node:
+            return "(no conditions)"
+        if node.get("type") == "GROUP":
+            children = node.get("conditions", [])
+            if not children:
+                return "(empty group)"
+            logic = node.get("logic", "AND")
+            parts = [describe_node(c) for c in children]
+            connector = f" {logic} "
+            joined = connector.join(parts)
+            return f"({joined})" if len(parts) > 1 else joined
+        # Leaf condition
+        ind = node.get("indicator", "?")
+        period = node.get("period", "")
+        tf = node.get("timeframe", "")
+        tf_str = f"[{tf}]" if tf else ""
+        period_str = f"({period})" if period and period != 0 else ""
+        left = f"{ind}{tf_str}{period_str}"
+        op = node.get("operator", "?")
+        if node.get("compareType") == "INDICATOR":
+            ri = node.get("rightIndicator", "?")
+            rp = node.get("rightPeriod", "")
+            rtf = node.get("rightTimeframe", "")
+            rtf_str = f"[{rtf}]" if rtf else ""
+            rp_str = f"({rp})" if rp else ""
+            right = f"{ri}{rtf_str}{rp_str}"
+        else:
+            right = str(node.get("value", "?"))
+        return f"{left} {op} {right}"
+
+    entry = describe_node(data.get("entryLogic"))
+    exit_ = describe_node(data.get("exitLogic"))
+    return f"Buy when {entry}. Sell when {exit_}."
+
+
 PRESET_STRATEGIES = [
     {
         "id": "1",
@@ -247,6 +309,7 @@ def preview_signals():
             "warnings": warnings,
             "empty_exit": empty_exit,
             "sl_tp_ignored": sl_active or tp_active,
+            "logic_summary": build_logic_summary(data),
         }), 200
 
 

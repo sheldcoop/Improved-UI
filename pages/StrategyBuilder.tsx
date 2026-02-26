@@ -64,6 +64,7 @@ interface PreviewState {
     error: string | null;
     warnings: string[];
     empty_exit: boolean;
+    logic_summary: string;
 }
 
 const StrategyBuilder: React.FC = () => {
@@ -93,7 +94,7 @@ const StrategyBuilder: React.FC = () => {
     const [preview, setPreview] = useState<PreviewState>({
         loading: false, entry_count: 0, exit_count: 0,
         entry_dates: [], exit_dates: [], prices: [], dates: [], error: null,
-        warnings: [], empty_exit: false,
+        warnings: [], empty_exit: false, logic_summary: '',
     });
     const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const previewAbortControllerRef = useRef<AbortController | null>(null);
@@ -127,6 +128,7 @@ const StrategyBuilder: React.FC = () => {
                     error: null,
                     warnings: (result as any).warnings ?? [],
                     empty_exit: (result as any).empty_exit ?? false,
+                    logic_summary: (result as any).logic_summary ?? '',
                 });
             } catch (e: any) {
                 if (e.name === 'AbortError') return; // Ignore cancellations
@@ -220,6 +222,25 @@ const StrategyBuilder: React.FC = () => {
             return;
         }
 
+        // Validate strategy has actual logic before sending
+        if (activeTab === 'VISUAL' || strategy.mode === 'VISUAL') {
+            const entryConditions = strategy.entryLogic?.conditions ?? [];
+            if (entryConditions.length === 0) {
+                alert('Your strategy has no Entry Conditions.\n\nAdd at least one condition in the Visual Builder before running.');
+                return;
+            }
+        } else if (activeTab === 'CODE' || strategy.mode === 'CODE') {
+            const code = strategy.pythonCode?.trim() ?? '';
+            if (!code) {
+                alert('Python Code is empty. Write a signal_logic(df) function before running.');
+                return;
+            }
+            if (!code.includes('signal_logic')) {
+                alert('Your code must define a signal_logic(df) function that returns (entries, exits).');
+                return;
+            }
+        }
+
         setRunning(true);
         try {
             const result = await runBacktest(strategy.id !== 'new' ? strategy.id : null, symbol, {
@@ -235,6 +256,17 @@ const StrategyBuilder: React.FC = () => {
             alert('Error: ' + (e?.message || e));
         } finally {
             setRunning(false);
+        }
+    };
+
+    // --- CLONE SAVED STRATEGY ---
+    const handleCloneStrategy = async (s: Strategy) => {
+        try {
+            const clone = { ...s, id: 'new', name: `${s.name} (Copy)` };
+            const saved = await saveStrategy(clone);
+            setSavedStrategies(prev => [...prev, saved]);
+        } catch (e: any) {
+            alert('Clone failed: ' + (e?.message || e));
         }
     };
 
@@ -262,21 +294,9 @@ const StrategyBuilder: React.FC = () => {
         }
     };
 
-    // --- LOGIC SUMMARY ---
-    const generateSummary = useMemo(() => {
-        if (strategy.mode === 'CODE') return "Custom Python Logic Strategy";
-        const describeGroup = (group: RuleGroup): string => {
-            if (!group.conditions.length) return "No conditions";
-            return group.conditions.map(c => {
-                if ('type' in c && c.type === 'GROUP') return `(${describeGroup(c as RuleGroup)})`;
-                const cond = c as Condition;
-                const right = cond.compareType === 'STATIC' ? cond.value : `${cond.rightIndicator}(${cond.rightPeriod})`;
-                const tf = cond.timeframe ? `[${cond.timeframe}]` : '';
-                return `${cond.indicator}${tf}(${cond.period}) ${cond.operator} ${right}`;
-            }).join(` ${group.logic} `);
-        };
-        return `Entry when ${describeGroup(strategy.entryLogic)}. Exit when ${describeGroup(strategy.exitLogic)}.`;
-    }, [strategy]);
+    // Logic summary is now provided by the backend in preview.logic_summary
+    // (generated from the same tree that was actually evaluated — always accurate).
+    const displaySummary = preview.logic_summary || (preview.loading ? 'Calculating...' : 'Run a preview to see the logic summary.');
 
     // --- PREVIEW CHART ---
     const renderPreviewChart = () => {
@@ -373,9 +393,14 @@ const StrategyBuilder: React.FC = () => {
                                     savedStrategies.map(s => (
                                         <div key={s.id} className="flex items-center justify-between p-2 bg-slate-950 rounded border border-slate-800 group">
                                             <button onClick={() => handleLoadSaved(s)} className="text-xs text-slate-300 hover:text-emerald-400 truncate flex-1 text-left" title={s.name}>{s.name}</button>
-                                            <button onClick={() => handleDeleteSaved(s.id)} disabled={deletingId === s.id} className="ml-2 text-slate-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                {deletingId === s.id ? <div className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                                            </button>
+                                            <div className="flex items-center ml-2 space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button onClick={() => handleCloneStrategy(s)} title="Clone strategy" className="text-slate-700 hover:text-purple-400">
+                                                    <RefreshCw className="w-3 h-3" />
+                                                </button>
+                                                <button onClick={() => handleDeleteSaved(s.id)} disabled={deletingId === s.id} className="text-slate-700 hover:text-red-400">
+                                                    {deletingId === s.id ? <div className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                                </button>
+                                            </div>
                                         </div>
                                     ))
                                 )}
@@ -562,7 +587,7 @@ const StrategyBuilder: React.FC = () => {
                     <MessageSquare className="w-5 h-5 text-slate-500 mt-0.5" />
                     <div>
                         <div className="text-xs font-bold text-slate-500 uppercase">Logic Summary</div>
-                        <p className="text-sm text-slate-300 leading-snug">{generateSummary}</p>
+                        <p className="text-sm text-slate-300 leading-snug">{displaySummary}</p>
                     </div>
                 </div>
             </div>

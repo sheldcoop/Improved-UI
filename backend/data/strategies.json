@@ -1,1 +1,59 @@
-[]
+[
+  {
+    "name": "Test Strategy",
+    "mode": "VISUAL",
+    "entryLogic": {
+      "id": "re",
+      "type": "GROUP",
+      "logic": "AND",
+      "conditions": [
+        {
+          "id": "c1",
+          "indicator": "RSI",
+          "period": 14,
+          "operator": "<",
+          "compareType": "STATIC",
+          "value": 30
+        }
+      ]
+    },
+    "exitLogic": {
+      "id": "rx",
+      "type": "GROUP",
+      "logic": "AND",
+      "conditions": []
+    },
+    "id": "a8745b30-2e81-4526-8ed5-00b76eacff51"
+  },
+  {
+    "status": "ok",
+    "strategy": {
+      "entryLogic": {
+        "conditions": [
+          {
+            "compareType": "STATIC",
+            "id": "c1",
+            "indicator": "RSI",
+            "operator": "<",
+            "period": 14,
+            "value": 30
+          }
+        ],
+        "id": "re",
+        "logic": "AND",
+        "type": "GROUP"
+      },
+      "exitLogic": {
+        "conditions": [],
+        "id": "rx",
+        "logic": "AND",
+        "type": "GROUP"
+      },
+      "id": "a8745b30-2e81-4526-8ed5-00b76eacff51",
+      "mode": "VISUAL",
+      "name": "Test Strategy"
+    },
+    "id": "63e3523b-3a0d-48bd-b162-ebafb3cd6e21",
+    "name": "Test Strategy (Copy)"
+  }
+]
