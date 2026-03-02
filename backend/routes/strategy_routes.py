@@ -229,6 +229,8 @@ def preview_signals():
     data = request.json or {}
     symbol = data.get("symbol", "NIFTY 50")
     timeframe = data.get("timeframe", "1d")
+    from_date = data.get("from_date") or None
+    to_date = data.get("to_date") or None
 
     if not symbol or not isinstance(symbol, str) or len(symbol) > 30:
         return jsonify({"status": "error", "message": "Invalid symbol"}), 400
@@ -237,7 +239,7 @@ def preview_signals():
 
     try:
         fetcher = DataFetcher(request.headers)
-        df = fetcher.fetch_historical_data(symbol, timeframe)
+        df = fetcher.fetch_historical_data(symbol, timeframe, from_date, to_date)
 
         if df is None or df.empty:
             return jsonify({"status": "error", "message": "No data available for symbol"}), 404

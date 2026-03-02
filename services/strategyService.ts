@@ -108,7 +108,7 @@ export interface PreviewResult {
     dates: string[];
 }
 
-export const previewStrategy = async (strategy: Strategy, symbol: string, signal?: AbortSignal): Promise<PreviewResult> => {
+export const previewStrategy = async (strategy: Strategy, symbol: string, fromDate?: string, toDate?: string, signal?: AbortSignal): Promise<PreviewResult> => {
     return fetchClient<PreviewResult>(`${API_ENDPOINTS.STRATEGIES}/preview`, {
         method: 'POST',
         signal,
@@ -117,6 +117,8 @@ export const previewStrategy = async (strategy: Strategy, symbol: string, signal
             strategyId: strategy.id,   // backend looks up strategyId, not id
             symbol,
             timeframe: strategy.timeframe,
+            from_date: fromDate || undefined,
+            to_date: toDate || undefined,
         }),
     });
 };

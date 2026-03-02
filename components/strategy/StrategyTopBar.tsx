@@ -7,11 +7,7 @@ const COMMON_SYMBOLS = [
     'PNB', 'AMBUJACEM', 'HDFCNIF100',
 ];
 
-const toDisplay = (iso: string): string => {
-    if (!iso) return '';
-    const [y, m, d] = iso.split('-');
-    return `${d}/${m}/${y}`;
-};
+const DATE_INPUT_CLASS = "bg-slate-950 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 outline-none w-36 cursor-pointer focus:border-emerald-500 [color-scheme:dark]";
 
 interface StrategyTopBarProps {
     symbol: string;
@@ -56,43 +52,23 @@ export const StrategyTopBar: React.FC<StrategyTopBarProps> = ({
             {/* From date */}
             <div>
                 <label className="text-[10px] text-slate-500 uppercase tracking-wider block mb-1">From</label>
-                <div className="relative">
-                    <input
-                        type="text"
-                        readOnly
-                        value={toDisplay(startDate)}
-                        placeholder="dd/mm/yyyy"
-                        className="bg-slate-950 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 outline-none w-36 placeholder-slate-600 cursor-pointer"
-                    />
-                    <input
-                        type="date"
-                        value={startDate}
-                        onChange={e => onStartDateChange(e.target.value)}
-                        style={{ colorScheme: 'light' }}
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full"
-                    />
-                </div>
+                <input
+                    type="date"
+                    value={startDate}
+                    onChange={e => onStartDateChange(e.target.value)}
+                    className={DATE_INPUT_CLASS}
+                />
             </div>
 
             {/* To date */}
             <div>
                 <label className="text-[10px] text-slate-500 uppercase tracking-wider block mb-1">To</label>
-                <div className="relative">
-                    <input
-                        type="text"
-                        readOnly
-                        value={toDisplay(endDate)}
-                        placeholder="dd/mm/yyyy"
-                        className="bg-slate-950 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 outline-none w-36 placeholder-slate-600 cursor-pointer"
-                    />
-                    <input
-                        type="date"
-                        value={endDate}
-                        onChange={e => onEndDateChange(e.target.value)}
-                        style={{ colorScheme: 'light' }}
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full"
-                    />
-                </div>
+                <input
+                    type="date"
+                    value={endDate}
+                    onChange={e => onEndDateChange(e.target.value)}
+                    className={DATE_INPUT_CLASS}
+                />
             </div>
 
             {/* Divider */}

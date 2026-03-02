@@ -1,6 +1,7 @@
 import React from 'react';
-import { Save, Trash2, ChevronDown, ChevronRight, RefreshCw, PlayCircle, AlertCircle } from 'lucide-react';
+import { Save, Trash2, ChevronDown, ChevronRight, RefreshCw, PlayCircle, AlertCircle, AlertTriangle, CheckCircle } from 'lucide-react';
 import { Strategy, AssetClass, Timeframe, PositionSizeMode, StrategyPreset } from '../../types';
+import type { DataHealthReport } from '../../services/marketService';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 
@@ -21,8 +22,12 @@ interface StrategyConfigPanelProps {
     runError: string | null;
     saving: boolean;
     running: boolean;
+    checkingQuality: boolean;
+    dataQuality: DataHealthReport | null;
     onSave: () => void;
     onRun: () => void;
+    onRunAnyway: () => void;
+    onDismissQuality: () => void;
 }
 
 export const StrategyConfigPanel: React.FC<StrategyConfigPanelProps> = ({
@@ -30,7 +35,8 @@ export const StrategyConfigPanel: React.FC<StrategyConfigPanelProps> = ({
     presets, activePresetId, onPresetChange,
     savedStrategies, showSaved, onToggleSaved,
     onLoadSaved, onDeleteSaved, onCloneStrategy, deletingId,
-    saveError, runError, saving, running, onSave, onRun,
+    saveError, runError, saving, running,
+    checkingQuality, dataQuality, onSave, onRun, onRunAnyway, onDismissQuality,
 }) => {
     const update = (partial: Partial<Strategy>) => onStrategyChange({ ...strategy, ...partial });
 
@@ -125,7 +131,9 @@ export const StrategyConfigPanel: React.FC<StrategyConfigPanelProps> = ({
                 <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-2">
                         <div>
-                            <label className="text-xs text-slate-500 block mb-1">Stop Loss %</label>
+                            <label className="text-xs text-slate-500 block mb-1">
+                                {strategy.useTrailingStop ? 'Trail Distance %' : 'Stop Loss %'}
+                            </label>
                             <input
                                 type="number"
                                 min="0"
@@ -248,6 +256,54 @@ export const StrategyConfigPanel: React.FC<StrategyConfigPanelProps> = ({
                 </div>
             )}
 
+            {/* Data quality panel — shown when anomalies detected before run */}
+            {dataQuality && (
+                <div className="border border-amber-800 bg-amber-900/20 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span className="text-xs font-bold text-amber-400">Data Quality Issues</span>
+                        <span className="ml-auto text-[10px] text-slate-500">{dataQuality.totalCandles} candles</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px]">
+                        {dataQuality.gapCount > 0 && (
+                            <div className="text-slate-400">Gaps <span className="text-amber-300 font-medium">{dataQuality.gapCount}</span></div>
+                        )}
+                        {dataQuality.nullCandles > 0 && (
+                            <div className="text-slate-400">Nulls <span className="text-amber-300 font-medium">{dataQuality.nullCandles}</span></div>
+                        )}
+                        {dataQuality.zeroVolumeCandles > 0 && (
+                            <div className="text-slate-400">Zero vol <span className="text-amber-300 font-medium">{dataQuality.zeroVolumeCandles}</span></div>
+                        )}
+                        {dataQuality.geometricFailures > 0 && (
+                            <div className="text-slate-400">Geometry <span className="text-red-400 font-medium">{dataQuality.geometricFailures}</span></div>
+                        )}
+                        {dataQuality.spikeFailures > 0 && (
+                            <div className="text-slate-400">Spikes <span className="text-amber-300 font-medium">{dataQuality.spikeFailures}</span></div>
+                        )}
+                        {dataQuality.staleFailures > 0 && (
+                            <div className="text-slate-400">Flatlines <span className="text-amber-300 font-medium">{dataQuality.staleFailures}</span></div>
+                        )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 leading-relaxed">
+                        Results may be unreliable. Consider re-fetching in Data Manager.
+                    </p>
+                    <div className="flex gap-2 pt-1">
+                        <button
+                            onClick={onRunAnyway}
+                            className="flex-1 text-xs py-1.5 bg-amber-800/60 hover:bg-amber-700/60 text-amber-200 rounded border border-amber-700 font-medium"
+                        >
+                            Run Anyway
+                        </button>
+                        <button
+                            onClick={onDismissQuality}
+                            className="flex-1 text-xs py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded border border-slate-700"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Actions */}
             <div className="space-y-2">
                 <Button
@@ -263,13 +319,13 @@ export const StrategyConfigPanel: React.FC<StrategyConfigPanelProps> = ({
                 </Button>
                 <Button
                     onClick={onRun}
-                    disabled={running}
+                    disabled={running || checkingQuality || !!dataQuality}
                     className="w-full py-3 shadow-emerald-900/40"
-                    icon={running
+                    icon={running || checkingQuality
                         ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                         : <PlayCircle className="w-5 h-5" />}
                 >
-                    {running ? 'Simulating...' : 'Run Strategy'}
+                    {running ? 'Simulating...' : checkingQuality ? 'Checking data...' : 'Run Strategy'}
                 </Button>
             </div>
         </div>

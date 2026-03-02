@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Filter, Code, BookOpen, Cpu, MessageSquare, Zap, Activity, AlertCircle } from 'lucide-react';
 import { AssetClass, Timeframe, Strategy, RuleGroup, Logic, IndicatorType, Operator, PositionSizeMode, RankingMethod, StrategyPreset } from '../types';
-import { saveStrategy, runBacktest, fetchSavedStrategies, deleteStrategy, previewStrategy, generateStrategy, fetchStrategies } from '../services/api';
+import { saveStrategy, runBacktest, fetchSavedStrategies, deleteStrategy, previewStrategy, generateStrategy, fetchStrategies, validateMarketData } from '../services/api';
+import type { DataHealthReport } from '../services/marketService';
 import { useNavigate } from 'react-router-dom';
 import { GroupRenderer } from '../components/strategy/GroupRenderer';
 import { StrategyTopBar } from '../components/strategy/StrategyTopBar';
@@ -82,6 +83,9 @@ const StrategyBuilder: React.FC = () => {
     const [aiError, setAiError] = useState<string | null>(null);
     const [running, setRunning] = useState(false);
     const [runError, setRunError] = useState<string | null>(null);
+    const [checkingQuality, setCheckingQuality] = useState(false);
+    const [dataQuality, setDataQuality] = useState<DataHealthReport | null>(null);
+    const [pendingRun, setPendingRun] = useState(false);
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -106,14 +110,14 @@ const StrategyBuilder: React.FC = () => {
     useEffect(() => { localStorage.setItem('sb_endDate', endDate); }, [endDate]);
 
     // --- DEBOUNCED PREVIEW ---
-    const triggerPreview = useCallback((strat: Strategy, sym: string) => {
+    const triggerPreview = useCallback((strat: Strategy, sym: string, fromDate: string, toDate: string) => {
         if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
         previewDebounceRef.current = setTimeout(async () => {
             if (previewAbortControllerRef.current) previewAbortControllerRef.current.abort();
             previewAbortControllerRef.current = new AbortController();
             setPreview(p => ({ ...p, loading: true, error: null }));
             try {
-                const result = await previewStrategy(strat, sym, previewAbortControllerRef.current.signal);
+                const result = await previewStrategy(strat, sym, fromDate || undefined, toDate || undefined, previewAbortControllerRef.current.signal);
                 setPreview({
                     loading: false,
                     entry_count: result.entry_count,
@@ -135,10 +139,10 @@ const StrategyBuilder: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        triggerPreview(strategy, symbol);
+        triggerPreview(strategy, symbol, startDate, endDate);
         return () => { if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [strategy.entryLogic, strategy.exitLogic, strategy.mode, strategy.pythonCode, symbol]);
+    }, [strategy.entryLogic, strategy.exitLogic, strategy.mode, strategy.pythonCode, symbol, startDate, endDate]);
 
     // --- PRESET HANDLING ---
     const handlePresetChange = (presetId: string) => {
@@ -214,9 +218,32 @@ const StrategyBuilder: React.FC = () => {
         }
     };
 
-    // --- RUN ---
+    // --- RUN (shared execution) ---
+    const executeRun = async () => {
+        setRunning(true);
+        try {
+            const result = await runBacktest(strategy.id !== 'new' ? strategy.id : null, symbol.trim(), {
+                ...strategy,
+                capital: strategy.positionSizeValue,
+                strategyName: strategy.name,
+                symbol: symbol.trim(),
+                ...(startDate ? { startDate } : {}),
+                ...(endDate ? { endDate } : {}),
+            });
+            navigate('/results', { state: { result } });
+        } catch (e: any) {
+            setRunError('Backtest failed: ' + (e?.message || e));
+        } finally {
+            setRunning(false);
+        }
+    };
+
+    // --- RUN — validates inputs, checks data quality, then runs ---
     const handleRun = async () => {
         setRunError(null);
+        setDataQuality(null);
+        setPendingRun(false);
+
         if (!symbol.trim()) {
             setRunError('Please enter a symbol before running the backtest.');
             return;
@@ -241,22 +268,38 @@ const StrategyBuilder: React.FC = () => {
                 return;
             }
         }
-        setRunning(true);
+
+        // Data quality check before running
+        setCheckingQuality(true);
         try {
-            const result = await runBacktest(strategy.id !== 'new' ? strategy.id : null, symbol.trim(), {
-                ...strategy,
-                capital: strategy.positionSizeValue,
-                strategyName: strategy.name,
-                symbol: symbol.trim(),
-                ...(startDate ? { startDate } : {}),
-                ...(endDate ? { endDate } : {}),
-            });
-            navigate('/results', { state: { result } });
-        } catch (e: any) {
-            setRunError('Backtest failed: ' + (e?.message || e));
+            const today = new Date().toISOString().split('T')[0];
+            const fromDate = startDate || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            const toDate = endDate || today;
+            const health = await validateMarketData(symbol.trim(), strategy.timeframe, fromDate, toDate);
+
+            if ((health as any).status === 'CRITICAL') {
+                setRunError(`No data available for ${symbol} (${strategy.timeframe}). Please fetch data in Data Manager first.`);
+                return;
+            }
+            if (health.status === 'ANOMALIES_DETECTED') {
+                setDataQuality(health);
+                setPendingRun(true);
+                return; // Wait for user to confirm
+            }
+        } catch {
+            // Don't block run if health check itself fails
         } finally {
-            setRunning(false);
+            setCheckingQuality(false);
         }
+
+        await executeRun();
+    };
+
+    // --- RUN ANYWAY (user confirmed despite anomalies) ---
+    const handleRunAnyway = async () => {
+        setDataQuality(null);
+        setPendingRun(false);
+        await executeRun();
     };
 
     // --- AI GENERATE ---
@@ -326,8 +369,12 @@ const StrategyBuilder: React.FC = () => {
                         runError={runError}
                         saving={saving}
                         running={running}
+                        checkingQuality={checkingQuality}
+                        dataQuality={dataQuality}
                         onSave={handleSave}
                         onRun={handleRun}
+                        onRunAnyway={handleRunAnyway}
+                        onDismissQuality={() => { setDataQuality(null); setPendingRun(false); }}
                     />
                 </div>
 
