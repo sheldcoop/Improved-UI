@@ -1,8 +1,8 @@
 
-import { BacktestResult, MonteCarloPath } from '../types';
+import { BacktestResult, MonteCarloResult } from '../types';
 import { API_ENDPOINTS } from '../config';
-import { executeWithFallback } from './http';
-import { generateMockBacktestResult, generateMockMonteCarlo } from './mockData';
+import { executeWithFallback, fetchClient } from './http';
+import { generateMockBacktestResult } from './mockData';
 
 export interface BacktestConfig {
     slippage?: number;
@@ -27,13 +27,29 @@ export const runBacktest = async (strategyId: string | null, symbol: string, con
 };
 
 /**
- * Runs a Monte Carlo simulation.
- * Falls back to centralized mock generation if the backend is unreachable.
+ * GBM price-path Monte Carlo using historical volatility of a symbol.
  */
-export const runMonteCarlo = async (simulations: number = 100, volatilityMultiplier: number = 1.0): Promise<MonteCarloPath[]> => {
-    return executeWithFallback(
-        API_ENDPOINTS.MONTE_CARLO,
-        { method: 'POST', body: JSON.stringify({ simulations, volatilityMultiplier }) },
-        () => generateMockMonteCarlo(simulations)
-    );
+export const runMonteCarlo = async (
+    simulations: number = 100,
+    volMultiplier: number = 1.0,
+    symbol: string = 'NIFTY 50',
+): Promise<MonteCarloResult> => {
+    return fetchClient<MonteCarloResult>(API_ENDPOINTS.MONTE_CARLO, {
+        method: 'POST',
+        body: JSON.stringify({ simulations, volMultiplier, symbol }),
+    });
+};
+
+/**
+ * Trade-sequence bootstrap Monte Carlo from actual backtest trade returns.
+ * Resamples the trade list to reveal sequence-of-returns risk.
+ */
+export const runMonteCarloFromTrades = async (
+    tradeReturns: number[],
+    simulations: number = 200,
+): Promise<MonteCarloResult> => {
+    return fetchClient<MonteCarloResult>(API_ENDPOINTS.MONTE_CARLO_TRADES, {
+        method: 'POST',
+        body: JSON.stringify({ tradeReturns, simulations }),
+    });
 };

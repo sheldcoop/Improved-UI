@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, ReferenceArea } from 'recharts';
 import { BacktestResult, Trade } from '../types';
-import { AlertTriangle, List, Activity, BarChart as BarChartIcon, ArrowLeft, ZoomOut, Split } from 'lucide-react';
+import { AlertTriangle, List, Activity, BarChart as BarChartIcon, ArrowLeft, ZoomOut, Split, Shuffle } from 'lucide-react';
 import ReturnsStatsTable from '../components/ReturnsStatsTable';
 import { MONTH_NAMES } from '../constants';
 import { CONFIG } from '../config';
@@ -255,12 +255,32 @@ const Results: React.FC = () => {
             )}
           </div>
         </div>
-        <div className="flex space-x-2 bg-slate-900 p-1 rounded-lg border border-slate-800">
-          <Button variant={activeTab === 'OVERVIEW' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('OVERVIEW')} icon={<Activity className="w-4 h-4" />}>Overview</Button>
-          <Button variant={activeTab === 'TRADES' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('TRADES')} icon={<List className="w-4 h-4" />}>Trades</Button>
-          <Button variant={activeTab === 'DISTRIBUTION' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('DISTRIBUTION')} icon={<BarChartIcon className="w-4 h-4" />}>Distribution</Button>
-          <Button variant={activeTab === 'STATS' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('STATS')} icon={<Activity className="w-4 h-4" />}>Stats</Button>
-          <Button variant={activeTab === 'ADVANCED_STATS' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('ADVANCED_STATS')} icon={<BarChartIcon className="w-4 h-4" />}>Advanced Stats</Button>
+        <div className="flex flex-wrap gap-2">
+          <div className="flex space-x-2 bg-slate-900 p-1 rounded-lg border border-slate-800">
+            <Button variant={activeTab === 'OVERVIEW' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('OVERVIEW')} icon={<Activity className="w-4 h-4" />}>Overview</Button>
+            <Button variant={activeTab === 'TRADES' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('TRADES')} icon={<List className="w-4 h-4" />}>Trades</Button>
+            <Button variant={activeTab === 'DISTRIBUTION' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('DISTRIBUTION')} icon={<BarChartIcon className="w-4 h-4" />}>Distribution</Button>
+            <Button variant={activeTab === 'STATS' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('STATS')} icon={<Activity className="w-4 h-4" />}>Stats</Button>
+            <Button variant={activeTab === 'ADVANCED_STATS' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('ADVANCED_STATS')} icon={<BarChartIcon className="w-4 h-4" />}>Advanced Stats</Button>
+          </div>
+          {result.trades && result.trades.length > 0 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Shuffle className="w-4 h-4" />}
+              onClick={() => navigate('/risk', {
+                state: {
+                  mcData: {
+                    tradeReturns: result.trades.map(t => t.pnlPct),
+                    symbol: result.symbol,
+                    strategyName: result.strategyName,
+                  }
+                }
+              })}
+            >
+              Monte Carlo
+            </Button>
+          )}
         </div>
       </div>
 

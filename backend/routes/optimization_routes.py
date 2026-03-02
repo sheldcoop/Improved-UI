@@ -218,15 +218,15 @@ def run_oos_validate():
 
 @optimization_bp.route("/monte-carlo", methods=["POST"])
 def run_monte_carlo():
-    """Run Monte Carlo price path simulations.
+    """Run Monte Carlo GBM price-path simulations.
 
     Request JSON keys:
-        symbol (str): Ticker symbol to base simulations on. Default 'NIFTY 50'.
-        simulations (int): Number of paths to generate. Default 100.
+        symbol (str): Ticker symbol. Default 'NIFTY 50'.
+        simulations (int): Number of paths. Default 100.
         volMultiplier (float): Volatility multiplier. Default 1.0.
 
     Returns:
-        JSON list of simulation path dicts (id, values).
+        JSON with 'paths' list and 'stats' dict.
     """
     try:
         from services.monte_carlo import MonteCarloEngine
@@ -241,10 +241,45 @@ def run_monte_carlo():
         if vol_mult <= 0:
             return jsonify({"status": "error", "message": "volMultiplier must be positive"}), 400
 
-        logger.info(f"Running Monte Carlo: {simulations} paths for {symbol}")
-        paths = MonteCarloEngine.run(simulations, vol_mult, request.headers, symbol)
-        return jsonify(paths), 200
+        logger.info(f"Running MC GBM: {simulations} paths for {symbol}")
+        result = MonteCarloEngine.run(simulations, vol_mult, request.headers, symbol)
+        return jsonify(result), 200
 
     except Exception as exc:
         logger.error(f"Monte Carlo Error: {exc}", exc_info=True)
+        return jsonify({"status": "error", "message": "Monte Carlo simulation failed"}), 500
+
+
+@optimization_bp.route("/monte-carlo/trades", methods=["POST"])
+def run_monte_carlo_trades():
+    """Run trade-sequence bootstrap Monte Carlo from actual backtest trades.
+
+    Resamples the provided trade return list N times to build equity curves,
+    revealing sequence-of-returns risk for the strategy.
+
+    Request JSON keys:
+        tradeReturns (list[float]): Per-trade P&L % from a backtest.
+        simulations (int): Number of paths to generate. Default 200.
+
+    Returns:
+        JSON with 'paths' list and 'stats' dict.
+    """
+    try:
+        from services.monte_carlo import MonteCarloEngine
+
+        data = request.json or {}
+        trade_returns = data.get("tradeReturns", [])
+        simulations = int(data.get("simulations", 200))
+
+        if not isinstance(trade_returns, list) or len(trade_returns) == 0:
+            return jsonify({"status": "error", "message": "tradeReturns must be a non-empty list"}), 400
+        if simulations < 1 or simulations > 10000:
+            return jsonify({"status": "error", "message": "simulations must be between 1 and 10000"}), 400
+
+        logger.info(f"Running MC Trade-Seq: {simulations} paths from {len(trade_returns)} trades")
+        result = MonteCarloEngine.run_from_trades(trade_returns, simulations)
+        return jsonify(result), 200
+
+    except Exception as exc:
+        logger.error(f"Monte Carlo Trades Error: {exc}", exc_info=True)
         return jsonify({"status": "error", "message": "Monte Carlo simulation failed"}), 500

@@ -35,6 +35,7 @@ export const API_ENDPOINTS = {
   MARKET_FETCH: '/market/fetch',
   OPTIMIZATION: '/optimization/run',
   MONTE_CARLO: '/optimization/monte-carlo',
+  MONTE_CARLO_TRADES: '/optimization/monte-carlo/trades',
   PAPER_TRADING: '/paper-trading/positions',
   VALIDATE_KEY: '/validate-key',
   DHAN_STATUS: '/broker/dhan/status',

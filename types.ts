@@ -295,14 +295,19 @@ export type StrategyId = '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8';
 // Monte Carlo Types
 export interface MonteCarloPath {
   id: number;
-  values: number[]; // Equity curve points
+  values: number[]; // Normalised to start at 100
 }
 
 export interface MonteCarloStats {
-  var95: number; // Value at Risk 95%
-  cvar95: number; // Conditional VaR
-  ruinProb: number; // Probability of Ruin
-  medianReturn: number;
+  var95: number;       // 5th-percentile final return %
+  cvar95: number;      // Average of paths below VaR (CVaR / Expected Shortfall)
+  ruin_prob: number;   // % of paths losing > 50 % of capital
+  median_return: number;
+}
+
+export interface MonteCarloResult {
+  paths: MonteCarloPath[];
+  stats: MonteCarloStats;
 }
 
 // Paper Trading / Forward Sim Types
