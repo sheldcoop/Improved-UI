@@ -116,10 +116,8 @@ class TestNoFallback:
         from services.data_fetcher import DataFetcher
 
         fetcher = DataFetcher({})
-        # Mocking all fetchers to fail
-        with patch.object(fetcher, "_fetch_from_api", return_value=None), \
-             patch.object(fetcher, "_fetch_alphavantage", return_value=None), \
-             patch.object(fetcher, "_fetch_yfinance", return_value=None):
+        # Mocking Dhan API to fail — only source is Dhan
+        with patch.object(fetcher, "_fetch_from_api", return_value=None):
             df = fetcher.fetch_historical_data("FAKE_SYMBOL", "1d")
 
         assert df is None, "Should return None instead of synthetic data for financial integrity"
@@ -141,11 +139,9 @@ class TestCacheHitPath:
         cache_key = "NIFTY_50_1d"
         fetcher._save_parquet(cache_key, df_cached)
 
-        with patch.object(fetcher, "_fetch_alphavantage") as mock_av, \
-             patch.object(fetcher, "_fetch_yfinance") as mock_yf:
+        with patch.object(fetcher, "_fetch_from_api") as mock_api:
             result = fetcher.fetch_historical_data("NIFTY 50", "1d")
-            mock_av.assert_not_called()
-            mock_yf.assert_not_called()
+            mock_api.assert_not_called()  # cache hit — Dhan API should not be called
 
         assert result is not None
         assert len(result) == len(df_cached)

@@ -73,15 +73,9 @@ class DataFetcher:
             logger.info(f"⚡ Cache Hit for {symbol} ({timeframe})")
             return self._filter_and_standardize(cached_df, start_req, end_req)
 
-        # 3. Fetch fresh data from primary and fallbacks
+        # 3. Fetch fresh data from Dhan API
         logger.info(f"🌍 Fetching fresh data for {symbol} ({from_date} to {to_date})")
         fresh_df = self._fetch_from_api(symbol, timeframe, from_date, to_date)
-
-        if fresh_df is None or fresh_df.empty:
-            # try external services in priority order (placeholders for future use)
-            fresh_df = self._fetch_alphavantage(symbol, timeframe, from_date, to_date)
-        if fresh_df is None or fresh_df.empty:
-            fresh_df = self._fetch_yfinance(symbol, timeframe, from_date, to_date)
 
         if fresh_df is None or fresh_df.empty:
             # Return cached data if available, otherwise fail. No synthetic fallback.
@@ -131,28 +125,8 @@ class DataFetcher:
             logger.error(f"API fetch error for {symbol}: {e}")
             return None
 
-    # ------------------------------------------------------------------
-    # Legacy/External data providers (used in tests and for fallback)
-    # ------------------------------------------------------------------
-
-    def _fetch_alphavantage(
-        self, symbol: str, timeframe: str, from_date: Optional[str], to_date: Optional[str]
-    ) -> Optional[pd.DataFrame]:
-        """Placeholder for AlphaVantage integration.
-
-        Currently unimplemented; tests patch this method to simulate
-        failure. Returns None by default.
-        """
-        return None
-
-    def _fetch_yfinance(
-        self, symbol: str, timeframe: str, from_date: Optional[str], to_date: Optional[str]
-    ) -> Optional[pd.DataFrame]:
-        """Placeholder for yfinance integration, same semantics as
-        _fetch_alphavantage."""
-        return None
-
-    # _generate_synthetic removed for financial integrity.
+    # _generate_synthetic / _fetch_alphavantage / _fetch_yfinance removed.
+    # Only Dhan API is supported as the data source.
 
     def _is_range_covered(
         self, df: Optional[pd.DataFrame], start: Optional[pd.Timestamp], end: Optional[pd.Timestamp]
