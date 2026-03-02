@@ -33,10 +33,11 @@ export const runMonteCarlo = async (
     simulations: number = 100,
     volMultiplier: number = 1.0,
     symbol: string = 'NIFTY 50',
+    useFatTails: boolean = false,
 ): Promise<MonteCarloResult> => {
     return fetchClient<MonteCarloResult>(API_ENDPOINTS.MONTE_CARLO, {
         method: 'POST',
-        body: JSON.stringify({ simulations, volMultiplier, symbol }),
+        body: JSON.stringify({ simulations, volMultiplier, symbol, useFatTails }),
     });
 };
 

@@ -47,6 +47,7 @@ const RiskAnalysis: React.FC = () => {
     const [symbol, setSymbol] = useState(fromBacktest?.symbol ?? 'NIFTY 50');
     const [simulations, setSimulations] = useState(200);
     const [volMultiplier, setVolMultiplier] = useState(1.0);
+    const [useFatTails, setUseFatTails] = useState(false);
     const [result, setResult] = useState<MonteCarloResult | null>(null);
     const [running, setRunning] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -66,7 +67,7 @@ const RiskAnalysis: React.FC = () => {
             if (mode === 'TRADES' && fromBacktest?.tradeReturns?.length) {
                 res = await runMonteCarloFromTrades(fromBacktest.tradeReturns, simulations);
             } else {
-                res = await runMonteCarlo(simulations, volMultiplier, symbol);
+                res = await runMonteCarlo(simulations, volMultiplier, symbol, useFatTails);
             }
             setResult(res);
         } catch (e: any) {
@@ -195,20 +196,35 @@ const RiskAnalysis: React.FC = () => {
 
                                     {/* Vol multiplier — only for GBM */}
                                     {mode === 'GBM' && (
-                                        <div>
-                                            <label className="text-xs text-slate-500 block mb-1">
-                                                Volatility Stress <span className="text-emerald-400 font-mono">{volMultiplier}×</span>
-                                            </label>
-                                            <input
-                                                type="range" min="0.5" max="3.0" step="0.1"
-                                                value={volMultiplier}
-                                                onChange={e => setVolMultiplier(parseFloat(e.target.value))}
-                                                className="w-full accent-emerald-500"
-                                            />
-                                            <div className="flex justify-between text-[10px] text-slate-600 mt-0.5">
-                                                <span>0.5× calm</span><span>3× stress</span>
+                                        <>
+                                            <div>
+                                                <label className="text-xs text-slate-500 block mb-1">
+                                                    Volatility Stress <span className="text-emerald-400 font-mono">{volMultiplier}×</span>
+                                                </label>
+                                                <input
+                                                    type="range" min="0.5" max="3.0" step="0.1"
+                                                    value={volMultiplier}
+                                                    onChange={e => setVolMultiplier(parseFloat(e.target.value))}
+                                                    className="w-full accent-emerald-500"
+                                                />
+                                                <div className="flex justify-between text-[10px] text-slate-600 mt-0.5">
+                                                    <span>0.5× calm</span><span>3× stress</span>
+                                                </div>
                                             </div>
-                                        </div>
+
+                                            <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg border border-slate-800 bg-slate-900/50 hover:bg-slate-800/80 transition-colors">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={useFatTails}
+                                                    onChange={e => setUseFatTails(e.target.checked)}
+                                                    className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500/50"
+                                                />
+                                                <div className="flex-1">
+                                                    <div className="text-sm text-slate-200 font-medium">Enable Fat-Tail Shocks</div>
+                                                    <div className="text-[10px] text-slate-500 leading-snug">Injects random catastrophic market crashes (Jump Diffusion) into price paths.</div>
+                                                </div>
+                                            </label>
+                                        </>
                                     )}
 
                                     <Button onClick={handleRun} disabled={running} className="w-full py-3" icon={<Play className="w-4 h-4" />}>

@@ -91,10 +91,16 @@ export const MonteCarloGuide: React.FC = () => {
                             <li><span className="text-red-400">2.0×+</span> — Extreme stress (e.g. financial crises / crash periods).</li>
                         </ul>
                     </Step>
+
+                    <Step num={4} title="Enable Fat-Tail Shocks (Jump Diffusion)">
+                        Standard GBM assumes market returns follow a smooth normal distribution. Real markets don't — they experience sudden, catastrophic crashes (fat tails).
+                        Checking this box injects random -5% market crashes into the price paths using a Poisson process (averaging 2 crashes per year),
+                        revealing your true structural risk.
+                    </Step>
                 </div>
 
                 <Callout type="tip">
-                    Even basic trend strategies may look good at 1.0× volatility. A robust institutional strategy should survive at least a 1.5× stress multiplier without hitting the Ruin threshold.
+                    Even basic trend strategies may look good at 1.0× volatility. A robust institutional strategy should survive at least a 1.5× stress multiplier with Fat-Tails enabled without hitting the Ruin threshold.
                 </Callout>
             </CollapsibleSection>
 

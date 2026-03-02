@@ -235,15 +235,16 @@ def run_monte_carlo():
         symbol = data.get("symbol", "NIFTY 50")
         simulations = int(data.get("simulations", 100))
         vol_mult = float(data.get("volMultiplier", 1.0))
+        use_fat_tails = bool(data.get("useFatTails", False))
 
         if simulations < 1 or simulations > 10000:
             return jsonify({"status": "error", "message": "simulations must be between 1 and 10000"}), 400
         if vol_mult <= 0:
             return jsonify({"status": "error", "message": "volMultiplier must be positive"}), 400
 
-        logger.info(f"Running MC GBM: {simulations} paths for {symbol}")
+        logger.info(f"Running MC GBM: {simulations} paths for {symbol} (Fat Tails: {use_fat_tails})")
         seed = data.get("seed")
-        result = MonteCarloEngine.run(simulations, vol_mult, request.headers, symbol, seed=int(seed) if seed is not None else None)
+        result = MonteCarloEngine.run(simulations, vol_mult, request.headers, symbol, seed=int(seed) if seed is not None else None, use_fat_tails=use_fat_tails)
         return jsonify(result), 200
 
     except Exception as exc:

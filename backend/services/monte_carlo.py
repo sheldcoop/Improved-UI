@@ -35,6 +35,7 @@ class MonteCarloEngine:
         headers: dict,
         symbol: str = "NIFTY 50",
         seed: int | None = None,
+        use_fat_tails: bool = False,
     ) -> dict:
         """GBM price-path simulation from historical return statistics.
 
@@ -68,8 +69,20 @@ class MonteCarloEngine:
         days = 252
 
         rng = np.random.default_rng(seed)
-        # Vectorised GBM: generate all shocks at once, then cumprod
+        # Vectorised GBM: generate normal shocks
         shocks = rng.normal(mu, sigma, (simulations, days))
+
+        if use_fat_tails:
+            # --- JUMP DIFFUSION (FAT-TAILS) ---
+            # Add catastrophic jump risks to simulate real market fat tails
+            # We assume 2 major crashes per year (lambda = 2 / 252)
+            # with a mean drop of -5% and a volatility of 2%
+            jump_events = rng.poisson(2 / 252, (simulations, days))
+            jump_sizes = rng.normal(-0.05, 0.02, (simulations, days))
+            
+            # Total Shock = Normal Shocks + (Crash Occurrences * Crash Sizes)
+            shocks = shocks + (jump_events * jump_sizes)
+
         # First column is always 0 so exp(0)=1, preserving the initial value
         shocks[:, 0] = 0.0
         raw = _INITIAL * np.cumprod(np.exp(shocks), axis=1)
@@ -80,7 +93,7 @@ class MonteCarloEngine:
         ]
 
         stats = MonteCarloEngine.compute_stats(paths)
-        logger.info(f"MC GBM: {simulations} paths for {symbol} (vol_mult={vol_mult})")
+        logger.info(f"MC GBM (Fat Tails): {simulations} paths for {symbol} (vol_mult={vol_mult})")
         return {"paths": paths, "stats": stats}
 
     @staticmethod
