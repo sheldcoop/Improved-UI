@@ -72,8 +72,23 @@ const StrategyBuilder: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'VISUAL' | 'CODE'>('VISUAL');
     const [presets, setPresets] = useState<StrategyPreset[]>([]);
     const [activePresetId, setActivePresetId] = useState<string>('');
-    // Persist symbol and dates in localStorage
-    const [symbol, setSymbol] = useState<string>(() => localStorage.getItem('sb_symbol') || 'NIFTY 50');
+
+    // Multi-symbol chip input — persisted in localStorage as a JSON array.
+    // A single symbol behaves identically to the old single-symbol mode.
+    const [symbols, setSymbols] = useState<string[]>(
+        () => {
+            try { return JSON.parse(localStorage.getItem('sb_symbols') || '[]'); }
+            catch { return ['NIFTY 50']; }
+        }
+    );
+    // Input field for the chip-tag-style symbol entry
+    const [symbolInput, setSymbolInput] = useState<string>('');
+
+    // Backward-compat: primary symbol for preview (always first in list)
+    const symbol = symbols[0] ?? 'NIFTY 50';
+    // Setter for backward-compat single-symbol callers (keeps as first chip)
+    const setSymbol = (s: string) => setSymbols(prev => [s, ...prev.slice(1)]);
+
     const [startDate, setStartDate] = useState<string>(() => localStorage.getItem('sb_startDate') || '');
     const [endDate, setEndDate] = useState<string>(() => localStorage.getItem('sb_endDate') || '');
 
@@ -106,10 +121,40 @@ const StrategyBuilder: React.FC = () => {
         fetchSavedStrategies().then(setSavedStrategies).catch(console.error);
     }, []);
 
-    // Persist symbol and dates to localStorage on change
-    useEffect(() => { localStorage.setItem('sb_symbol', symbol); }, [symbol]);
+    // Persist symbols and dates to localStorage on change
+    useEffect(() => {
+        localStorage.setItem('sb_symbols', JSON.stringify(symbols));
+        // Also keep legacy sb_symbol for any components that still read it
+        if (symbols.length > 0) localStorage.setItem('sb_symbol', symbols[0]);
+    }, [symbols]);
     useEffect(() => { localStorage.setItem('sb_startDate', startDate); }, [startDate]);
     useEffect(() => { localStorage.setItem('sb_endDate', endDate); }, [endDate]);
+
+    /** Add a symbol chip from the input field.
+     * Splits on comma so users can paste "RELIANCE, TCS, HDFC" all at once. */
+    const addSymbol = (raw: string) => {
+        const parts = raw.split(/[,\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+        setSymbols(prev => {
+            const next = [...prev];
+            for (const s of parts) {
+                if (s && !next.includes(s) && next.length < 20) next.push(s);
+            }
+            return next;
+        });
+        setSymbolInput('');
+    };
+
+    const removeSymbol = (sym: string) =>
+        setSymbols(prev => prev.filter(s => s !== sym));
+
+    const handleSymbolKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault();
+            if (symbolInput.trim()) addSymbol(symbolInput);
+        } else if (e.key === 'Backspace' && !symbolInput && symbols.length > 0) {
+            setSymbols(prev => prev.slice(0, -1));
+        }
+    };
 
     // Date helpers: ISO (YYYY-MM-DD) ↔ dd/mm/yyyy display
     const toIso = (ddmmyyyy: string): string => {
@@ -239,8 +284,8 @@ const StrategyBuilder: React.FC = () => {
 
     // --- RUN ---
     const handleRun = async () => {
-        if (!symbol) {
-            alert('Please select a valid symbol before running the backtest.');
+        if (symbols.length === 0) {
+            alert('Please add at least one symbol before running the backtest.');
             return;
         }
         if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
@@ -269,11 +314,14 @@ const StrategyBuilder: React.FC = () => {
 
         setRunning(true);
         try {
+            // Multi-symbol: pass symbols[]; single-symbol: pass symbol for backward compat
+            const isMulti = symbols.length > 1;
             const result = await runBacktest(strategy.id !== 'new' ? strategy.id : null, symbol, {
                 ...strategy,
                 capital: strategy.positionSizeValue,
                 strategyName: strategy.name,
-                symbol,
+                // Multi-symbol key for the new API route
+                ...(isMulti ? { symbols } : { symbol }),
                 ...(startDate ? { startDate } : {}),
                 ...(endDate ? { endDate } : {}),
             });
@@ -366,19 +414,36 @@ const StrategyBuilder: React.FC = () => {
         <>
             {/* ── TOP BAR: Symbol & Dates ────────────────────────────────────── */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 mb-4 flex flex-wrap items-end gap-4">
-                {/* Symbol */}
-                <div className="flex-1 min-w-[160px]">
-                    <label className="text-[10px] text-slate-500 uppercase tracking-wider block mb-1">Symbol</label>
-                    <input
-                        list="symbol-suggestions"
-                        value={symbol}
-                        onChange={e => setSymbol(e.target.value.toUpperCase())}
-                        placeholder="e.g. NIFTY 50"
-                        className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 outline-none placeholder-slate-600 focus:border-emerald-500"
-                    />
-                    <datalist id="symbol-suggestions">
-                        {COMMON_SYMBOLS.map(s => <option key={s} value={s} />)}
-                    </datalist>
+                {/* Multi-symbol chip input — press Enter or comma to add a symbol */}
+                <div className="flex-1 min-w-[200px]">
+                    <label className="text-[10px] text-slate-500 uppercase tracking-wider block mb-1">
+                        Symbol{symbols.length > 1 ? 's (Portfolio)' : ''}
+                    </label>
+                    <div
+                        className="flex flex-wrap gap-1 items-center bg-slate-950 border border-slate-700 rounded px-2 py-1 min-h-[34px] focus-within:border-emerald-500 cursor-text"
+                        onClick={() => document.getElementById('sym-input')?.focus()}
+                    >
+                        {symbols.map(s => (
+                            <span key={s} className="flex items-center gap-1 bg-emerald-900/40 border border-emerald-700/50 text-emerald-300 text-xs px-2 py-0.5 rounded-full">
+                                {s}
+                                <button onClick={(e) => { e.stopPropagation(); removeSymbol(s); }} className="text-emerald-500 hover:text-red-400 leading-none">✕</button>
+                            </span>
+                        ))}
+                        <input
+                            id="sym-input"
+                            list="symbol-suggestions"
+                            value={symbolInput}
+                            onChange={e => setSymbolInput(e.target.value.toUpperCase())}
+                            onKeyDown={handleSymbolKeyDown}
+                            onBlur={() => { if (symbolInput.trim()) addSymbol(symbolInput); }}
+                            placeholder={symbols.length === 0 ? 'NIFTY 50, RELIANCE...' : '+ symbol'}
+                            className="bg-transparent outline-none text-sm text-slate-200 placeholder-slate-600 min-w-[80px] flex-1"
+                        />
+                        <datalist id="symbol-suggestions">
+                            {COMMON_SYMBOLS.map(s => <option key={s} value={s} />)}
+                        </datalist>
+                    </div>
+                    <p className="text-[9px] text-slate-600 mt-0.5">Press Enter or comma to add · Backspace to remove · max 20</p>
                 </div>
                 {/* From date: shows dd/mm/yyyy, hidden native input provides calendar */}
                 <div>

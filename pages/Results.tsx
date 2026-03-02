@@ -314,10 +314,10 @@ const Results: React.FC = () => {
                         domain={zoomLeft && zoomRight ? [zoomLeft, zoomRight] : ['auto', 'auto']}
                         tickFormatter={(val) => formatDateDisplay(val)}
                       />
-<YAxis yAxisId="left" stroke={CONFIG.COLORS.TEXT} fontSize={12} tickLine={false} axisLine={false} domain={["auto", "auto"]} tickFormatter={(val: any) => {
-                          // val may be null on initial render
-                          if (curveType === 'EQUITY') return `₹${safeToFixed(val / 1000, 0)}k`;
-                          return `${safeToFixed(val, 1)}%`;
+                      <YAxis yAxisId="left" stroke={CONFIG.COLORS.TEXT} fontSize={12} tickLine={false} axisLine={false} domain={["auto", "auto"]} tickFormatter={(val: any) => {
+                        // val may be null on initial render
+                        if (curveType === 'EQUITY') return `₹${safeToFixed(val / 1000, 0)}k`;
+                        return `${safeToFixed(val, 1)}%`;
                       }} />
                       <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9' }} />
 
@@ -384,28 +384,65 @@ const Results: React.FC = () => {
                 ) : (
                   <div className="grid grid-cols-4 gap-2 content-start">
                     {(result.monthlyReturns || []).map((m, idx) => {
-                  let colorClass = "bg-slate-800 text-slate-500";
-                  if (m.returnPct > 0) {
-                    if (m.returnPct > 5) colorClass = "bg-emerald-500 text-white font-bold";
-                    else if (m.returnPct > 2) colorClass = "bg-emerald-600/80 text-white";
-                    else colorClass = "bg-emerald-900/60 text-emerald-200";
-                  } else if (m.returnPct < 0) {
-                    if (m.returnPct < -5) colorClass = "bg-red-500 text-white font-bold";
-                    else if (m.returnPct < -2) colorClass = "bg-red-600/80 text-white";
-                    else colorClass = "bg-red-900/60 text-red-200";
-                  }
-                  return (
-                    <div key={idx} className={`rounded-md p-2 flex flex-col items-center justify-center text-xs ${colorClass}`}>
-                      <span className="opacity-70 text-[10px] uppercase">{MONTH_NAMES[m.month]}</span>
-                      <span>{m.returnPct > 0 ? '+' : ''}{safeToFixed(m.returnPct, 1)}%</span>
-                    </div>
-                  );
-                })}
+                      let colorClass = "bg-slate-800 text-slate-500";
+                      if (m.returnPct > 0) {
+                        if (m.returnPct > 5) colorClass = "bg-emerald-500 text-white font-bold";
+                        else if (m.returnPct > 2) colorClass = "bg-emerald-600/80 text-white";
+                        else colorClass = "bg-emerald-900/60 text-emerald-200";
+                      } else if (m.returnPct < 0) {
+                        if (m.returnPct < -5) colorClass = "bg-red-500 text-white font-bold";
+                        else if (m.returnPct < -2) colorClass = "bg-red-600/80 text-white";
+                        else colorClass = "bg-red-900/60 text-red-200";
+                      }
+                      return (
+                        <div key={idx} className={`rounded-md p-2 flex flex-col items-center justify-center text-xs ${colorClass}`}>
+                          <span className="opacity-70 text-[10px] uppercase">{MONTH_NAMES[m.month]}</span>
+                          <span>{m.returnPct > 0 ? '+' : ''}{safeToFixed(m.returnPct, 1)}%</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
             </Card>
           </div>
+
+          {result.isMultiSymbol && result.perSymbol && result.perSymbol.length > 0 && (
+            <div className="mt-6">
+              <Card title={`Portfolio Breakdown (${result.symbolCount} Symbols)`}>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left text-slate-300">
+                    <thead className="text-xs uppercase bg-slate-800/50 text-slate-400 border-b border-slate-700/50">
+                      <tr>
+                        <th className="px-4 py-3 font-semibold">Symbol</th>
+                        <th className="px-4 py-3 font-semibold text-right">Capital</th>
+                        <th className="px-4 py-3 font-semibold text-right">Return %</th>
+                        <th className="px-4 py-3 font-semibold text-right">Sharpe</th>
+                        <th className="px-4 py-3 font-semibold text-right">Max DD %</th>
+                        <th className="px-4 py-3 font-semibold text-right">Win Rate</th>
+                        <th className="px-4 py-3 font-semibold text-right">Trades</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.perSymbol.map((p, i) => (
+                        <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/30 transition-colors">
+                          <td className="px-4 py-3 font-medium text-emerald-400">{p.symbol}</td>
+                          <td className="px-4 py-3 text-right">₹{p.capital.toLocaleString()}</td>
+                          <td className={`px-4 py-3 text-right font-semibold ${p.totalReturnPct > 0 ? "text-emerald-500" : p.totalReturnPct < 0 ? "text-red-500" : ""}`}>
+                            {p.totalReturnPct > 0 ? "+" : ""}{safeToFixed(p.totalReturnPct, 2)}%
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono">{safeToFixed(p.sharpeRatio, 2)}</td>
+                          <td className="px-4 py-3 text-right text-red-400 font-mono">-{safeToFixed(p.maxDrawdownPct, 2)}%</td>
+                          <td className="px-4 py-3 text-right">{safeToFixed(p.winRate, 1)}%</td>
+                          <td className="px-4 py-3 text-right text-slate-400">{p.totalTrades}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            </div>
+          )}
 
           <div className="mt-6">
             <Card title="Recent Trades" action={<Button variant="ghost" size="sm" onClick={() => setActiveTab('TRADES')}>View All</Button>}>
@@ -453,68 +490,73 @@ const Results: React.FC = () => {
             <div className="text-slate-500 italic">No stats available. Run a backtest to see results.</div>
           )}
         </Card>
-      )}
+      )
+      }
 
-      {activeTab === 'ADVANCED_STATS' && (
-        <Card title="Advanced Returns Stats">
-          {result.advancedStats && Object.keys(result.advancedStats).length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {Object.entries(result.advancedStats).map(([key, val]) => {
-                const isPercent = key.includes('[%]');
-                const numVal = typeof val === 'number' ? val : parseFloat(val as string);
-                const isNum = !isNaN(numVal) && val !== null && val !== '';
-                const displayVal = val === null || val === undefined
-                  ? '—'
-                  : isNum
-                    ? isPercent
-                      ? `${numVal.toFixed(2)}%`
-                      : Number.isInteger(numVal)
-                        ? numVal.toString()
-                        : numVal.toFixed(4)
-                    : String(val);
-                const colorClass = isNum && isPercent
-                  ? numVal > 0 ? 'text-emerald-400' : numVal < 0 ? 'text-red-400' : 'text-slate-100'
-                  : 'text-slate-100';
-                return (
-                  <div key={key} className="bg-slate-900 border border-slate-800 rounded-lg p-3 hover:border-slate-700 transition-colors">
-                    <div className="text-slate-500 text-xs uppercase tracking-wider font-semibold mb-1 leading-tight">{key}</div>
-                    <div className={`text-base font-bold font-mono ${colorClass}`}>{displayVal}</div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="text-slate-500 italic">No advanced stats available. Run a backtest to see results.</div>
-          )}
-        </Card>
-      )}
-
-      {activeTab === 'DISTRIBUTION' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card title="Return Distribution" className="h-[400px]">
-            <div className="flex-1 w-full min-w-0 min-h-0">
-            {distributionData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%" aspect={undefined}>
-                <BarChart data={distributionData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={CONFIG.COLORS.GRID} vertical={false} />
-                  <XAxis dataKey="range" stroke={CONFIG.COLORS.TEXT} label={{ value: 'Return %', position: 'bottom', fill: CONFIG.COLORS.TEXT }} />
-                  <YAxis stroke={CONFIG.COLORS.TEXT} />
-                  <Tooltip cursor={{ fill: CONFIG.COLORS.GRID }} contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9' }} />
-                  <Bar dataKey="count" fill="#6366f1">
-                    {distributionData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.range >= 0 ? CONFIG.COLORS.PROFIT : CONFIG.COLORS.LOSS} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+      {
+        activeTab === 'ADVANCED_STATS' && (
+          <Card title="Advanced Returns Stats">
+            {result.advancedStats && Object.keys(result.advancedStats).length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {Object.entries(result.advancedStats).map(([key, val]) => {
+                  const isPercent = key.includes('[%]');
+                  const numVal = typeof val === 'number' ? val : parseFloat(val as string);
+                  const isNum = !isNaN(numVal) && val !== null && val !== '';
+                  const displayVal = val === null || val === undefined
+                    ? '—'
+                    : isNum
+                      ? isPercent
+                        ? `${numVal.toFixed(2)}%`
+                        : Number.isInteger(numVal)
+                          ? numVal.toString()
+                          : numVal.toFixed(4)
+                      : String(val);
+                  const colorClass = isNum && isPercent
+                    ? numVal > 0 ? 'text-emerald-400' : numVal < 0 ? 'text-red-400' : 'text-slate-100'
+                    : 'text-slate-100';
+                  return (
+                    <div key={key} className="bg-slate-900 border border-slate-800 rounded-lg p-3 hover:border-slate-700 transition-colors">
+                      <div className="text-slate-500 text-xs uppercase tracking-wider font-semibold mb-1 leading-tight">{key}</div>
+                      <div className={`text-base font-bold font-mono ${colorClass}`}>{displayVal}</div>
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
-              <div className="flex items-center justify-center h-full text-slate-500">Not enough data for distribution.</div>
+              <div className="text-slate-500 italic">No advanced stats available. Run a backtest to see results.</div>
             )}
-            </div> {/* wrapper close */}
           </Card>
-        </div>
-      )}
-    </div>
+        )
+      }
+
+      {
+        activeTab === 'DISTRIBUTION' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card title="Return Distribution" className="h-[400px]">
+              <div className="flex-1 w-full min-w-0 min-h-0">
+                {distributionData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%" aspect={undefined}>
+                    <BarChart data={distributionData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={CONFIG.COLORS.GRID} vertical={false} />
+                      <XAxis dataKey="range" stroke={CONFIG.COLORS.TEXT} label={{ value: 'Return %', position: 'bottom', fill: CONFIG.COLORS.TEXT }} />
+                      <YAxis stroke={CONFIG.COLORS.TEXT} />
+                      <Tooltip cursor={{ fill: CONFIG.COLORS.GRID }} contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9' }} />
+                      <Bar dataKey="count" fill="#6366f1">
+                        {distributionData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.range >= 0 ? CONFIG.COLORS.PROFIT : CONFIG.COLORS.LOSS} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-slate-500">Not enough data for distribution.</div>
+                )}
+              </div> {/* wrapper close */}
+            </Card>
+          </div>
+        )
+      }
+    </div >
   );
 };
 

@@ -191,6 +191,216 @@ class BacktestEngine:
             return None
 
     @staticmethod
+    def run_multi_symbol(
+        universe: dict[str, pd.DataFrame],
+        symbols: list[str],
+        strategy_id: str,
+        config: dict | None = None,
+    ) -> dict | None:
+        """Run equal-weight portfolio backtest across multiple symbols.
+
+        Runs the standard single-asset ``BacktestEngine.run()`` for each symbol
+        independently, then aggregates the results into a combined equity curve
+        (sum of all individual equity curves) and a per-symbol breakdown table.
+
+        Capital allocation:
+            Each symbol receives ``initial_capital / n_symbols`` so the total
+            invested capital equals ``initial_capital`` regardless of how many
+            symbols are selected. This is the simplest and most transparent
+            approach — no dynamic rebalancing.
+
+        Args:
+            universe: Wide-format universe dict from ``MultiSymbolFetcher.fetch()``.
+                Keys are OHLCV column names; each value is a DataFrame with
+                symbol names as columns.
+            symbols: Ordered list of symbol names to trade.
+            strategy_id: Strategy identifier (same as single-symbol mode).
+            config: Backtest config dict (same options as ``run()``). The
+                ``initial_capital`` key is split equally across symbols.
+
+        Returns:
+            Dict with the same keys as ``run()`` plus:
+            - ``perSymbol`` (list[dict]): Per-symbol breakdown with
+              totalReturnPct, totalTrades, winRate, maxDrawdownPct, sharpeRatio.
+            - ``symbolCount`` (int): Number of symbols successfully run.
+            Returns ``None`` if all symbols fail.
+
+        Example:
+            >>> universe = fetcher.fetch(["RELIANCE", "TCS"], "1d")
+            >>> results = BacktestEngine.run_multi_symbol(
+            ...     universe, ["RELIANCE", "TCS"], "custom-uuid", config
+            ... )
+            >>> len(results["perSymbol"])
+            2
+        """
+        if config is None:
+            config = {}
+
+        total_capital = float(config.get("initial_capital", 100_000))
+        n = len(symbols)
+        per_symbol_capital = total_capital / n
+
+        logger.info(
+            f"run_multi_symbol: {n} symbols, ₹{per_symbol_capital:,.0f}/symbol "
+            f"(total ₹{total_capital:,.0f})"
+        )
+
+        symbol_results: list[dict] = []
+        failed: list[str] = []
+
+        for sym in symbols:
+            # Extract single-symbol DataFrame from the wide universe dict
+            try:
+                sym_df = pd.DataFrame({
+                    col: universe[col][sym]
+                    for col in ("open", "high", "low", "close", "volume")
+                    if col in universe and sym in universe[col].columns
+                })
+                if sym_df.empty:
+                    logger.warning(f"run_multi_symbol: empty slice for {sym} — skipped.")
+                    failed.append(sym)
+                    continue
+            except Exception as exc:
+                logger.warning(f"run_multi_symbol: slice failed for {sym}: {exc}")
+                failed.append(sym)
+                continue
+
+            # Override capital per symbol
+            sym_config = {**config, "initial_capital": per_symbol_capital}
+
+            result = BacktestEngine.run(sym_df, strategy_id, sym_config)
+            if result and result.get("status") != "failed":
+                result["symbol"] = sym
+                symbol_results.append(result)
+            else:
+                logger.warning(f"run_multi_symbol: backtest failed for {sym}.")
+                failed.append(sym)
+
+        if not symbol_results:
+            logger.error("run_multi_symbol: all symbols failed.")
+            return None
+
+        if failed:
+            logger.warning(f"run_multi_symbol: {len(failed)} symbols failed: {failed}")
+
+        # --- Combine equity curves (sum of all individual curves) ---
+        equity_curves: list[list[dict]] = [r["equityCurve"] for r in symbol_results]
+        combined_equity = BacktestEngine._merge_equity_curves(equity_curves)
+
+        # --- Aggregate top-level metrics ---
+        all_trades: list[dict] = []
+        total_return_pct = 0.0
+        for r in symbol_results:
+            all_trades.extend(r.get("trades", []))
+            total_return_pct += r["metrics"].get("totalReturnPct", 0.0)
+
+        # Return-weighted (equal weight) aggregate
+        avg_return_pct = total_return_pct / len(symbol_results)
+        avg_sharpe = sum((r["metrics"].get("sharpeRatio") or 0.0) for r in symbol_results) / len(symbol_results)
+        max_dd = max((r["metrics"].get("maxDrawdownPct") or 0.0) for r in symbol_results)
+        total_trades = sum((r["metrics"].get("totalTrades") or 0) for r in symbol_results)
+
+        # --- Per-symbol breakdown for the Results table ---
+        per_symbol = [
+            {
+                "symbol": r["symbol"],
+                "totalReturnPct": (r["metrics"].get("totalReturnPct") or 0.0),
+                "totalTrades": (r["metrics"].get("totalTrades") or 0),
+                "winRate": (r["metrics"].get("winRate") or 0.0),
+                "maxDrawdownPct": (r["metrics"].get("maxDrawdownPct") or 0.0),
+                "sharpeRatio": (r["metrics"].get("sharpeRatio") or 0.0),
+                "capital": per_symbol_capital,
+            }
+            for r in symbol_results
+        ]
+
+        return {
+            "metrics": {
+                "totalReturnPct": round(avg_return_pct, 2),
+                "sharpeRatio": round(avg_sharpe, 2),
+                "maxDrawdownPct": round(max_dd, 2),
+                "winRate": round(
+                    sum((r["metrics"].get("winRate") or 0.0) for r in symbol_results) / len(symbol_results), 1
+                ),
+                "profitFactor": round(
+                    sum((r["metrics"].get("profitFactor") or 0.0) for r in symbol_results) / len(symbol_results), 2
+                ),
+                "totalTrades": total_trades,
+                "cagr": round(
+                    sum((r["metrics"].get("cagr") or 0.0) for r in symbol_results) / len(symbol_results), 2
+                ),
+
+                "alpha": 0.0, "beta": 0.0, "volatility": 0.0,
+                "sortinoRatio": 0.0, "calmarRatio": 0.0,
+                "expectancy": 0.0, "consecutiveLosses": 0,
+                "kellyCriterion": 0.0, "avgDrawdownDuration": "0d",
+                "alerts": [],
+                "status": "completed",
+            },
+            "equityCurve": combined_equity,
+            "trades": sorted(all_trades, key=lambda t: t.get("entryDate", "")),
+            "monthlyReturns": symbol_results[0].get("monthlyReturns", []),
+            "startDate": symbol_results[0].get("startDate", ""),
+            "endDate": symbol_results[0].get("endDate", ""),
+            "perSymbol": per_symbol,
+            "symbolCount": len(symbol_results),
+            "pfStats": {},
+            "advancedStats": {},
+        }
+
+    @staticmethod
+    def _merge_equity_curves(curves: list[list[dict]]) -> list[dict]:
+        """Sum multiple per-symbol equity curves into one combined curve.
+
+        Aligns all curves on their date index using an inner join (only dates
+        present in all curves are kept). Portfolio value at each date is the
+        sum of all individual symbol portfolio values at that date.
+
+        Args:
+            curves: List of equity curve lists, each a list of dicts with
+                ``{"date": str, "value": float, "drawdown": float}``.
+
+        Returns:
+            Combined equity curve list with the same dict structure.
+
+        Example:
+            Two curves of ₹50k each → combined curve showing ₹100k base.
+        """
+        if not curves:
+            return []
+        if len(curves) == 1:
+            return curves[0]
+
+        # Convert each list to a pandas Series indexed by date string
+        series_list = []
+        for curve in curves:
+            if not curve:
+                continue
+            dates = [c["date"] for c in curve]
+            values = [c["value"] for c in curve]
+            series_list.append(pd.Series(values, index=pd.to_datetime(dates)))
+
+        if not series_list:
+            return []
+
+        # Align on common dates then sum
+        combined_df = pd.concat(series_list, axis=1).dropna()
+        combined_values = combined_df.sum(axis=1)
+
+        # Recompute portfolio-level drawdown from combined curve
+        running_max = combined_values.cummax()
+        drawdown = ((combined_values - running_max) / running_max) * 100
+
+        return [
+            {
+                "date": str(d.date()),
+                "value": round(float(v), 2),
+                "drawdown": round(abs(float(drawdown.loc[d])), 2),
+            }
+            for d, v in combined_values.items()
+        ]
+
+    @staticmethod
     def _apply_ranking(
         entries: pd.Series | pd.DataFrame,
         df: pd.DataFrame | dict,
