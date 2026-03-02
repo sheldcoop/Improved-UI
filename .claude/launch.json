@@ -9,7 +9,7 @@
     },
     {
       "name": "backend",
-      "runtimeExecutable": "python",
+      "runtimeExecutable": "python3.11",
       "runtimeArgs": ["app.py"],
       "port": 5001
     }
