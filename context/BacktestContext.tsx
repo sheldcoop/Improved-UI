@@ -1,231 +1,71 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Timeframe, Strategy, OptimizationResult, OptimizationResponse, WFOResult } from '../types';
-import { UNIVERSES } from '../constants';
-import { DataHealthReport } from '../services/api';
+/**
+ * BacktestContext — composite context that merges DataContext, StrategyContext,
+ * and ExecutionContext into the single `useBacktestContext()` API consumed by
+ * all existing hooks and pages.
+ *
+ * Architecture:
+ *   DataProvider      → market-data / instrument / date state
+ *   StrategyProvider  → strategy selection, params, risk controls, WFO config
+ *   ExecutionProvider → capital, costs, running flag, OOS / stats state
+ *
+ * useBacktestContext() re-exports everything from all three sub-contexts so
+ * existing call-sites need zero changes.  Components that only need a subset
+ * can opt in to the granular hooks (useDataContext, useStrategyContext,
+ * useExecutionContext) for tighter re-render boundaries.
+ */
+import React, { createContext, useContext, ReactNode } from 'react';
 
-interface BacktestContextType {
-    // Core Config
-    mode: 'SINGLE' | 'UNIVERSE';
-    setMode: (val: 'SINGLE' | 'UNIVERSE') => void;
-    segment: 'NSE_EQ' | 'NSE_SME';
-    setSegment: (val: 'NSE_EQ' | 'NSE_SME') => void;
-    symbol: string;
-    setSymbol: (val: string) => void;
-    symbolSearchQuery: string;
-    setSymbolSearchQuery: (val: string) => void;
-    searchResults: any[];
-    setSearchResults: (val: any[]) => void;
-    selectedInstrument: any | null;
-    setSelectedInstrument: (val: any | null) => void;
-    isSearching: boolean;
-    setIsSearching: (val: boolean) => void;
-    universe: string;
-    setUniverse: (val: string) => void;
-    timeframe: Timeframe;
-    setTimeframe: (val: Timeframe) => void;
+import { DataProvider, useDataContext, DataContextType } from './DataContext';
+import { StrategyProvider, useStrategyContext, StrategyContextType } from './StrategyContext';
+import { ExecutionProvider, useExecutionContext, ExecutionContextType } from './ExecutionContext';
 
-    // Strategy
-    strategyId: string;
-    setStrategyId: (val: string) => void;
-    customStrategies: Strategy[];
-    setCustomStrategies: (val: Strategy[]) => void;
-    params: Record<string, number>;
-    setParams: (val: Record<string, number>) => void;
+// Re-export sub-context hooks for granular consumption
+export { useDataContext } from './DataContext';
+export { useStrategyContext } from './StrategyContext';
+export { useExecutionContext } from './ExecutionContext';
 
-    // Dates
-    startDate: string;
-    setStartDate: (val: string) => void;
-    endDate: string;
-    setEndDate: (val: string) => void;
+// Combined type — union of all three sub-contexts
+export type BacktestContextType = DataContextType & StrategyContextType & ExecutionContextType;
 
-    // Settings
-    capital: number;
-    setCapital: (val: number) => void;
-    slippage: number;
-    setSlippage: (val: number) => void;
-    commission: number;
-    setCommission: (val: number) => void;
-    showAdvanced: boolean;
-    setShowAdvanced: (val: boolean) => void;
-    stopLossPct: number;
-    setStopLossPct: (val: number) => void;
-    stopLossEnabled: boolean;
-    setStopLossEnabled: (val: boolean) => void;
-    takeProfitPct: number;
-    setTakeProfitPct: (val: number) => void;
-    takeProfitEnabled: boolean;
-    setTakeProfitEnabled: (val: boolean) => void;
-    useTrailingStop: boolean;
-    setUseTrailingStop: (val: boolean) => void;
-    trailingStopPct: number;
-    setTrailingStopPct: (val: number) => void;
-    pyramiding: number;
-    setPyramiding: (val: number) => void;
-    positionSizing: string;
-    setPositionSizing: (val: string) => void;
-    positionSizeValue: number;
-    setPositionSizeValue: (val: number) => void;
-
-    // Status
-    running: boolean;
-    setRunning: (val: boolean) => void;
-    dataStatus: 'IDLE' | 'LOADING' | 'READY' | 'ERROR';
-    setDataStatus: (val: 'IDLE' | 'LOADING' | 'READY' | 'ERROR') => void;
-    healthReport: DataHealthReport | null;
-    setHealthReport: (val: DataHealthReport | null) => void;
-
-    // Optimization
-    isDynamic: boolean;
-    setIsDynamic: (val: boolean) => void;
-    wfoConfig: { trainWindow: number; testWindow: number };
-    setWfoConfig: (val: { trainWindow: number; testWindow: number }) => void;
-    paramRanges: Record<string, { min: number; max: number; step: number }>;
-    setParamRanges: (val: Record<string, { min: number; max: number; step: number }>) => void;
-    showRanges: boolean;
-    setShowRanges: (val: boolean) => void;
-    // stored optimisation results (grid / wfo etc). persisted in memory so we
-    // don't lose them when switching pages.
-    optResults: (OptimizationResponse & { wfo: WFOResult[]; period?: string }) | null;
-    setOptResults: (val: (OptimizationResponse & { wfo: WFOResult[]; period?: string }) | null) => void;
-
-    // OOS
-    top5Trials: any[];
-    setTop5Trials: (val: any[]) => void;
-    oosResults: any[];
-    setOosResults: (val: any[]) => void;
-    isOosValidating: boolean;
-    setIsOosValidating: (val: boolean) => void;
-    fullReportData: any | null;
-    setFullReportData: (val: any | null) => void;
-    isReportOpen: boolean;
-    setIsReportOpen: (val: boolean) => void;
-    useLookback: boolean;
-    setUseLookback: (val: boolean) => void;
-    lookbackMonths: number;
-    setLookbackMonths: (val: number) => void;
-
-    // Optimization data split (set on Backtest page, shared with Optimization page)
-    enableDataSplit: boolean;
-    setEnableDataSplit: (val: boolean) => void;
-    splitRatio: number;           // integer 50–90 (percentage)
-    setSplitRatio: (val: number) => void;
-
-    // Loading guards
-    isFetchingData: boolean;
-    setIsFetchingData: (val: boolean) => void;
-}
-
+// Internal context holds the merged value
 const BacktestContext = createContext<BacktestContextType | undefined>(undefined);
 
-export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    // Helper to load from localStorage
-    const load = (key: string, def: any) => {
-        const stored = localStorage.getItem(`backtest_${key}`);
-        if (!stored) return def;
-        try { return JSON.parse(stored); } catch { return stored; }
-    };
+/**
+ * Inner provider: reads from all three sub-contexts and merges into one value.
+ * Must be rendered inside DataProvider + StrategyProvider + ExecutionProvider.
+ */
+const BacktestMerger: React.FC<{ children: ReactNode }> = ({ children }) => {
+    const data = useDataContext();
+    const strategy = useStrategyContext();
+    const execution = useExecutionContext();
 
-    // States with LocalStorage persistence
-    const [segment, setSegment] = useState<'NSE_EQ' | 'NSE_SME'>(() => load('segment', 'NSE_EQ'));
-    const [symbol, setSymbol] = useState(() => load('symbol', ''));
-    const [timeframe, setTimeframe] = useState<Timeframe>(() => load('timeframe', Timeframe.D1));
-    const [startDate, setStartDate] = useState(() => load('startDate', '2023-01-01'));
-    const [endDate, setEndDate] = useState(() => load('endDate', '2023-12-31'));
-    const [capital, setCapital] = useState(() => load('capital', 100000));
-    const [strategyId, setStrategyId] = useState(() => load('strategyId', '1'));
-    const [selectedInstrument, setSelectedInstrument] = useState(() => load('selectedInstrument', null));
-    const [healthReport, setHealthReport] = useState<any>(() => load('healthReport', null));
-    const [fullReportData, setFullReportData] = useState<any>(() => load('fullReportData', null));
-
-    // States without persistence (Memory only)
-    const [mode, setMode] = useState<'SINGLE' | 'UNIVERSE'>('SINGLE');
-    const [symbolSearchQuery, setSymbolSearchQuery] = useState('');
-    const [searchResults, setSearchResults] = useState<any[]>([]);
-    const [isSearching, setIsSearching] = useState(false);
-    const [universe, setUniverse] = useState(UNIVERSES[0].id);
-    const [customStrategies, setCustomStrategies] = useState<Strategy[]>([]);
-    const [params, setParams] = useState<Record<string, number>>({});
-    const [slippage, setSlippage] = useState(0.05);
-    const [commission, setCommission] = useState(20);
-    const [showAdvanced, setShowAdvanced] = useState(false);
-    const [stopLossPct, setStopLossPct] = useState(0);
-    const [stopLossEnabled, setStopLossEnabled] = useState(false);
-    const [takeProfitPct, setTakeProfitPct] = useState(0);
-    const [takeProfitEnabled, setTakeProfitEnabled] = useState(false);
-    const [useTrailingStop, setUseTrailingStop] = useState(false);
-    const [trailingStopPct, setTrailingStopPct] = useState(0);
-    const [pyramiding, setPyramiding] = useState(1);
-    const [positionSizing, setPositionSizing] = useState('Fixed Capital');
-    const [positionSizeValue, setPositionSizeValue] = useState(100000);
-    const [running, setRunning] = useState(false);
-    const [dataStatus, setDataStatus] = useState<'IDLE' | 'LOADING' | 'READY' | 'ERROR'>(() => load('dataStatus', 'IDLE'));
-    const [isDynamic, setIsDynamic] = useState(false);
-    const [wfoConfig, setWfoConfig] = useState({ trainWindow: 12, testWindow: 3 });
-    const [paramRanges, setParamRanges] = useState<Record<string, { min: number, max: number, step: number }>>({});
-    const [showRanges, setShowRanges] = useState(false);
-    const [optResults, setOptResults] = useState<(OptimizationResponse & { wfo: WFOResult[]; period?: string }) | null>(null);
-    const [top5Trials, setTop5Trials] = useState<any[]>([]);
-    const [oosResults, setOosResults] = useState<any[]>([]);
-    const [isOosValidating, setIsOosValidating] = useState(false);
-    const [isReportOpen, setIsReportOpen] = useState(false);
-    const [useLookback, setUseLookback] = useState(false);
-    const [lookbackMonths, setLookbackMonths] = useState(12);
-    const [isFetchingData, setIsFetchingData] = useState(false);
-    const [enableDataSplit, setEnableDataSplit] = useState(false);
-    const [splitRatio, setSplitRatio] = useState(70);
-    const [statsFreq, setStatsFreq] = useState<string | null>(() => load('statsFreq', null));
-    const [statsWindow, setStatsWindow] = useState<number | null>(() => load('statsWindow', null));
-    // Save to localStorage effects
-    useEffect(() => { localStorage.setItem('backtest_segment', JSON.stringify(segment)); }, [segment]);
-    useEffect(() => { localStorage.setItem('backtest_symbol', JSON.stringify(symbol)); }, [symbol]);
-    useEffect(() => { localStorage.setItem('backtest_timeframe', JSON.stringify(timeframe)); }, [timeframe]);
-    useEffect(() => { localStorage.setItem('backtest_startDate', JSON.stringify(startDate)); }, [startDate]);
-    useEffect(() => { localStorage.setItem('backtest_endDate', JSON.stringify(endDate)); }, [endDate]);
-    useEffect(() => { localStorage.setItem('backtest_capital', JSON.stringify(capital)); }, [capital]);
-    useEffect(() => { localStorage.setItem('backtest_strategyId', JSON.stringify(strategyId)); }, [strategyId]);
-    useEffect(() => { localStorage.setItem('backtest_selectedInstrument', JSON.stringify(selectedInstrument)); }, [selectedInstrument]);
-    useEffect(() => { localStorage.setItem('backtest_healthReport', JSON.stringify(healthReport)); }, [healthReport]);
-    useEffect(() => { localStorage.setItem('backtest_fullReportData', JSON.stringify(fullReportData)); }, [fullReportData]);
-    useEffect(() => { localStorage.setItem('backtest_dataStatus', JSON.stringify(dataStatus)); }, [dataStatus]);
-    useEffect(() => { localStorage.setItem('backtest_statsFreq', JSON.stringify(statsFreq)); }, [statsFreq]);
-    useEffect(() => { localStorage.setItem('backtest_statsWindow', JSON.stringify(statsWindow)); }, [statsWindow]);
-
-    // derive status ready if we have a cached report but the flag is idle
-    useEffect(() => {
-        if (dataStatus === 'IDLE' && fullReportData) {
-            setDataStatus('READY');
-        }
-    }, [dataStatus, fullReportData]);
-
-    const value = {
-        mode, setMode, segment, setSegment, symbol, setSymbol, symbolSearchQuery, setSymbolSearchQuery,
-        searchResults, setSearchResults, selectedInstrument, setSelectedInstrument,
-        isSearching, setIsSearching, universe, setUniverse, timeframe, setTimeframe,
-        strategyId, setStrategyId, customStrategies, setCustomStrategies, params, setParams,
-        startDate, setStartDate, endDate, setEndDate, capital, setCapital, slippage, setSlippage,
-        commission, setCommission, showAdvanced, setShowAdvanced, running, setRunning,
-        dataStatus, setDataStatus, healthReport, setHealthReport, isDynamic, setIsDynamic,
-        wfoConfig, setWfoConfig, paramRanges, setParamRanges,
-        showRanges, setShowRanges,
-        // persisted optimization results
-        optResults, setOptResults,
-        top5Trials, setTop5Trials, oosResults, setOosResults, isOosValidating, setIsOosValidating,
-        stopLossPct, setStopLossPct, stopLossEnabled, setStopLossEnabled,
-        takeProfitPct, setTakeProfitPct, takeProfitEnabled, setTakeProfitEnabled,
-        useTrailingStop, setUseTrailingStop,
-        trailingStopPct, setTrailingStopPct,
-        pyramiding, setPyramiding, positionSizing, setPositionSizing, positionSizeValue, setPositionSizeValue,
-        fullReportData, setFullReportData, isReportOpen, setIsReportOpen,
-        useLookback, setUseLookback, lookbackMonths, setLookbackMonths,
-        isFetchingData, setIsFetchingData, statsFreq, setStatsFreq, statsWindow, setStatsWindow,
-        enableDataSplit, setEnableDataSplit, splitRatio, setSplitRatio,
-    };
+    const value: BacktestContextType = { ...data, ...strategy, ...execution };
 
     return <BacktestContext.Provider value={value}>{children}</BacktestContext.Provider>;
 };
 
-export const useBacktestContext = () => {
-    const context = useContext(BacktestContext);
-    if (!context) throw new Error('useBacktestContext must be used within a BacktestProvider');
-    return context;
+/**
+ * BacktestProvider — wraps the entire app section that needs backtest state.
+ * Composes DataProvider → StrategyProvider → ExecutionProvider → merger.
+ */
+export const BacktestProvider: React.FC<{ children: ReactNode }> = ({ children }) => (
+    <DataProvider>
+        <StrategyProvider>
+            <ExecutionProvider>
+                <BacktestMerger>
+                    {children}
+                </BacktestMerger>
+            </ExecutionProvider>
+        </StrategyProvider>
+    </DataProvider>
+);
+
+/**
+ * Combined hook — returns the full merged context.
+ * Existing call-sites continue to work unchanged.
+ */
+export const useBacktestContext = (): BacktestContextType => {
+    const ctx = useContext(BacktestContext);
+    if (!ctx) throw new Error('useBacktestContext must be used within a BacktestProvider');
+    return ctx;
 };

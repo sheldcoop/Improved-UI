@@ -15,10 +15,12 @@ import StrategyLogic from '../components/StrategyLogic';
 import AdvancedSettings from '../components/AdvancedSettings';
 import HealthReportCard from '../components/HealthReportCard';
 import DateRangePicker from '../components/DateRangePicker';
+import { useToast } from '../components/ui/Toast';
 
 const Backtest: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { toast } = useToast();
   const { state, setters, handlers } = useBacktest();
 
   // when navigated from optimization with autoRun flag we may need to load data
@@ -236,9 +238,22 @@ const Backtest: React.FC = () => {
             setShowAdvanced={setShowAdvanced}
           />
           <div className="pt-2 space-y-4">
+            {/* Date range validation banner */}
+            {startDate && endDate && startDate >= endDate && (
+              <div className="flex items-center gap-2 p-3 bg-red-950/40 border border-red-500/40 rounded-lg text-sm text-red-400">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                End date must be after start date.
+              </div>
+            )}
             <button
-              onClick={handleRun}
-              disabled={running || dataStatus !== 'READY'}
+              onClick={() => {
+                if (startDate && endDate && startDate >= endDate) {
+                  toast('End date must be after start date.', 'error');
+                  return;
+                }
+                handleRun();
+              }}
+              disabled={running || dataStatus !== 'READY' || (!!startDate && !!endDate && startDate >= endDate)}
               className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-lg font-bold py-4 rounded-xl shadow-lg shadow-emerald-900/40 transition-all transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center disabled:grayscale"
             >
               {running ? (

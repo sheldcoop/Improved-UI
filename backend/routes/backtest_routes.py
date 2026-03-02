@@ -12,6 +12,7 @@ Multi-symbol support:
 from flask import Blueprint, request, jsonify
 import logging
 import random
+import pandas as pd
 
 from services.data_fetcher import DataFetcher
 from services.backtest_engine import BacktestEngine
@@ -127,7 +128,6 @@ def run_backtest():
         if timeframe == "1d" and "nextBarEntry" not in config:
             config["nextBarEntry"] = True
 
-        strategy_id = data.get("strategyId")
         logger.info(
             f"Backtest: {symbols} [{timeframe}] | Strategy: {strategy_id} | Multi: {is_multi}"
         )
@@ -193,7 +193,7 @@ def run_backtest():
             timeframe in ("1m", "5m", "15m", "1h")
             and start_time_str
             and end_time_str
-            and isinstance(df, __import__("pandas").DataFrame)
+            and isinstance(df, pd.DataFrame)
             and not df.empty
             and hasattr(df.index, "time")
         ):

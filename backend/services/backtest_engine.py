@@ -339,9 +339,9 @@ class BacktestEngine:
             },
             "equityCurve": combined_equity,
             "trades": sorted(all_trades, key=lambda t: t.get("entryDate", "")),
-            "monthlyReturns": symbol_results[0].get("monthlyReturns", []),
-            "startDate": symbol_results[0].get("startDate", ""),
-            "endDate": symbol_results[0].get("endDate", ""),
+            "monthlyReturns": BacktestEngine._merge_monthly_returns(symbol_results),
+            "startDate": min((r.get("startDate", "") for r in symbol_results if r.get("startDate")), default=""),
+            "endDate": max((r.get("endDate", "") for r in symbol_results if r.get("endDate")), default=""),
             "perSymbol": per_symbol,
             "symbolCount": len(symbol_results),
             "pfStats": {},
@@ -352,9 +352,10 @@ class BacktestEngine:
     def _merge_equity_curves(curves: list[list[dict]]) -> list[dict]:
         """Sum multiple per-symbol equity curves into one combined curve.
 
-        Aligns all curves on their date index using an inner join (only dates
-        present in all curves are kept). Portfolio value at each date is the
-        sum of all individual symbol portfolio values at that date.
+        Aligns all curves on their date index using an outer join with
+        forward-fill so symbols with different trading calendars (e.g. different
+        listing dates or exchange holidays) are handled correctly — gaps are
+        filled with the last known portfolio value rather than being dropped.
 
         Args:
             curves: List of equity curve lists, each a list of dicts with
@@ -383,8 +384,10 @@ class BacktestEngine:
         if not series_list:
             return []
 
-        # Align on common dates then sum
-        combined_df = pd.concat(series_list, axis=1).dropna()
+        # Outer join: union of all dates; ffill fills gaps from different calendars;
+        # then drop any leading NaNs before the first symbol starts.
+        combined_df = pd.concat(series_list, axis=1)
+        combined_df = combined_df.ffill().dropna()
         combined_values = combined_df.sum(axis=1)
 
         # Recompute portfolio-level drawdown from combined curve
@@ -399,6 +402,41 @@ class BacktestEngine:
             }
             for d, v in combined_values.items()
         ]
+
+    @staticmethod
+    def _merge_monthly_returns(symbol_results: list[dict]) -> list[dict]:
+        """Aggregate per-symbol monthly returns into a combined monthly series.
+
+        For each (year, month) bucket, averages the return across all symbols
+        that have data for that month (equal-weight). Symbols that have no
+        trading activity in a given month are excluded from that month's average
+        rather than dragging it toward zero.
+
+        Args:
+            symbol_results: List of per-symbol result dicts, each containing a
+                ``monthlyReturns`` list of ``{"year": int, "month": int, "returnPct": float}``.
+
+        Returns:
+            Sorted list of ``{"year": int, "month": int, "returnPct": float}`` dicts.
+        """
+        from collections import defaultdict
+        bucket: dict[tuple[int, int], list[float]] = defaultdict(list)
+        for r in symbol_results:
+            for m in r.get("monthlyReturns", []):
+                key = (m["year"], m["month"])
+                bucket[key].append(m["returnPct"])
+
+        return sorted(
+            [
+                {
+                    "year": year,
+                    "month": month,
+                    "returnPct": round(sum(vals) / len(vals), 2),
+                }
+                for (year, month), vals in bucket.items()
+            ],
+            key=lambda x: (x["year"], x["month"]),
+        )
 
     @staticmethod
     def _apply_ranking(
@@ -761,6 +799,7 @@ class BacktestEngine:
             pass
         return 0.0
 
+    @staticmethod
     def _compute_advanced_metrics(pf: vbt.Portfolio, universe: bool = False) -> dict:
         """Compute expectancy, consecutive losses, Kelly criterion, avg drawdown duration.
 

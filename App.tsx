@@ -14,9 +14,11 @@ import Journal from './pages/Journal';
 import Settings from './pages/Settings';
 
 import { BacktestProvider } from './context/BacktestContext';
+import { ToastProvider } from './components/ui/Toast';
 
 const App: React.FC = () => {
   return (
+    <ToastProvider>
     <BacktestProvider>
       <Router>
         <Layout>
@@ -37,6 +39,7 @@ const App: React.FC = () => {
         </Layout>
       </Router>
     </BacktestProvider>
+    </ToastProvider>
   );
 };
 

@@ -14,6 +14,47 @@ import { logAlert, logWFOBreakdown, logActiveRun } from '../components/DebugCons
 import AlertBanner from '../components/ui/AlertBanner';
 import { formatDateDisplay } from '../utils/dateUtils';
 import TradeTable from '../components/TradeTable';
+
+// Shared component for both STATS and ADVANCED_STATS tabs — Fix #10 (DRY)
+const StatsGrid: React.FC<{ data: Record<string, any>; emptyMessage: string }> = ({ data, emptyMessage }) => {
+  if (!data || Object.keys(data).length === 0) {
+    return <div className="text-slate-500 italic">{emptyMessage}</div>;
+  }
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+      {Object.entries(data).map(([key, val]) => {
+        const isPercent = key.includes('[%]');
+        const numVal = typeof val === 'number' ? val : parseFloat(val as string);
+        const isNum = !isNaN(numVal) && val !== null && val !== '';
+        const displayVal =
+          val === null || val === undefined
+            ? '—'
+            : isNum
+            ? isPercent
+              ? `${numVal.toFixed(2)}%`
+              : Number.isInteger(numVal)
+              ? numVal.toString()
+              : numVal.toFixed(4)
+            : String(val);
+        const colorClass =
+          isNum && isPercent
+            ? numVal > 0
+              ? 'text-emerald-400'
+              : numVal < 0
+              ? 'text-red-400'
+              : 'text-slate-100'
+            : 'text-slate-100';
+        return (
+          <div key={key} className="bg-slate-900 border border-slate-800 rounded-lg p-3 hover:border-slate-700 transition-colors">
+            <div className="text-slate-500 text-xs uppercase tracking-wider font-semibold mb-1 leading-tight">{key}</div>
+            <div className={`text-base font-bold font-mono ${colorClass}`}>{displayVal}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 // Reusable Metric Box
 const MetricBox: React.FC<{ label: string; value: string; subValue?: string; good?: boolean; icon?: React.ReactNode }> = ({ label, value, subValue, good, icon }) => (
   <div className="bg-slate-900 border border-slate-800 p-4 rounded-lg hover:border-slate-700 transition-colors">
@@ -91,13 +132,20 @@ const Results: React.FC = () => {
     }
   }, [result]);
 
+  // Normalise a date/datetime string to YYYY-MM-DD so trade timestamps
+  // (which include a time component like "2023-03-01 09:15:00") can be
+  // matched against equity curve dates (always "YYYY-MM-DD").
+  const normaliseDate = (d: string) => (d ?? '').split('T')[0].split(' ')[0];
+
   const handleTradeClick = (trade: Trade) => {
-    const entryIdx = result?.equityCurve.findIndex(c => c.date === trade.entryDate) || 0;
-    const exitIdx = result?.equityCurve.findIndex(c => c.date === trade.exitDate) || 0;
+    const tradeEntry = normaliseDate(trade.entryDate);
+    const tradeExit  = normaliseDate(trade.exitDate);
+    const entryIdx = result?.equityCurve.findIndex(c => normaliseDate(c.date) === tradeEntry) ?? -1;
+    const exitIdx  = result?.equityCurve.findIndex(c => normaliseDate(c.date) === tradeExit)  ?? -1;
 
     const padding = 5;
-    const startIdx = Math.max(0, entryIdx - padding);
-    const endIdx = Math.min(result?.equityCurve.length || 0, exitIdx + padding);
+    const startIdx = Math.max(0, (entryIdx >= 0 ? entryIdx : 0) - padding);
+    const endIdx = Math.min((result?.equityCurve.length ?? 0) - 1, (exitIdx >= 0 ? exitIdx : 0) + padding);
 
     if (result?.equityCurve[startIdx] && result?.equityCurve[endIdx]) {
       setZoomLeft(result.equityCurve[startIdx].date);
@@ -139,12 +187,6 @@ const Results: React.FC = () => {
     logActiveRun(null);
   }, [result?.id]);
 
-  // DEBUG: print equity curve to browser console
-  useEffect(() => {
-    if (result?.equityCurve) {
-      console.debug('equityCurve payload', result.equityCurve);
-    }
-  }, [result?.equityCurve]);
 
   if (!result) {
     return (
@@ -381,28 +423,42 @@ const Results: React.FC = () => {
                   <div className="flex items-center justify-center h-full text-slate-500 italic">
                     No monthly returns available.
                   </div>
-                ) : (
-                  <div className="grid grid-cols-4 gap-2 content-start">
-                    {(result.monthlyReturns || []).map((m, idx) => {
-                      let colorClass = "bg-slate-800 text-slate-500";
-                      if (m.returnPct > 0) {
-                        if (m.returnPct > 5) colorClass = "bg-emerald-500 text-white font-bold";
-                        else if (m.returnPct > 2) colorClass = "bg-emerald-600/80 text-white";
-                        else colorClass = "bg-emerald-900/60 text-emerald-200";
-                      } else if (m.returnPct < 0) {
-                        if (m.returnPct < -5) colorClass = "bg-red-500 text-white font-bold";
-                        else if (m.returnPct < -2) colorClass = "bg-red-600/80 text-white";
-                        else colorClass = "bg-red-900/60 text-red-200";
-                      }
-                      return (
-                        <div key={idx} className={`rounded-md p-2 flex flex-col items-center justify-center text-xs ${colorClass}`}>
-                          <span className="opacity-70 text-[10px] uppercase">{MONTH_NAMES[m.month]}</span>
-                          <span>{m.returnPct > 0 ? '+' : ''}{safeToFixed(m.returnPct, 1)}%</span>
+                ) : (() => {
+                  // Group months by year for a readable heatmap — Fix #11
+                  const byYear = (result.monthlyReturns || []).reduce<Record<number, typeof result.monthlyReturns>>((acc, m) => {
+                    (acc[m.year] ??= []).push(m);
+                    return acc;
+                  }, {});
+                  return (
+                    <div className="space-y-4 content-start">
+                      {Object.entries(byYear).sort(([a], [b]) => Number(a) - Number(b)).map(([year, months]) => (
+                        <div key={year}>
+                          <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 px-1">{year}</div>
+                          <div className="grid grid-cols-4 gap-1.5">
+                            {months.map((m, idx) => {
+                              let colorClass = "bg-slate-800 text-slate-500";
+                              if (m.returnPct > 0) {
+                                if (m.returnPct > 5) colorClass = "bg-emerald-500 text-white font-bold";
+                                else if (m.returnPct > 2) colorClass = "bg-emerald-600/80 text-white";
+                                else colorClass = "bg-emerald-900/60 text-emerald-200";
+                              } else if (m.returnPct < 0) {
+                                if (m.returnPct < -5) colorClass = "bg-red-500 text-white font-bold";
+                                else if (m.returnPct < -2) colorClass = "bg-red-600/80 text-white";
+                                else colorClass = "bg-red-900/60 text-red-200";
+                              }
+                              return (
+                                <div key={idx} className={`rounded-md p-2 flex flex-col items-center justify-center text-xs ${colorClass}`}>
+                                  <span className="opacity-70 text-[10px] uppercase">{MONTH_NAMES[m.month]}</span>
+                                  <span>{m.returnPct > 0 ? '+' : ''}{safeToFixed(m.returnPct, 1)}%</span>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             </Card>
           </div>
@@ -460,74 +516,15 @@ const Results: React.FC = () => {
 
       {activeTab === 'STATS' && (
         <Card title="Portfolio Stats">
-          {result.pfStats && Object.keys(result.pfStats).length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {Object.entries(result.pfStats).map(([key, val]) => {
-                const isPercent = key.includes('[%]');
-                const numVal = typeof val === 'number' ? val : parseFloat(val as string);
-                const isNum = !isNaN(numVal) && val !== null && val !== '';
-                const displayVal = val === null || val === undefined
-                  ? '—'
-                  : isNum
-                    ? isPercent
-                      ? `${numVal.toFixed(2)}%`
-                      : Number.isInteger(numVal)
-                        ? numVal.toString()
-                        : numVal.toFixed(4)
-                    : String(val);
-                const colorClass = isNum && isPercent
-                  ? numVal > 0 ? 'text-emerald-400' : numVal < 0 ? 'text-red-400' : 'text-slate-100'
-                  : 'text-slate-100';
-                return (
-                  <div key={key} className="bg-slate-900 border border-slate-800 rounded-lg p-3 hover:border-slate-700 transition-colors">
-                    <div className="text-slate-500 text-xs uppercase tracking-wider font-semibold mb-1 leading-tight">{key}</div>
-                    <div className={`text-base font-bold font-mono ${colorClass}`}>{displayVal}</div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="text-slate-500 italic">No stats available. Run a backtest to see results.</div>
-          )}
+          <StatsGrid data={result.pfStats ?? {}} emptyMessage="No stats available. Run a backtest to see results." />
         </Card>
-      )
-      }
+      )}
 
-      {
-        activeTab === 'ADVANCED_STATS' && (
-          <Card title="Advanced Returns Stats">
-            {result.advancedStats && Object.keys(result.advancedStats).length > 0 ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                {Object.entries(result.advancedStats).map(([key, val]) => {
-                  const isPercent = key.includes('[%]');
-                  const numVal = typeof val === 'number' ? val : parseFloat(val as string);
-                  const isNum = !isNaN(numVal) && val !== null && val !== '';
-                  const displayVal = val === null || val === undefined
-                    ? '—'
-                    : isNum
-                      ? isPercent
-                        ? `${numVal.toFixed(2)}%`
-                        : Number.isInteger(numVal)
-                          ? numVal.toString()
-                          : numVal.toFixed(4)
-                      : String(val);
-                  const colorClass = isNum && isPercent
-                    ? numVal > 0 ? 'text-emerald-400' : numVal < 0 ? 'text-red-400' : 'text-slate-100'
-                    : 'text-slate-100';
-                  return (
-                    <div key={key} className="bg-slate-900 border border-slate-800 rounded-lg p-3 hover:border-slate-700 transition-colors">
-                      <div className="text-slate-500 text-xs uppercase tracking-wider font-semibold mb-1 leading-tight">{key}</div>
-                      <div className={`text-base font-bold font-mono ${colorClass}`}>{displayVal}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-slate-500 italic">No advanced stats available. Run a backtest to see results.</div>
-            )}
-          </Card>
-        )
-      }
+      {activeTab === 'ADVANCED_STATS' && (
+        <Card title="Advanced Returns Stats">
+          <StatsGrid data={result.advancedStats ?? {}} emptyMessage="No advanced stats available. Run a backtest to see results." />
+        </Card>
+      )}
 
       {
         activeTab === 'DISTRIBUTION' && (

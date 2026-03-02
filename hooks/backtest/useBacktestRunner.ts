@@ -5,6 +5,7 @@ import { fetchClient } from '../../services/http';
 import { logActiveRun, logOptunaResults, logWFOBreakdown } from '../../components/DebugConsole';
 import { runBacktestWithDhan } from '../../services/backtestInternal';
 import { Timeframe } from '../../types';
+import { useToast } from '../../components/ui/Toast';
 
 const TIMEFRAME_MAP: Record<string, string> = {
     [Timeframe.M1]: '1m',
@@ -29,6 +30,7 @@ const statsFreqFromTimeframe = (tf: string): string => {
  */
 export const useBacktestRunner = () => {
     const navigate = useNavigate();
+    const { toast } = useToast();
     const {
         running, setRunning,
         mode, symbol, universe, timeframe, strategyId,
@@ -42,20 +44,20 @@ export const useBacktestRunner = () => {
         fullReportData,
     } = useBacktestContext();
 
-    const strategyName = (id: string) => {
-        if (id === '1') return 'RSI Mean Reversion';
-        if (id === '3') return 'Moving Average Crossover';
-        return 'Custom Strategy';
+    const STRATEGY_NAMES: Record<string, string> = {
+        '1': 'RSI Mean Reversion',
+        '3': 'Moving Average Crossover',
     };
+    const strategyName = (id: string) => STRATEGY_NAMES[id] ?? 'Custom Strategy';
 
     const handleRun = async () => {
         if (running) return;
         if (dataStatus !== 'READY') {
-            alert('Please load and validate market data first.');
+            toast('Please load and validate market data first.', 'warning');
             return;
         }
         if (mode === 'SINGLE' && !selectedInstrument) {
-            alert('Please select a symbol from the search results.');
+            toast('Please select a symbol from the search results.', 'warning');
             return;
         }
 
@@ -100,7 +102,7 @@ export const useBacktestRunner = () => {
                     result.strategyName = strategyName(strategyId);
                     navigate('/results', { state: { result } });
                 } else {
-                    alert('Dynamic Backtest Failed: ' + (result?.error || 'Unknown error'));
+                    toast('Dynamic Backtest Failed: ' + (result?.error || 'Unknown error'), 'error');
                     logActiveRun(null);
                 }
             } else if (mode === 'SINGLE' && selectedInstrument) {
@@ -142,7 +144,7 @@ export const useBacktestRunner = () => {
                 }
             } else {
                 // Path 3: Fallback for Universe mode
-                const config: any = { capital, slippage, commission, ...params };
+                const config: any = { initial_capital: capital, slippage, commission, ...params };
                 if (mode === 'UNIVERSE') config.universe = universe;
                 const extendedConfig = {
                     ...config,
@@ -153,7 +155,7 @@ export const useBacktestRunner = () => {
                 navigate('/results', { state: { result } });
             }
         } catch (e) {
-            alert('Backtest Failed: ' + e);
+            toast('Backtest Failed: ' + e, 'error');
             logActiveRun(null);
         } finally {
             setRunning(false);
@@ -162,7 +164,7 @@ export const useBacktestRunner = () => {
 
     const handleOOSValidation = async () => {
         if (!selectedInstrument || top5Trials.length === 0) {
-            alert('Please run an optimization first to generate Top 5 parameter sets.');
+            toast('Please run an optimization first to generate Top 5 parameter sets.', 'warning');
             return;
         }
 
@@ -185,11 +187,11 @@ export const useBacktestRunner = () => {
                 }));
                 navigate('/results', { state: { result: formattedResults, isOOSArray: true } });
             } else {
-                alert('OOS Validation failed to return data array.');
+                toast('OOS Validation failed to return data array.', 'error');
             }
         } catch (e: any) {
             console.error('OOS Validation error', e);
-            alert('OOS Validation Failed: ' + (e.message || e));
+            toast('OOS Validation Failed: ' + (e.message || e), 'error');
         } finally {
             setIsOosValidating(false);
         }
