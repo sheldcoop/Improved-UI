@@ -135,7 +135,7 @@ const StrategyBuilder: React.FC = () => {
                 if (e.name === 'AbortError') return;
                 setPreview(p => ({ ...p, loading: false, error: e?.message || 'Preview failed' }));
             }
-        }, 500);
+        }, strat.mode === 'CODE' ? 1500 : 500);
     }, []);
 
     useEffect(() => {
@@ -196,6 +196,7 @@ const StrategyBuilder: React.FC = () => {
 
     // --- DELETE SAVED ---
     const handleDeleteSaved = async (id: string) => {
+        if (!window.confirm('Delete this strategy? This cannot be undone.')) return;
         setSaveError(null);
         setDeletingId(id);
         try {
@@ -224,11 +225,21 @@ const StrategyBuilder: React.FC = () => {
     const executeRun = async () => {
         setRunning(true);
         try {
-            const result = await runBacktest(strategy.id !== 'new' ? strategy.id : null, symbol.trim(), {
-                ...strategy,
+            const isSaved = strategy.id !== 'new';
+            const result = await runBacktest(isSaved ? strategy.id : null, symbol.trim(), {
+                ...(isSaved ? {} : strategy),
                 capital: strategy.positionSizeValue,
                 strategyName: strategy.name,
                 symbol: symbol.trim(),
+                timeframe: strategy.timeframe,
+                mode: strategy.mode,
+                stopLossPct: strategy.stopLossPct,
+                takeProfitPct: strategy.takeProfitPct,
+                useTrailingStop: strategy.useTrailingStop,
+                slippage: strategy.slippage,
+                commission: strategy.commission,
+                pyramiding: strategy.pyramiding,
+                positionSizing: strategy.positionSizing,
                 ...(startDate ? { startDate } : {}),
                 ...(endDate ? { endDate } : {}),
             });

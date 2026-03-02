@@ -54,7 +54,12 @@ export const RuleRow: React.FC<RuleRowProps> = ({ condition, onChange, onRemove 
 
                 <select
                     value={condition.indicator}
-                    onChange={(e) => onChange({ ...condition, indicator: e.target.value as IndicatorType, period: 14 })}
+                    onChange={(e) => {
+                        const newInd = e.target.value as IndicatorType;
+                        const cfg = PERIOD_CONFIG[newInd];
+                        const keepPeriod = cfg !== null && condition.period >= cfg.min && condition.period <= cfg.max;
+                        onChange({ ...condition, indicator: newInd, period: keepPeriod ? condition.period : 14 });
+                    }}
                     className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 w-28 outline-none"
                 >
                     {Object.values(IndicatorType).map(i => <option key={i} value={i}>{i}</option>)}
@@ -115,7 +120,12 @@ export const RuleRow: React.FC<RuleRowProps> = ({ condition, onChange, onRemove 
 
                         <select
                             value={condition.rightIndicator}
-                            onChange={(e) => onChange({ ...condition, rightIndicator: e.target.value as IndicatorType, rightPeriod: 14 })}
+                            onChange={(e) => {
+                                const newInd = e.target.value as IndicatorType;
+                                const cfg = PERIOD_CONFIG[newInd];
+                                const keepPeriod = cfg !== null && (condition.rightPeriod ?? 14) >= cfg.min && (condition.rightPeriod ?? 14) <= cfg.max;
+                                onChange({ ...condition, rightIndicator: newInd, rightPeriod: keepPeriod ? (condition.rightPeriod ?? 14) : 14 });
+                            }}
                             className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 w-28 outline-none"
                         >
                             {Object.values(IndicatorType).map(i => <option key={i} value={i}>{i}</option>)}
