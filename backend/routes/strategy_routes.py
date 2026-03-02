@@ -371,14 +371,14 @@ A nested group looks like:
 }
 
 Valid IndicatorType values: "RSI", "SMA", "EMA", "MACD", "MACD Signal", "Bollinger Upper", "Bollinger Lower", "Bollinger Mid", "ATR", "Close Price", "Open Price", "High Price", "Low Price", "Volume"
-Valid Operator values: "Crosses Above", "Crosses Below", ">", "<", "=", "Between"
+Valid Operator values: "Crosses Above", "Crosses Below", ">", "<", "="
 
 Rules:
 - Use only the valid values listed above, nothing else
 - Always return valid JSON, no markdown code blocks, no explanation, just the JSON object
 - Make logical entry AND exit conditions, do not leave either empty
 - Use unique short ids like "c1", "c2", "g1" etc.
-- "Between" operator is for range checks — use STATIC compareType with the lower bound as value (best to avoid it and use two separate conditions instead)
+- For range checks (e.g. RSI between 30 and 70), use two separate conditions combined with AND logic
 - If the user mentions a crossover, use "Crosses Above" or "Crosses Below"
 """
 

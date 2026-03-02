@@ -73,21 +73,10 @@ const StrategyBuilder: React.FC = () => {
     const [presets, setPresets] = useState<StrategyPreset[]>([]);
     const [activePresetId, setActivePresetId] = useState<string>('');
 
-    // Multi-symbol chip input — persisted in localStorage as a JSON array.
-    // A single symbol behaves identically to the old single-symbol mode.
-    const [symbols, setSymbols] = useState<string[]>(
-        () => {
-            try { return JSON.parse(localStorage.getItem('sb_symbols') || '[]'); }
-            catch { return ['NIFTY 50']; }
-        }
+    // Single-symbol input — persisted in localStorage
+    const [symbol, setSymbol] = useState<string>(
+        () => localStorage.getItem('sb_symbol') || 'NIFTY 50'
     );
-    // Input field for the chip-tag-style symbol entry
-    const [symbolInput, setSymbolInput] = useState<string>('');
-
-    // Backward-compat: primary symbol for preview (always first in list)
-    const symbol = symbols[0] ?? 'NIFTY 50';
-    // Setter for backward-compat single-symbol callers (keeps as first chip)
-    const setSymbol = (s: string) => setSymbols(prev => [s, ...prev.slice(1)]);
 
     const [startDate, setStartDate] = useState<string>(() => localStorage.getItem('sb_startDate') || '');
     const [endDate, setEndDate] = useState<string>(() => localStorage.getItem('sb_endDate') || '');
@@ -103,6 +92,7 @@ const StrategyBuilder: React.FC = () => {
     const [isAiLoading, setIsAiLoading] = useState(false);
     const [aiError, setAiError] = useState<string | null>(null);
     const [running, setRunning] = useState(false);
+    const [runError, setRunError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -121,59 +111,16 @@ const StrategyBuilder: React.FC = () => {
         fetchSavedStrategies().then(setSavedStrategies).catch(console.error);
     }, []);
 
-    // Persist symbols and dates to localStorage on change
-    useEffect(() => {
-        localStorage.setItem('sb_symbols', JSON.stringify(symbols));
-        // Also keep legacy sb_symbol for any components that still read it
-        if (symbols.length > 0) localStorage.setItem('sb_symbol', symbols[0]);
-    }, [symbols]);
+    // Persist symbol and dates to localStorage on change
+    useEffect(() => { localStorage.setItem('sb_symbol', symbol); }, [symbol]);
     useEffect(() => { localStorage.setItem('sb_startDate', startDate); }, [startDate]);
     useEffect(() => { localStorage.setItem('sb_endDate', endDate); }, [endDate]);
 
-    /** Add a symbol chip from the input field.
-     * Splits on comma so users can paste "RELIANCE, TCS, HDFC" all at once. */
-    const addSymbol = (raw: string) => {
-        const parts = raw.split(/[,\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
-        setSymbols(prev => {
-            const next = [...prev];
-            for (const s of parts) {
-                if (s && !next.includes(s) && next.length < 20) next.push(s);
-            }
-            return next;
-        });
-        setSymbolInput('');
-    };
-
-    const removeSymbol = (sym: string) =>
-        setSymbols(prev => prev.filter(s => s !== sym));
-
-    const handleSymbolKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter' || e.key === ',') {
-            e.preventDefault();
-            if (symbolInput.trim()) addSymbol(symbolInput);
-        } else if (e.key === 'Backspace' && !symbolInput && symbols.length > 0) {
-            setSymbols(prev => prev.slice(0, -1));
-        }
-    };
-
-    // Date helpers: ISO (YYYY-MM-DD) ↔ dd/mm/yyyy display
-    const toIso = (ddmmyyyy: string): string => {
-        const [d, m, y] = ddmmyyyy.split('/');
-        if (!d || !m || !y) return ddmmyyyy;
-        return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-    };
+    // Date display helpers: ISO (YYYY-MM-DD) ↔ dd/mm/yyyy display
     const toDisplay = (iso: string): string => {
         if (!iso) return '';
         const [y, m, d] = iso.split('-');
         return `${d}/${m}/${y}`;
-    };
-    const handleDateInput = (val: string, setter: (s: string) => void) => {
-        // Accept dd/mm/yyyy typed or native ISO from date picker
-        if (val.includes('-')) { setter(val); return; }
-        setter(val); // store as typed; convert on blur
-    };
-    const handleDateBlur = (val: string, setter: (s: string) => void) => {
-        if (val && val.includes('/')) setter(toIso(val));
     };
 
     // --- DEBOUNCED PREVIEW ---
@@ -276,7 +223,7 @@ const StrategyBuilder: React.FC = () => {
             await deleteStrategy(id);
             setSavedStrategies(prev => prev.filter(s => s.id !== id));
         } catch (e: any) {
-            alert('Delete failed: ' + (e?.message || e));
+            setSaveError('Delete failed: ' + (e?.message || e));
         } finally {
             setDeletingId(null);
         }
@@ -284,12 +231,14 @@ const StrategyBuilder: React.FC = () => {
 
     // --- RUN ---
     const handleRun = async () => {
-        if (symbols.length === 0) {
-            alert('Please add at least one symbol before running the backtest.');
+        setRunError(null);
+
+        if (!symbol.trim()) {
+            setRunError('Please enter a symbol before running the backtest.');
             return;
         }
         if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
-            alert('Start date must be before end date.');
+            setRunError('Start date must be before end date.');
             return;
         }
 
@@ -297,37 +246,34 @@ const StrategyBuilder: React.FC = () => {
         if (activeTab === 'VISUAL' || strategy.mode === 'VISUAL') {
             const entryConditions = strategy.entryLogic?.conditions ?? [];
             if (entryConditions.length === 0) {
-                alert('Your strategy has no Entry Conditions.\n\nAdd at least one condition in the Visual Builder before running.');
+                setRunError('Your strategy has no Entry Conditions. Add at least one condition in the Visual Builder before running.');
                 return;
             }
         } else if (activeTab === 'CODE' || strategy.mode === 'CODE') {
             const code = strategy.pythonCode?.trim() ?? '';
             if (!code) {
-                alert('Python Code is empty. Write a signal_logic(df) function before running.');
+                setRunError('Python Code is empty. Write a signal_logic(df) function before running.');
                 return;
             }
             if (!code.includes('signal_logic')) {
-                alert('Your code must define a signal_logic(df) function that returns (entries, exits).');
+                setRunError('Your code must define a signal_logic(df) function that returns (entries, exits).');
                 return;
             }
         }
 
         setRunning(true);
         try {
-            // Multi-symbol: pass symbols[]; single-symbol: pass symbol for backward compat
-            const isMulti = symbols.length > 1;
-            const result = await runBacktest(strategy.id !== 'new' ? strategy.id : null, symbol, {
+            const result = await runBacktest(strategy.id !== 'new' ? strategy.id : null, symbol.trim(), {
                 ...strategy,
                 capital: strategy.positionSizeValue,
                 strategyName: strategy.name,
-                // Multi-symbol key for the new API route
-                ...(isMulti ? { symbols } : { symbol }),
+                symbol: symbol.trim(),
                 ...(startDate ? { startDate } : {}),
                 ...(endDate ? { endDate } : {}),
             });
             navigate('/results', { state: { result } });
         } catch (e: any) {
-            alert('Error: ' + (e?.message || e));
+            setRunError('Backtest failed: ' + (e?.message || e));
         } finally {
             setRunning(false);
         }
@@ -340,7 +286,7 @@ const StrategyBuilder: React.FC = () => {
             const saved = await saveStrategy(clone);
             setSavedStrategies(prev => [...prev, saved]);
         } catch (e: any) {
-            alert('Clone failed: ' + (e?.message || e));
+            setSaveError('Clone failed: ' + (e?.message || e));
         }
     };
 
@@ -368,7 +314,7 @@ const StrategyBuilder: React.FC = () => {
         }
     };
 
-    // Logic summary is now provided by the backend in preview.logic_summary
+    // Logic summary is provided by the backend in preview.logic_summary
     // (generated from the same tree that was actually evaluated — always accurate).
     const displaySummary = preview.logic_summary || (preview.loading ? 'Calculating...' : 'Run a preview to see the logic summary.');
 
@@ -414,38 +360,21 @@ const StrategyBuilder: React.FC = () => {
         <>
             {/* ── TOP BAR: Symbol & Dates ────────────────────────────────────── */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 mb-4 flex flex-wrap items-end gap-4">
-                {/* Multi-symbol chip input — press Enter or comma to add a symbol */}
+                {/* Single-symbol input */}
                 <div className="flex-1 min-w-[200px]">
-                    <label className="text-[10px] text-slate-500 uppercase tracking-wider block mb-1">
-                        Symbol{symbols.length > 1 ? 's (Portfolio)' : ''}
-                    </label>
-                    <div
-                        className="flex flex-wrap gap-1 items-center bg-slate-950 border border-slate-700 rounded px-2 py-1 min-h-[34px] focus-within:border-emerald-500 cursor-text"
-                        onClick={() => document.getElementById('sym-input')?.focus()}
-                    >
-                        {symbols.map(s => (
-                            <span key={s} className="flex items-center gap-1 bg-emerald-900/40 border border-emerald-700/50 text-emerald-300 text-xs px-2 py-0.5 rounded-full">
-                                {s}
-                                <button onClick={(e) => { e.stopPropagation(); removeSymbol(s); }} className="text-emerald-500 hover:text-red-400 leading-none">✕</button>
-                            </span>
-                        ))}
-                        <input
-                            id="sym-input"
-                            list="symbol-suggestions"
-                            value={symbolInput}
-                            onChange={e => setSymbolInput(e.target.value.toUpperCase())}
-                            onKeyDown={handleSymbolKeyDown}
-                            onBlur={() => { if (symbolInput.trim()) addSymbol(symbolInput); }}
-                            placeholder={symbols.length === 0 ? 'NIFTY 50, RELIANCE...' : '+ symbol'}
-                            className="bg-transparent outline-none text-sm text-slate-200 placeholder-slate-600 min-w-[80px] flex-1"
-                        />
-                        <datalist id="symbol-suggestions">
-                            {COMMON_SYMBOLS.map(s => <option key={s} value={s} />)}
-                        </datalist>
-                    </div>
-                    <p className="text-[9px] text-slate-600 mt-0.5">Press Enter or comma to add · Backspace to remove · max 20</p>
+                    <label className="text-[10px] text-slate-500 uppercase tracking-wider block mb-1">Symbol</label>
+                    <input
+                        list="symbol-suggestions"
+                        value={symbol}
+                        onChange={e => setSymbol(e.target.value.toUpperCase())}
+                        placeholder="e.g. NIFTY 50"
+                        className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 outline-none focus:border-emerald-500 placeholder-slate-600"
+                    />
+                    <datalist id="symbol-suggestions">
+                        {COMMON_SYMBOLS.map(s => <option key={s} value={s} />)}
+                    </datalist>
                 </div>
-                {/* From date: shows dd/mm/yyyy, hidden native input provides calendar */}
+                {/* From date */}
                 <div>
                     <label className="text-[10px] text-slate-500 uppercase tracking-wider block mb-1">From</label>
                     <div className="relative">
@@ -676,6 +605,14 @@ const StrategyBuilder: React.FC = () => {
                         </div>
                     )}
 
+                    {/* Run error */}
+                    {runError && (
+                        <div className="flex items-center space-x-2 text-xs text-red-400 bg-red-900/20 border border-red-800 rounded p-2">
+                            <AlertCircle className="w-3 h-3 shrink-0" />
+                            <span>{runError}</span>
+                        </div>
+                    )}
+
                     <div className="space-y-2">
                         <Button
                             variant="secondary"
@@ -697,7 +634,7 @@ const StrategyBuilder: React.FC = () => {
                     </div>
                 </div>
 
-                {/* MIDDLE: Builder Area (6 Cols) */}
+                {/* MIDDLE: Builder Area (9 Cols) */}
                 <div className="lg:col-span-9 flex flex-col gap-4">
                     {/* AI Prompt Bar */}
                     <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">

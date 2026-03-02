@@ -331,8 +331,6 @@ class DynamicStrategy(BaseStrategy):
                         else:
                             exits = pd.Series(exits, index=target_index)
 
-            entries, exits = self._apply_time_filter(df, entries, exits)
-
         # Delay by 1 bar: enter on next candle open, not signal candle close.
         if self.config.get("nextBarEntry", False) and entries is not None and exits is not None:
             entries = entries.shift(1).fillna(False)

@@ -110,7 +110,7 @@ class BacktestEngine:
         
         # Diagnostic logging for data range
         if isinstance(df, pd.DataFrame):
-            logger.info(f"BacktestEngine Execution: symbol={strategy_id}, bars={len(df)}, range={df.index.min()} to {df.index.max()}")
+            logger.info(f"BacktestEngine Execution: strategy_id={strategy_id}, bars={len(df)}, range={df.index.min()} to {df.index.max()}")
         elif isinstance(df, dict) and "close" in df:
             logger.info(f"BacktestEngine Universe Execution: assets={len(df['close'].columns)}, bars={len(df['close'])}")
 
@@ -256,7 +256,7 @@ class BacktestEngine:
         elif sizing_mode == "Risk Based (ATR)":
             return 0.05, "percent"
 
-        return np.inf, "amount"
+        return size_val, "value"
 
     @staticmethod
     def _extract_results(
@@ -501,7 +501,10 @@ class BacktestEngine:
         try:
             rec = getattr(pf.trades, "records_readable", None)
             if rec is not None and len(rec) > 0:
-                wins = rec[rec.get("PnL", 0) > 0].shape[0]
+                if "PnL" in rec.columns:
+                    wins = rec[rec["PnL"] > 0].shape[0]
+                else:
+                    wins = 0
                 total = rec.shape[0]
                 return round((wins / total) * 100, 1) if total > 0 else 0.0
         except Exception:

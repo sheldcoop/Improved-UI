@@ -75,8 +75,8 @@ def run_backtest():
         # --- Build config ---
         config = data.copy()
 
-        # Merge saved strategy logic if it's a custom strategy
-        if strategy_id and strategy_id not in ("1", "3"):
+        # Merge saved strategy logic if it's a custom strategy (not a built-in preset)
+        if strategy_id and strategy_id not in ("1", "2", "3", "4", "5", "6", "7"):
             saved = StrategyStore.get_by_id(strategy_id)
             if saved:
                 logger.info(f"Loaded Custom Strategy Logic: {saved.get('name')}")
