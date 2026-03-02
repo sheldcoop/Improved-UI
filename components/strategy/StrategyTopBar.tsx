@@ -83,7 +83,7 @@ export const StrategyTopBar: React.FC<StrategyTopBarProps> = ({
                                 const ps = previewPrices;
                                 const mn = Math.min(...ps), mx = Math.max(...ps);
                                 const rng = Math.max(mx - mn, 1);
-                                const toX = (i: number) => (i / (ps.length - 1)) * 300;
+                                const toX = (i: number) => ps.length > 1 ? (i / (ps.length - 1)) * 300 : 150;
                                 const toY = (p: number) => 36 - ((p - mn) / rng) * 32 - 2;
                                 const d = ps.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(p).toFixed(1)}`).join(' ');
                                 return (

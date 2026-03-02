@@ -106,6 +106,9 @@ export interface PreviewResult {
     exit_dates: string[];
     prices: number[];
     dates: string[];
+    warnings?: string[];
+    empty_exit?: boolean;
+    logic_summary?: string;
 }
 
 export const previewStrategy = async (strategy: Strategy, symbol: string, fromDate?: string, toDate?: string, signal?: AbortSignal): Promise<PreviewResult> => {

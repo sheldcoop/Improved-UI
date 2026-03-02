@@ -127,9 +127,9 @@ const StrategyBuilder: React.FC = () => {
                     prices: result.prices,
                     dates: result.dates,
                     error: null,
-                    warnings: (result as any).warnings ?? [],
-                    empty_exit: (result as any).empty_exit ?? false,
-                    logic_summary: (result as any).logic_summary ?? '',
+                    warnings: result.warnings ?? [],
+                    empty_exit: result.empty_exit ?? false,
+                    logic_summary: result.logic_summary ?? '',
                 });
             } catch (e: any) {
                 if (e.name === 'AbortError') return;
@@ -159,8 +159,8 @@ const StrategyBuilder: React.FC = () => {
             description: preset.description,
             mode: preset.mode || 'CODE',
             params: defaultParams,
-            ...(preset.entryLogic ? { entryLogic: Object.assign({}, preset.entryLogic) } : {}),
-            ...(preset.exitLogic ? { exitLogic: Object.assign({}, preset.exitLogic) } : {}),
+            ...(preset.entryLogic ? { entryLogic: structuredClone(preset.entryLogic) } : {}),
+            ...(preset.exitLogic ? { exitLogic: structuredClone(preset.exitLogic) } : {}),
             ...(preset.pythonCode ? { pythonCode: preset.pythonCode } : {}),
         }));
         setActiveTab(preset.mode || 'CODE');
@@ -196,6 +196,7 @@ const StrategyBuilder: React.FC = () => {
 
     // --- DELETE SAVED ---
     const handleDeleteSaved = async (id: string) => {
+        setSaveError(null);
         setDeletingId(id);
         try {
             await deleteStrategy(id);
@@ -209,6 +210,7 @@ const StrategyBuilder: React.FC = () => {
 
     // --- CLONE ---
     const handleCloneStrategy = async (s: Strategy) => {
+        setSaveError(null);
         try {
             const clone = { ...s, id: 'new', name: `${s.name} (Copy)` };
             const saved = await saveStrategy(clone);
