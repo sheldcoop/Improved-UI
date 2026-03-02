@@ -242,7 +242,8 @@ def run_monte_carlo():
             return jsonify({"status": "error", "message": "volMultiplier must be positive"}), 400
 
         logger.info(f"Running MC GBM: {simulations} paths for {symbol}")
-        result = MonteCarloEngine.run(simulations, vol_mult, request.headers, symbol)
+        seed = data.get("seed")
+        result = MonteCarloEngine.run(simulations, vol_mult, request.headers, symbol, seed=int(seed) if seed is not None else None)
         return jsonify(result), 200
 
     except Exception as exc:
@@ -277,7 +278,8 @@ def run_monte_carlo_trades():
             return jsonify({"status": "error", "message": "simulations must be between 1 and 10000"}), 400
 
         logger.info(f"Running MC Trade-Seq: {simulations} paths from {len(trade_returns)} trades")
-        result = MonteCarloEngine.run_from_trades(trade_returns, simulations)
+        seed = data.get("seed")
+        result = MonteCarloEngine.run_from_trades(trade_returns, simulations, seed=int(seed) if seed is not None else None)
         return jsonify(result), 200
 
     except Exception as exc:

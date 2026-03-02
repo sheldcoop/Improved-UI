@@ -36,7 +36,8 @@ def run_monte_carlo():
             return jsonify({"status": "error", "message": "simulations must be between 1 and 10000"}), 400
 
         logger.info(f"Running Monte Carlo: {simulations} sims, {vol_mult}x vol, symbol={symbol}")
-        results = MonteCarloEngine.run(simulations, vol_mult, request.headers, symbol)
+        seed = data.get("seed")
+        results = MonteCarloEngine.run(simulations, vol_mult, request.headers, symbol, seed=int(seed) if seed is not None else None)
         return jsonify(results), 200
 
     except Exception as exc:

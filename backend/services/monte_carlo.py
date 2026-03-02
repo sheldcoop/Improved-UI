@@ -34,6 +34,7 @@ class MonteCarloEngine:
         vol_mult: float,
         headers: dict,
         symbol: str = "NIFTY 50",
+        seed: int | None = None,
     ) -> dict:
         """GBM price-path simulation from historical return statistics.
 
@@ -45,6 +46,7 @@ class MonteCarloEngine:
             vol_mult: Volatility multiplier (>1 = stress, <1 = optimistic).
             headers: Flask request headers for Dhan API key.
             symbol: Ticker symbol to derive mu/sigma from.
+            seed: Optional RNG seed for reproducible results.
 
         Returns:
             Dict with 'paths' (list of {id, values}) and 'stats' dict.
@@ -64,15 +66,18 @@ class MonteCarloEngine:
 
         sigma = sigma * vol_mult
         days = 252
-        paths: list[dict] = []
 
-        for i in range(simulations):
-            shocks = np.random.normal(mu, sigma, days)
-            raw = np.zeros(days)
-            raw[0] = _INITIAL
-            for t in range(1, days):
-                raw[t] = raw[t - 1] * np.exp(shocks[t])
-            paths.append({"id": i, "values": raw.tolist()})
+        rng = np.random.default_rng(seed)
+        # Vectorised GBM: generate all shocks at once, then cumprod
+        shocks = rng.normal(mu, sigma, (simulations, days))
+        # First column is always 0 so exp(0)=1, preserving the initial value
+        shocks[:, 0] = 0.0
+        raw = _INITIAL * np.cumprod(np.exp(shocks), axis=1)
+
+        paths: list[dict] = [
+            {"id": i, "values": raw[i].tolist()}
+            for i in range(simulations)
+        ]
 
         stats = MonteCarloEngine.compute_stats(paths)
         logger.info(f"MC GBM: {simulations} paths for {symbol} (vol_mult={vol_mult})")
@@ -82,6 +87,7 @@ class MonteCarloEngine:
     def run_from_trades(
         trade_returns: list[float],
         simulations: int,
+        seed: int | None = None,
     ) -> dict:
         """Bootstrap trade-sequence simulation from actual backtest results.
 
@@ -92,6 +98,7 @@ class MonteCarloEngine:
         Args:
             trade_returns: Per-trade P&L percentages from a backtest.
             simulations: Number of equity curve paths to generate.
+            seed: Optional RNG seed for reproducible results.
 
         Returns:
             Dict with 'paths' (list of {id, values}) and 'stats' dict.
@@ -101,15 +108,20 @@ class MonteCarloEngine:
 
         returns_arr = np.array(trade_returns) / 100.0
         n_trades = len(returns_arr)
-        paths: list[dict] = []
 
-        for i in range(simulations):
-            sampled = np.random.choice(returns_arr, size=n_trades, replace=True)
-            equity = np.zeros(n_trades + 1)
-            equity[0] = _INITIAL
-            for t in range(n_trades):
-                equity[t + 1] = equity[t] * (1.0 + sampled[t])
-            paths.append({"id": i, "values": equity.tolist()})
+        rng = np.random.default_rng(seed)
+        # Vectorised: sample all paths at once
+        sampled = rng.choice(returns_arr, size=(simulations, n_trades), replace=True)
+        # Build equity curves: start at _INITIAL, then cumprod
+        growth = 1.0 + sampled
+        equity = np.zeros((simulations, n_trades + 1))
+        equity[:, 0] = _INITIAL
+        equity[:, 1:] = _INITIAL * np.cumprod(growth, axis=1)
+
+        paths: list[dict] = [
+            {"id": i, "values": equity[i].tolist()}
+            for i in range(simulations)
+        ]
 
         stats = MonteCarloEngine.compute_stats(paths)
         logger.info(f"MC Trade-Seq: {simulations} paths from {n_trades} trades")
