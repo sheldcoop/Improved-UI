@@ -11,8 +11,6 @@ import { DataHealthReport } from '../services/api';
 
 export interface DataContextType {
     // Instrument selection
-    mode: 'SINGLE' | 'UNIVERSE';
-    setMode: (val: 'SINGLE' | 'UNIVERSE') => void;
     segment: 'NSE_EQ' | 'NSE_SME';
     setSegment: (val: 'NSE_EQ' | 'NSE_SME') => void;
     symbol: string;
@@ -25,8 +23,6 @@ export interface DataContextType {
     setSelectedInstrument: (val: any | null) => void;
     isSearching: boolean;
     setIsSearching: (val: boolean) => void;
-    universe: string;
-    setUniverse: (val: string) => void;
     timeframe: Timeframe;
     setTimeframe: (val: Timeframe) => void;
 
@@ -64,14 +60,12 @@ const load = (key: string, def: any) => {
 };
 
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    const [mode, setMode] = useState<'SINGLE' | 'UNIVERSE'>('SINGLE');
     const [segment, setSegment] = useState<'NSE_EQ' | 'NSE_SME'>(() => load('segment', 'NSE_EQ'));
     const [symbol, setSymbol] = useState<string>(() => load('symbol', ''));
     const [symbolSearchQuery, setSymbolSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<any[]>([]);
     const [selectedInstrument, setSelectedInstrument] = useState<any | null>(() => load('selectedInstrument', null));
     const [isSearching, setIsSearching] = useState(false);
-    const [universe, setUniverse] = useState('NIFTY50');
     const [timeframe, setTimeframe] = useState<Timeframe>(() => load('timeframe', Timeframe.D1));
     const [startDate, setStartDate] = useState<string>(() => load('startDate', '2023-01-01'));
     const [endDate, setEndDate] = useState<string>(() => load('endDate', '2023-12-31'));
@@ -102,10 +96,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }, [dataStatus, fullReportData]);
 
     const value: DataContextType = {
-        mode, setMode, segment, setSegment, symbol, setSymbol,
+        segment, setSegment, symbol, setSymbol,
         symbolSearchQuery, setSymbolSearchQuery, searchResults, setSearchResults,
         selectedInstrument, setSelectedInstrument, isSearching, setIsSearching,
-        universe, setUniverse, timeframe, setTimeframe,
+        timeframe, setTimeframe,
         startDate, setStartDate, endDate, setEndDate,
         useLookback, setUseLookback, lookbackMonths, setLookbackMonths,
         dataStatus, setDataStatus, healthReport, setHealthReport,

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { PlayCircle, Calendar, DollarSign, Layers, Settings, ChevronDown, Database, Sliders, AlertCircle, CheckCircle, Split, Info, AlertTriangle, CheckSquare, Clock, Shield, Activity, FileQuestionMark, ShieldCheck } from 'lucide-react';
-import { UNIVERSES } from '../constants';
 import { Timeframe, Strategy } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -28,8 +27,8 @@ const Backtest: React.FC = () => {
   // guard: prevent handleLoadData from being called more than once per autoRun
   const autoLoadFiredRef = React.useRef(false);
   const {
-    running, mode, segment, symbol, symbolSearchQuery, searchResults, selectedInstrument,
-    isSearching, universe, timeframe, strategyId, customStrategies, startDate, endDate,
+    running, segment, symbol, symbolSearchQuery, searchResults, selectedInstrument,
+    isSearching, timeframe, strategyId, customStrategies, startDate, endDate,
     params, capital, slippage, commission, showAdvanced, dataStatus, healthReport,
     isDynamic, wfoConfig, paramRanges, showRanges,
     top5Trials, oosResults, isOosValidating,
@@ -38,8 +37,8 @@ const Backtest: React.FC = () => {
     enableDataSplit, splitRatio
   } = state;
   const {
-    setMode, setSegment, setSymbolSearchQuery, setSymbol, setSearchResults, setSelectedInstrument,
-    setIsSearching, setUniverse, setTimeframe, setStrategyId, setCustomStrategies, setParams,
+    setSegment, setSymbolSearchQuery, setSymbol, setSearchResults, setSelectedInstrument,
+    setIsSearching, setTimeframe, setStrategyId, setCustomStrategies, setParams,
     setStartDate, setEndDate, setCapital, setSlippage, setCommission, setShowAdvanced,
     setDataStatus, setHealthReport, setRunning, setIsDynamic, setWfoConfig,
     setParamRanges, setShowRanges, setTop5Trials,
@@ -114,7 +113,6 @@ const Backtest: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {/* 1. ASSET SELECTION (Reusable Component) */}
             <MarketDataSelector
-              mode={mode}
               segment={segment}
               setSegment={setSegment}
               symbolSearchQuery={symbolSearchQuery}
@@ -126,8 +124,6 @@ const Backtest: React.FC = () => {
               searchResults={searchResults}
               setSearchResults={setSearchResults}
               isSearching={isSearching}
-              universe={universe}
-              setUniverse={setUniverse}
               timeframe={timeframe}
               setTimeframe={setTimeframe}
             />
@@ -145,12 +141,12 @@ const Backtest: React.FC = () => {
                 variant="secondary"
                 className={`w-full justify-center ${dataStatus === 'READY' ? 'bg-emerald-900/20 border-emerald-500/50 text-emerald-400' : ''}`}
                 onClick={handleLoadData}
-                disabled={dataStatus === 'LOADING' || (mode === 'SINGLE' && !symbol)}
+                disabled={dataStatus === 'LOADING' || !symbol}
                 icon={dataStatus === 'LOADING' ? <div className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin"></div> : <Database className="w-4 h-4" />}
               >
                 {dataStatus === 'LOADING' ? 'Validating Data...' :
                   dataStatus === 'READY' ? 'Data Loaded & Validated' :
-                    (mode === 'SINGLE' && !symbol) ? 'Select a Symbol First' : 'Load Market Data'}
+                    !symbol ? 'Select a Symbol First' : 'Load Market Data'}
               </Button>
               {/* Lookback Toggle moved here for visibility */}
               <div className="mt-4 p-3 bg-slate-900/50 rounded-lg border border-slate-800">
@@ -264,7 +260,7 @@ const Backtest: React.FC = () => {
               ) : (
                 <>
                   <PlayCircle className="w-6 h-6 mr-2" />
-                  Start {mode === 'UNIVERSE' ? 'Multi-Asset' : ''} Simulation
+                  Start Simulation
                 </>
               )}
             </button>

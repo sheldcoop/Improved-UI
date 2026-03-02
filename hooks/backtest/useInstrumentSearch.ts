@@ -11,14 +11,14 @@ import { searchInstruments } from '../../services/backtestInternal';
  */
 export const useInstrumentSearch = () => {
     const {
-        mode, segment, symbolSearchQuery,
+        segment, symbolSearchQuery,
         setSearchResults, setIsSearching,
     } = useBacktestContext();
 
     const debouncedSearchQuery = useDebounce(symbolSearchQuery, 300);
 
     useEffect(() => {
-        if (mode !== 'SINGLE' || !debouncedSearchQuery || debouncedSearchQuery.length < 2) {
+        if (!debouncedSearchQuery || debouncedSearchQuery.length < 2) {
             setSearchResults([]);
             return;
         }
@@ -37,5 +37,5 @@ export const useInstrumentSearch = () => {
         };
 
         doSearch();
-    }, [debouncedSearchQuery, segment, mode]);
+    }, [debouncedSearchQuery, segment]);
 };

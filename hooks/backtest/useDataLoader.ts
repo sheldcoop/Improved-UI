@@ -11,7 +11,7 @@ import { logActiveRun, logDataHealth, logAlert } from '../../components/DebugCon
  */
 export const useDataLoader = () => {
     const {
-        mode, symbol, universe, timeframe, startDate, endDate,
+        symbol, timeframe, startDate, endDate,
         useLookback, lookbackMonths,
         setDataStatus, setHealthReport, setFullReportData, setIsReportOpen,
         isFetchingData, setIsFetchingData,
@@ -21,7 +21,7 @@ export const useDataLoader = () => {
     useEffect(() => {
         setDataStatus('IDLE');
         setHealthReport(null);
-    }, [symbol, universe, timeframe, startDate, endDate]);
+    }, [symbol, timeframe, startDate, endDate]);
 
     const handleLoadData = async () => {
         if (isFetchingData) {
@@ -33,7 +33,7 @@ export const useDataLoader = () => {
         setDataStatus('LOADING');
 
         try {
-            const target = mode === 'SINGLE' ? symbol : universe;
+            const target = symbol;
 
             // Extend from-date to cover indicator warmup lookback
             const fromDateObj = new Date(startDate);
@@ -72,7 +72,7 @@ export const useDataLoader = () => {
             setDataStatus('ERROR');
             logAlert([{
                 type: 'error',
-                msg: `Failed to load data for ${mode === 'SINGLE' ? symbol : universe}: ${e}`,
+                msg: `Failed to load data for ${symbol}: ${e}`,
                 timestamp: new Date().toLocaleTimeString(),
             }]);
         } finally {

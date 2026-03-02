@@ -9,7 +9,6 @@ export interface BacktestConfig {
     commission?: number;
     capital?: number;
     strategyName?: string;
-    universe?: string;
     [key: string]: any;
 }
 

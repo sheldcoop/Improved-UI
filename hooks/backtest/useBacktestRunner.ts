@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useBacktestContext } from '../../context/BacktestContext';
-import { runBacktest, runOOSValidation } from '../../services/api';
+import { runOOSValidation } from '../../services/api';
 import { fetchClient } from '../../services/http';
 import { logActiveRun, logOptunaResults, logWFOBreakdown } from '../../components/DebugConsole';
 import { runBacktestWithDhan } from '../../services/backtestInternal';
@@ -33,7 +33,7 @@ export const useBacktestRunner = () => {
     const { toast } = useToast();
     const {
         running, setRunning,
-        mode, symbol, universe, timeframe, strategyId,
+        symbol, timeframe, strategyId,
         selectedInstrument,
         startDate, endDate, params,
         capital, slippage, commission,
@@ -56,7 +56,7 @@ export const useBacktestRunner = () => {
             toast('Please load and validate market data first.', 'warning');
             return;
         }
-        if (mode === 'SINGLE' && !selectedInstrument) {
+        if (!selectedInstrument) {
             toast('Please select a symbol from the search results.', 'warning');
             return;
         }
@@ -65,7 +65,7 @@ export const useBacktestRunner = () => {
         logActiveRun({
             type: isDynamic ? 'WALK_FORWARD_OPTIMIZATION' : 'SINGLE_BACKTEST',
             strategyName: strategyName(strategyId),
-            symbol: mode === 'SINGLE' ? selectedInstrument?.symbol || symbol : universe,
+            symbol: selectedInstrument?.symbol || symbol,
             timeframe,
             startDate,
             endDate,
@@ -74,7 +74,7 @@ export const useBacktestRunner = () => {
         });
 
         try {
-            if (isDynamic && mode === 'SINGLE' && selectedInstrument) {
+            if (isDynamic && selectedInstrument) {
                 // Path 1: Dynamic WFO Backtest
                 const result = await fetchClient<any>('/optimization/wfo', {
                     method: 'POST',
@@ -105,7 +105,7 @@ export const useBacktestRunner = () => {
                     toast('Dynamic Backtest Failed: ' + (result?.error || 'Unknown error'), 'error');
                     logActiveRun(null);
                 }
-            } else if (mode === 'SINGLE' && selectedInstrument) {
+            } else if (selectedInstrument) {
                 // Path 2: Standard Dhan-based Single Backtest
                 const result = await runBacktestWithDhan({
                     instrument_details: {
@@ -142,17 +142,6 @@ export const useBacktestRunner = () => {
                 if (result) {
                     navigate('/results', { state: { result } });
                 }
-            } else {
-                // Path 3: Fallback for Universe mode
-                const config: any = { initial_capital: capital, slippage, commission, ...params };
-                if (mode === 'UNIVERSE') config.universe = universe;
-                const extendedConfig = {
-                    ...config,
-                    statsFreq: statsFreqFromTimeframe(timeframe),
-                };
-                const result = await runBacktest(strategyId, mode === 'SINGLE' ? symbol : universe, extendedConfig);
-                if (result) result.timeframe = timeframe;
-                navigate('/results', { state: { result } });
             }
         } catch (e) {
             toast('Backtest Failed: ' + e, 'error');

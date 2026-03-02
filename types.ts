@@ -189,16 +189,6 @@ export interface Alert {
   msg: string;
 }
 
-export interface PerSymbolResult {
-  symbol: string;
-  totalReturnPct: number;
-  totalTrades: number;
-  winRate: number;
-  maxDrawdownPct: number;
-  sharpeRatio: number;
-  capital: number;
-}
-
 export interface BacktestResult {
   id: string;
   strategyName: string;
@@ -235,12 +225,6 @@ export interface BacktestResult {
   rank?: number;
   paramHistory?: { start: string; end: string; params: Record<string, number>; usingFallback?: boolean }[];
   status: 'running' | 'completed' | 'failed';
-
-  // Multi-symbol properties
-  isMultiSymbol?: boolean;
-  symbolCount?: number;
-  symbols?: string[];
-  perSymbol?: PerSymbolResult[];
 
   // when backtest is invoked via optimization or passed explicit parameters
   // we echo the values here so the UI can display them to the user.

@@ -463,42 +463,6 @@ const Results: React.FC = () => {
             </Card>
           </div>
 
-          {result.isMultiSymbol && result.perSymbol && result.perSymbol.length > 0 && (
-            <div className="mt-6">
-              <Card title={`Portfolio Breakdown (${result.symbolCount} Symbols)`}>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left text-slate-300">
-                    <thead className="text-xs uppercase bg-slate-800/50 text-slate-400 border-b border-slate-700/50">
-                      <tr>
-                        <th className="px-4 py-3 font-semibold">Symbol</th>
-                        <th className="px-4 py-3 font-semibold text-right">Capital</th>
-                        <th className="px-4 py-3 font-semibold text-right">Return %</th>
-                        <th className="px-4 py-3 font-semibold text-right">Sharpe</th>
-                        <th className="px-4 py-3 font-semibold text-right">Max DD %</th>
-                        <th className="px-4 py-3 font-semibold text-right">Win Rate</th>
-                        <th className="px-4 py-3 font-semibold text-right">Trades</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {result.perSymbol.map((p, i) => (
-                        <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/30 transition-colors">
-                          <td className="px-4 py-3 font-medium text-emerald-400">{p.symbol}</td>
-                          <td className="px-4 py-3 text-right">₹{p.capital.toLocaleString()}</td>
-                          <td className={`px-4 py-3 text-right font-semibold ${p.totalReturnPct > 0 ? "text-emerald-500" : p.totalReturnPct < 0 ? "text-red-500" : ""}`}>
-                            {p.totalReturnPct > 0 ? "+" : ""}{safeToFixed(p.totalReturnPct, 2)}%
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono">{safeToFixed(p.sharpeRatio, 2)}</td>
-                          <td className="px-4 py-3 text-right text-red-400 font-mono">-{safeToFixed(p.maxDrawdownPct, 2)}%</td>
-                          <td className="px-4 py-3 text-right">{safeToFixed(p.winRate, 1)}%</td>
-                          <td className="px-4 py-3 text-right text-slate-400">{p.totalTrades}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
-            </div>
-          )}
 
           <div className="mt-6">
             <Card title="Recent Trades" action={<Button variant="ghost" size="sm" onClick={() => setActiveTab('TRADES')}>View All</Button>}>
