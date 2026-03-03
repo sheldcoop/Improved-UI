@@ -20,8 +20,14 @@ import vectorbt as vbt
 from strategies import StrategyFactory
 from utils.alert_manager import AlertManager
 from services.portfolio_utils import boolify, detect_freq
+from services.stats_serializer import serialize_vbt_stats
+from services.trade_formatter import format_trade_records
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_CAPITAL = 100000.0
+DEFAULT_COMMISSION = 20.0
+DEFAULT_SLIPPAGE = 0.0
 
 
 class BacktestEngine:
@@ -32,18 +38,17 @@ class BacktestEngine:
 
     @staticmethod
     def run(
-        df: pd.DataFrame | dict | None,
+        df: pd.DataFrame | None,
         strategy_id: str,
         config: dict | None = None,
     ) -> dict | None:
         """Execute a backtest and return structured results.
 
         Args:
-            df: OHLCV DataFrame (single asset) or dict of DataFrames
-                (universe mode). Must not be None or empty.
+            df: OHLCV DataFrame (single asset). Must not be None or empty.
             strategy_id: Strategy identifier string (e.g. '1', '3', or UUID).
             config: Backtest configuration dict. Supported keys:
-                - slippage (float): Slippage % per trade. Default 0.05.
+                - slippage (float): Slippage % per trade. Default 0.
                 - commission (float): Fixed commission per trade. Default 20.
                 - initial_capital (float): Starting capital. Default 100000.
                 - stopLossPct (float): Stop-loss %. 0 = disabled.
@@ -52,8 +57,6 @@ class BacktestEngine:
                 - pyramiding (int): Max concurrent entries. Default 1.
                 - positionSizing (str): Sizing mode. Default 'Fixed Capital'.
                 - positionSizeValue (float): Size value. Default 100000.
-                - rankingMethod (str): Universe ranking method. Default 'No Ranking'.
-                - rankingTopN (int): Top N assets to trade. Default 5.
 
         Returns:
             Dict with keys: metrics, equityCurve, trades, monthlyReturns,
@@ -72,17 +75,20 @@ class BacktestEngine:
         if config is None:
             config = {}
 
-        if df is None or (isinstance(df, pd.DataFrame) and df.empty):
+        if df is None or df.empty:
             logger.warning("Empty dataframe provided to BacktestEngine")
             return {"status": "failed", "error": "No data found for the selected period."}
 
+        # Guard against input mutation
+        df = df.copy()
+
         # --- 1. CONFIGURATION ---
-        slippage = float(config.get("slippage", 0.0)) / 100.0
-        initial_capital = float(config.get("initial_capital", 100000.0))
+        slippage = float(config.get("slippage", DEFAULT_SLIPPAGE)) / 100.0
+        initial_capital = float(config.get("initial_capital", DEFAULT_CAPITAL))
         # Commission is a flat amount per trade (e.g. ₹20).
         # Use fixed_fees so VectorBT deducts exactly ₹20 per order,
         # matching the reference Colab script and portfolio_utils.build_portfolio.
-        commission_fixed = float(config.get("commission", 20.0))
+        commission_fixed = float(config.get("commission", DEFAULT_COMMISSION))
         sl_pct = float(config.get("stopLossPct", 0)) / 100.0
         tp_pct = float(config.get("takeProfitPct", 0)) / 100.0
         use_trailing = bool(config.get("useTrailingStop", False))
@@ -90,41 +96,34 @@ class BacktestEngine:
         accumulate = pyramiding > 1
 
         # Normalize columns to Title Case before signal generation so strategies
-        # can reliably access df['Close'], df['Open'], etc.
-        if isinstance(df, pd.DataFrame):
-            df.columns = [c.lower() for c in df.columns]
-        elif isinstance(df, dict):
-            for k in df:
-                if isinstance(df[k], pd.DataFrame):
-                    df[k].columns = [c.lower() for c in df[k].columns]
+        # can reliably access df['close'], df['open'], etc.
+        df.columns = [c.lower() for c in df.columns]
 
         # --- 2. GENERATE SIGNALS ---
         strategy = StrategyFactory.get_strategy(strategy_id, config)
-        entries, exits = strategy.generate_signals(df)
+        entries, exits, exec_warnings = strategy.generate_signals(df)
 
         # --- SANITISE SIGNALS (fix numba failures when dtype==object) ---
         entries = boolify(entries)
         exits = boolify(exits)
 
-        close_price = df["close"] if isinstance(df, pd.DataFrame) else df["close"]
+        close_price = df["close"]
         
-        # Diagnostic logging for data range
-        if isinstance(df, pd.DataFrame):
-            logger.info(f"BacktestEngine Execution: strategy_id={strategy_id}, bars={len(df)}, range={df.index.min()} to {df.index.max()}")
-        elif isinstance(df, dict) and "close" in df:
-            logger.info(f"BacktestEngine Universe Execution: assets={len(df['close'].columns)}, bars={len(df['close'])}")
+        # Diagnostic logging for data range and signal counts
+        logger.info(f"BacktestEngine Execution: strategy_id={strategy_id}, bars={len(df)}, range={df.index.min()} to {df.index.max()}")
+        logger.info(f"Signals Generated: {entries.sum()} entries, {exits.sum()} exits")
 
         # --- 3. FREQUENCY DETECTION ---
-        sample_df = df if isinstance(df, pd.DataFrame) else df["close"]
-        vbt_freq = detect_freq(sample_df)
+        vbt_freq = detect_freq(df)
 
-        # --- 4. UNIVERSE RANKING ---
-        entries = BacktestEngine._apply_ranking(entries, df, config)
+        # --- 4. POSITION SIZING ---
+        sizing_mode = config.get("positionSizing", "Fixed Capital")
+        size = float(config.get("positionSizeValue", 100000))
+        size_type = "percent" if sizing_mode == "% of Equity" else "value"
+        if size_type == "percent":
+            size = size / 100.0
 
-        # --- 5. POSITION SIZING ---
-        size, size_type = BacktestEngine._calculate_sizing(config)
-
-        # --- 6. EXECUTION ---
+        # --- 5. EXECUTION ---
         pf_kwargs: dict = {
             "init_cash": initial_capital,
             "fees": 0.0,
@@ -144,516 +143,186 @@ class BacktestEngine:
             pf_kwargs["sl_trail"] = True
         try:
             pf = vbt.Portfolio.from_signals(close_price, entries, exits, **pf_kwargs)
-            # extract basic results (metrics, curves, trades etc.)
-            results = BacktestEngine._extract_results(pf, df, config, vbt_freq=vbt_freq)
+            results = BacktestEngine._extract_results(pf, df, config)
 
-            # optional detailed returns statistics
-            if config is not None:
-                # ensure key exists even if computation fails or is skipped
-                results["returnsStats"] = {}
-                freq = config.get("statsFreq")
-                # Keep original value for statsParams display
-                original_freq = freq
-                # normalize freq for vectorbt if necessary (vectorbt dislikes 'M'/'Y')
-                if isinstance(freq, str) and freq.endswith('M'):
-                    # convert months to 30-day periods; e.g. "1M" -> "30D"
-                    try:
-                        n = int(freq[:-1])
-                        freq = f"{n * 30}D"
-                    except Exception:
-                        # fall back to None and let vectorbt choose auto
-                        freq = None
-                if isinstance(freq, str) and freq.endswith('Y'):
-                    try:
-                        n = int(freq[:-1])
-                        freq = f"{n * 365}D"
-                    except Exception:
-                        freq = None
-                # window stored for display; VectorBT ignores it
-                # compute only when freq truthy and method available
-                if hasattr(pf, "returns_stats") and freq:
-                    try:
-                        rs = pf.returns_stats(freq=freq or None)
-                        if hasattr(rs, "to_dict"):
-                            if hasattr(rs, "columns"):
-                                results["returnsStats"] = rs.to_dict(orient="index")
-                            else:
-                                results["returnsStats"] = rs.to_dict()
-                        else:
-                            results["returnsStats"] = str(rs)
-                    except Exception as e:
-                        logger.warning(f"Failed to compute returns_stats: {e}")
-                        # leave empty dict so frontend shows "no stats"
+            if exec_warnings:
+                for warn in exec_warnings:
+                    results["metrics"]["alerts"].append({
+                        "type": "warning",
+                        "msg": f"Python Strategy Warning: {warn}"
+                    })
 
-            return clean_float_values(results)
+            return results
         except Exception as exc:
-            logger.error(f"VBT Execution Error: {exc}")
-            return None
+            logger.error(f"VBT Execution Error: {exc}", exc_info=True)
+            return {"status": "failed", "error": str(exc), "metrics": {}, "trades": []}
 
-    @staticmethod
-    def _apply_ranking(
-        entries: pd.Series | pd.DataFrame,
-        df: pd.DataFrame | dict,
-        config: dict,
-    ) -> pd.Series | pd.DataFrame:
-        """Apply universe ranking to filter entry signals to top-N assets.
 
-        Args:
-            entries: Boolean entry signal Series or DataFrame.
-            df: OHLCV data (DataFrame or dict of DataFrames for universe).
-            config: Backtest config dict with 'rankingMethod' and 'rankingTopN'.
-
-        Returns:
-            Filtered entry signals with only top-N assets set to True.
-        """
-        ranking_method = config.get("rankingMethod", "No Ranking")
-        top_n = int(config.get("rankingTopN", 5))
-        close_price = df["close"] if isinstance(df, dict) else df["close"]
-
-        if (
-            isinstance(close_price, pd.DataFrame)
-            and ranking_method != "No Ranking"
-            and len(close_price.columns) > top_n
-        ):
-            logger.info(f"Applying Ranking: {ranking_method}, Top {top_n}")
-            rank_metric: pd.DataFrame | None = None
-
-            if ranking_method == "Rate of Change":
-                rank_metric = close_price.pct_change(20)
-            elif ranking_method == "Relative Strength":
-                rank_metric = vbt.RSI.run(close_price, window=14).rsi
-            elif ranking_method == "Volatility":
-                rank_metric = close_price.pct_change().rolling(20).std()
-            elif ranking_method == "Volume":
-                volume = df["volume"] if isinstance(df, dict) else df["volume"]
-                rank_metric = volume.rolling(20).mean()
-
-            if rank_metric is not None:
-                rank_obj = rank_metric.rank(axis=1, ascending=False, pct=False)
-                top_mask = rank_obj <= top_n
-                return entries & top_mask
-
-        return entries
-
-    @staticmethod
-    def _calculate_sizing(config: dict) -> tuple[float, str]:
-        """Determine VectorBT position sizing parameters.
-
-        Args:
-            config: Backtest config dict with 'positionSizing' and
-                'positionSizeValue' keys.
-
-        Returns:
-            Tuple of (size_value, size_type_string) for VBT Portfolio.
-        """
-        sizing_mode = config.get("positionSizing", "Fixed Capital")
-        size_val = float(config.get("positionSizeValue", 100000))
-
-        if sizing_mode == "Fixed Capital":
-            return size_val, "value"
-        elif sizing_mode == "% of Equity":
-            return size_val / 100.0, "percent"
-        elif sizing_mode == "Risk Based (ATR)":
-            return 0.05, "percent"
-
-        return size_val, "value"
 
     @staticmethod
     def _extract_results(
         pf: vbt.Portfolio,
-        df: pd.DataFrame | dict,
+        df: pd.DataFrame,
         config: dict | None = None,
         vbt_freq: str = "1D",
     ) -> dict:
-        """Extract structured results from a VectorBT Portfolio object.
+        """Extract structured results from a VectorBT Portfolio (single-asset).
 
         Args:
             pf: Completed VectorBT Portfolio instance.
-            df: Original OHLCV data used for the backtest (needed for
-                deriving real start/end dates — fixes Issue #15).
+            df: Original OHLCV DataFrame (used for real start/end dates).
+            config: Strategy config dict.
+            vbt_freq: VectorBT frequency string.
 
         Returns:
-            Dict with keys: metrics (dict), equityCurve (list[dict]),
-            trades (list[dict]), monthlyReturns (list[dict]),
-            startDate (str), endDate (str).
+            Dict with keys: metrics, equityCurve, trades, monthlyReturns,
+            startDate, endDate, pfStats, advancedStats.
         """
-        is_universe = (
-            isinstance(pf.wrapper.columns, pd.Index)
-            and len(pf.wrapper.columns) > 1
-        )
+        idx = df.index
+        start_date = str(idx[0].date())  if len(idx) > 0 else "N/A"
+        end_date   = str(idx[-1].date()) if len(idx) > 0 else "N/A"
 
-        # --- Fix Issue #15: derive real dates from data ---
-        if isinstance(df, dict):
-            idx = df["close"].index
-        else:
-            idx = df.index
-        start_date = str(idx[0].date()) if len(idx) > 0 else "N/A"
-        end_date = str(idx[-1].date()) if len(idx) > 0 else "N/A"
+        metrics = BacktestEngine._build_metrics(pf, df)
 
-        metrics: dict = {}
-        trades: list[dict] = []
-        equity_curve: list[dict] = []
-        monthly_returns_data: list[dict] = []
-        pf_stats_result: dict = {}
-        adv_stats_result: dict = {}
+        # Equity curve + drawdown
+        equity_curve, returns_series = BacktestEngine._build_equity_curve(pf)
 
-        if is_universe:
-            total_value = pf.value().sum(axis=1)
-            total_return = (total_value.iloc[-1] - total_value.iloc[0]) / total_value.iloc[0]
-            # Compute drawdown from the aggregated universe portfolio value
-            running_max = total_value.cummax()
-            dd_universe = ((total_value - running_max) / running_max) * 100
-            equity_curve = [
-                {"date": str(d), "value": round(v, 2), "drawdown": round(abs(dd_universe.loc[d]), 2)}
-                for d, v in total_value.items()
-            ]
+        # Trades — vectorized (no iterrows)
+        trades = format_trade_records(pf)
 
-            # win rate and profit factor may not exist on all VectorBT builds;
-            # use safe helpers that fall back to stats or zero when missing.
-            win_rate_val = BacktestEngine._safe_win_rate(pf, universe=True)
-            profit_factor_val = BacktestEngine._safe_profit_factor(pf, universe=True)
+        # Monthly returns extracted down to a 1-line helper function
+        monthly_returns_data = BacktestEngine._compute_monthly_returns(returns_series)
 
-            metrics = {
-                "totalReturnPct": round(total_return * 100, 2),
-                "sharpeRatio": round(pf.sharpe_ratio(freq=vbt_freq).mean(), 2),
-                "maxDrawdownPct": round(abs(pf.max_drawdown().max()) * 100, 2),
-                "winRate": win_rate_val,
-                "profitFactor": profit_factor_val,
-                "totalTrades": int(pf.trades.count().sum()),
-                "alpha": 0.0, "beta": 0.0, "volatility": 0.0, "cagr": 0.0,
-                "sortinoRatio": 0.0, "calmarRatio": 0.0,
-                **BacktestEngine._compute_advanced_metrics(pf, universe=True),
-                "status": "completed"
-            }
-        else:
-            stats = pf.stats()  # freq is already set on pf.wrapper via from_signals(freq=vbt_freq)
+        # pfStats / advStats for the raw tabs
+        try:
+            stats = pf.stats()
+            pf_stats_raw = stats.to_dict() if hasattr(stats, "to_dict") else dict(stats)
+            pf_stats_result = clean_float_values(serialize_vbt_stats(pf_stats_raw))
+        except Exception as e:
+            logger.warning(f"Failed to serialize pf.stats(): {e}")
+            pf_stats_result = {}
 
-            # --- Full pf.stats() for Stats tab ---
-            try:
-                pf_stats_raw = stats.to_dict() if hasattr(stats, "to_dict") else dict(stats)
-                # Convert any non-serialisable values (Timedelta, Timestamp, NaN) to strings
-                pf_stats_serialized = {}
-                for k, v in pf_stats_raw.items():
-                    try:
-                        import math
-                        if isinstance(v, float) and math.isnan(v):
-                            pf_stats_serialized[str(k)] = None
-                        elif hasattr(v, "isoformat"):      # datetime / Timestamp
-                            pf_stats_serialized[str(k)] = v.isoformat()
-                        elif hasattr(v, "total_seconds"):  # Timedelta
-                            pf_stats_serialized[str(k)] = str(v)
-                        else:
-                            pf_stats_serialized[str(k)] = v
-                    except Exception:
-                        pf_stats_serialized[str(k)] = str(v)
-                pf_stats_result = pf_stats_serialized
-            except Exception as e:
-                logger.warning(f"Failed to serialize pf.stats(): {e}")
-                pf_stats_result = {}
+        try:
+            ret_stats = pf.returns().vbt.returns.stats()
+            ret_stats_raw = ret_stats.to_dict() if hasattr(ret_stats, "to_dict") else dict(ret_stats)
+            adv_stats_result = clean_float_values(serialize_vbt_stats(ret_stats_raw))
+        except Exception as e:
+            logger.warning(f"Failed to serialize returns.stats(): {e}")
+            adv_stats_result = {}
 
-            # --- pf.returns().vbt.returns.stats() for Advanced Stats tab ---
-            try:
-                ret_stats = pf.returns().vbt.returns.stats()
-                ret_stats_raw = ret_stats.to_dict() if hasattr(ret_stats, "to_dict") else dict(ret_stats)
-                adv_stats_serialized = {}
-                for k, v in ret_stats_raw.items():
-                    try:
-                        import math
-                        if isinstance(v, float) and math.isnan(v):
-                            adv_stats_serialized[str(k)] = None
-                        elif hasattr(v, "isoformat"):
-                            adv_stats_serialized[str(k)] = v.isoformat()
-                        elif hasattr(v, "total_seconds"):
-                            adv_stats_serialized[str(k)] = str(v)
-                        else:
-                            adv_stats_serialized[str(k)] = v
-                    except Exception:
-                        adv_stats_serialized[str(k)] = str(v)
-                adv_stats_result = adv_stats_serialized
-            except Exception as e:
-                logger.warning(f"Failed to serialize returns.stats(): {e}")
-                adv_stats_result = {}
-
-            # VectorBT 0.20+ uses methods for returns and drawdown
-            equity = pf.value()
-            returns_series = pf.returns() if callable(pf.returns) else pf.returns
-            dd_series = pf.drawdown() if callable(pf.drawdown) else pf.drawdown
-            dd_pct = dd_series * 100
-
-            equity_curve = [
-                {"date": str(d), "value": round(v, 2), "drawdown": round(abs(dd_pct.loc[d]), 2)}
-                for d, v in equity.items()
-            ]
-
-            if hasattr(pf.trades, "records_readable"):
-                for i, row in pf.trades.records_readable.iterrows():
-                    trades.append({
-                        "id": f"t-{i}",
-                        "entryDate": str(row["Entry Timestamp"]),
-                        "exitDate": str(row["Exit Timestamp"]),
-                        "side": "LONG" if row["Direction"] == "Long" else "SHORT",
-                        "qty": round(float(row["Size"]), 4) if "Size" in row.index else None,
-                        "entryPrice": round(row["Avg Entry Price"], 2),
-                        "exitPrice": round(row["Avg Exit Price"], 2),
-                        "pnl": round(row["PnL"], 2),
-                        "pnlPct": round(row["Return"] * 100, 2),
-                        "status": "WIN" if row["PnL"] > 0 else "LOSS",
-                    })
-
-            # Compute true CAGR: (final/initial)^(1/years) - 1
-            total_return = pf.total_return()
-            years = (idx[-1] - idx[0]).days / 365.25 if len(idx) > 1 else 1.0
-            if years > 0 and total_return > -1:
-                cagr_val = round(((1 + total_return) ** (1.0 / years) - 1) * 100, 2)
-            else:
-                cagr_val = round(total_return * 100, 2)
-
-            metrics = {
-                "totalReturnPct": round(total_return * 100, 2),
-                "sharpeRatio": round(stats.get("Sharpe Ratio", 0), 2),
-                "maxDrawdownPct": round(abs(stats.get("Max Drawdown [%]", 0)), 2),
-                # stats may already include a win rate percentage; normalize to one decimal
-                "winRate": round(stats.get("Win Rate [%]", 0), 1),
-                "profitFactor": round(stats.get("Profit Factor", 0), 2),
-                "totalTrades": int(stats.get("Total Trades", 0)),
-                "alpha": round(float(stats.get("Alpha", 0)), 2),
-                "beta": round(float(stats.get("Beta", 0)), 2),
-                "volatility": round(float(stats.get("Volatility (Ann.) [%]", 0)), 1),
-                "cagr": cagr_val,
-                "sortinoRatio": round(float(stats.get("Sortino Ratio", 0)), 2),
-                "calmarRatio": round(float(stats.get("Calmar Ratio", 0)), 2),
-                **BacktestEngine._compute_advanced_metrics(pf, universe=False),
-                "status": "completed"
-            }
-            
-            # --- Diagnostic Alerts ---
-            # AlertManager expects {"metrics": {...}} wrapper, not raw metrics dict
-            metrics["alerts"] = AlertManager.analyze_backtest({"metrics": metrics}, df)
-
-            try:
-                # Use returns_series calculated above
-                # Pandas 2.0 removed the bare "M" alias; use month-end "ME"
-                try:
-                    monthly_resampled = returns_series.resample("ME").apply(
-                        lambda x: (1 + x).prod() - 1
-                    )
-                except ValueError:
-                    # older pandas may still support "M"; fall back if necessary
-                    monthly_resampled = returns_series.resample("M").apply(
-                        lambda x: (1 + x).prod() - 1
-                    )
-                for date, ret in monthly_resampled.items():
-                    monthly_returns_data.append({
-                        "year": date.year,
-                        "month": date.month - 1,  # JS uses 0-indexed months
-                        "returnPct": round(ret * 100, 2),
-                    })
-            except Exception as exc:
-                logger.warning(f"Failed to calculate monthly returns: {exc}")
-
-        # If config omitted just omit statsParams silently
         results: dict = {
-            "metrics": metrics,
-            "equityCurve": equity_curve,
-            "trades": trades,  # chronological order (oldest first); frontend TradeTable handles sorting
+            "metrics":        metrics,
+            "equityCurve":    equity_curve,
+            "trades":         trades,
             "monthlyReturns": monthly_returns_data,
-            "startDate": start_date,
-            "endDate": end_date,
-            "pfStats": pf_stats_result,
-            "advancedStats": adv_stats_result,
+            "startDate":      start_date,
+            "endDate":        end_date,
+            "pfStats":        pf_stats_result,
+            "advancedStats":  adv_stats_result,
+            "returnsStats":   {},
         }
         if config is not None:
             results["statsParams"] = {"freq": config.get("statsFreq"), "window": config.get("statsWindow")}
+
         return results
 
     @staticmethod
-    def _safe_win_rate(pf: vbt.Portfolio, universe: bool = False) -> float:
-        """Return the portfolio win rate as a percentage.
-
-        VectorBT has historically exposed ``pf.win_rate()`` but some versions
-        ship without it and calling the method raises ``AttributeError``.
-        To keep the engine robust we try several approaches in order:
-
-        1. If ``pf.win_rate`` exists and is callable, call it and take the
-           mean (universe portfolios return a ``Series``).
-        2. Inspect ``pf.trades.records_readable`` to compute wins/total trades.
-        3. Fall back to ``pf.stats()`` and look for a ``"Win Rate [%]"`` field.
-        4. Return ``0.0`` if nothing else works.
-
-        Args:
-            pf: VectorBT Portfolio instance
-            universe: unused for now but kept for future custom handling
-        """
-        # 1. try the built‑in method
-        try:
-            method = getattr(pf, "win_rate", None)
-            if callable(method):
-                val = method()
-                # result may be scalar or Series
-                if hasattr(val, "mean"):
-                    return round(val.mean() * 100, 1)
-                else:
-                    return round(float(val) * 100, 1)
-        except Exception:
-            pass
-
-        # 2. compute from trades if available
-        try:
-            rec = getattr(pf.trades, "records_readable", None)
-            if rec is not None and len(rec) > 0:
-                if "PnL" in rec.columns:
-                    wins = rec[rec["PnL"] > 0].shape[0]
-                else:
-                    wins = 0
-                total = rec.shape[0]
-                return round((wins / total) * 100, 1) if total > 0 else 0.0
-        except Exception:
-            pass
-
-        # 3. stats fallback
-        try:
-            stats = pf.stats()
-            wr = stats.get("Win Rate [%]", 0)
-            if hasattr(wr, "mean"):
-                return round(wr.mean(), 1)
-            else:
-                return round(float(wr), 1)
-        except Exception:
-            pass
-
-        # last resort
-        return 0.0
-
+    def _build_equity_curve(pf: vbt.Portfolio) -> tuple[list[dict], pd.Series]:
+        """Build the equity curve payload and return the associated returns series."""
+        equity       = pf.value()
+        returns_series = pf.returns() if callable(pf.returns) else pf.returns
+        dd_pct       = (pf.drawdown() if callable(pf.drawdown) else pf.drawdown) * 100
+        equity_curve = [
+            {"date": str(d), "value": round(v, 2), "drawdown": round(abs(dd_pct.loc[d]), 2)}
+            for d, v in equity.items()
+        ]
+        return equity_curve, returns_series
 
     @staticmethod
-    def _safe_profit_factor(pf: vbt.Portfolio, universe: bool = False) -> float:
-        """Return profit factor as a float; handle missing VectorBT method gracefully.
+    def _build_metrics(pf: vbt.Portfolio, df: pd.DataFrame) -> dict:
+        """Extract all headline metrics, applying JSON sanitisation exclusively locally."""
+        stats = pf.stats()
+        pf_stats_raw = stats.to_dict() if hasattr(stats, "to_dict") else dict(stats)
 
-        The built-in ``pf.profit_factor()`` may not be defined in some releases.
-        We attempt to call it; if unavailable we look at ``pf.stats()`` for a
-        "Profit Factor" key. If all else fails we return 0.0.
-        """
         try:
-            method = getattr(pf, "profit_factor", None)
-            if callable(method):
-                val = method()
-                if hasattr(val, "mean"):
-                    return round(val.mean(), 2)
-                else:
-                    return round(float(val), 2)
+            dt_stats = pf.drawdowns.stats()
+            avg_dd_dur = dt_stats.get("Avg Drawdown Duration", 0)
+            avg_dd_duration = f"{avg_dd_dur.days}d" if hasattr(avg_dd_dur, "days") else f"{int(avg_dd_dur)}d"
         except Exception:
-            pass
+            avg_dd_duration = "0d"
+
         try:
-            stats = pf.stats()
-            pfv = stats.get("Profit Factor", 0)
-            if hasattr(pfv, "mean"):
-                return round(pfv.mean(), 2)
-            else:
-                return round(float(pfv), 2)
+            tr_stats = pf.trades.stats()
+            expectancy = round(float(tr_stats.get("Expectancy", 0)), 2)
+            max_consec = int(tr_stats.get("Max Loss Streak", 0))
         except Exception:
-            pass
-        return 0.0
-
-    @staticmethod
-    def _compute_advanced_metrics(pf: vbt.Portfolio, universe: bool = False) -> dict:
-        """Compute expectancy, consecutive losses, Kelly criterion, avg drawdown duration.
-
-        These metrics are not directly exposed by VectorBT and require
-        custom calculation from the trades records.
-
-        Args:
-            pf: Completed VectorBT Portfolio instance.
-            universe: If True, aggregates across all assets in the portfolio.
-
-        Returns:
-            Dict with keys: expectancy (float), consecutiveLosses (int),
-            kellyCriterion (float), avgDrawdownDuration (str).
-        """
-        try:
-            if universe:
-                # Aggregate all trade PnLs across assets
-                try:
-                    all_pnl = pf.trades.records_readable["PnL"].values
-                except Exception:
-                    all_pnl = np.array([])
-            else:
-                try:
-                    all_pnl = pf.trades.records_readable["PnL"].values
-                except Exception:
-                    all_pnl = np.array([])
-
-            if len(all_pnl) == 0:
-                return {
-                    "expectancy": 0.0,
-                    "consecutiveLosses": 0,
-                    "kellyCriterion": 0.0,
-                    "avgDrawdownDuration": "0d",
-                }
-
-            wins = all_pnl[all_pnl > 0]
-            losses = all_pnl[all_pnl <= 0]
-            n_total = len(all_pnl)
-            n_wins = len(wins)
-            n_losses = len(losses)
-
-            win_rate = n_wins / n_total if n_total > 0 else 0.0
-            avg_win = float(np.mean(wins)) if n_wins > 0 else 0.0
-            avg_loss = float(np.mean(np.abs(losses))) if n_losses > 0 else 0.0
-
-            # Expectancy: (win_rate * avg_win) - (loss_rate * avg_loss)
-            expectancy = round((win_rate * avg_win) - ((1 - win_rate) * avg_loss), 2)
-
-            # Kelly Criterion: W - (1-W)/R  where R = avg_win / avg_loss
-            if avg_loss > 0 and avg_win > 0:
-                r_ratio = avg_win / avg_loss
-                kelly = win_rate - ((1 - win_rate) / r_ratio)
-                kelly = round(max(0.0, min(kelly, 1.0)) * 100, 1)  # as %
-            else:
-                kelly = 0.0
-
-            # Max consecutive losses
+            expectancy = 0.0
             max_consec = 0
-            current_consec = 0
-            for pnl in all_pnl:
-                if pnl <= 0:
-                    current_consec += 1
-                    max_consec = max(max_consec, current_consec)
-                else:
-                    current_consec = 0
 
-            # Average drawdown duration
+        total_return_pct = round(pf.total_return() * 100, 2)
+        
+        # Robust CAGR computation (Bypassing VectorBT's freq-dependent internal logic)
+        try:
+            days = (df.index[-1] - df.index[0]).days
+            if days > 0:
+                years = days / 365.25
+                cagr_val = (((1 + (total_return_pct / 100)) ** (1 / years)) - 1) * 100
+                cagr = round(cagr_val, 2)
+            else:
+                cagr = 0.0
+        except Exception:
+            cagr = round(float(pf_stats_raw.get("Ann. Return [%]", 0)), 2)
+
+        metrics = {
+            "totalReturnPct": total_return_pct,
+            "sharpeRatio":    round(float(pf_stats_raw.get("Sharpe Ratio", 0)), 2),
+            "maxDrawdownPct": round(abs(float(pf_stats_raw.get("Max Drawdown [%]", 0))), 2),
+            "winRate":        round(float(pf_stats_raw.get("Win Rate [%]", 0)), 1),
+            "profitFactor":   round(float(pf_stats_raw.get("Profit Factor", 0)), 2),
+            "totalTrades":    int(pf_stats_raw.get("Total Trades", 0)),
+            "alpha":          round(float(pf_stats_raw.get("Alpha", 0)), 2),
+            "beta":           round(float(pf_stats_raw.get("Beta", 0)), 2),
+            "volatility":     round(float(pf_stats_raw.get("Volatility (Ann.) [%]", 0)), 1),
+            "cagr":           cagr,
+            "sortinoRatio":   round(float(pf_stats_raw.get("Sortino Ratio", 0)), 2),
+            "calmarRatio":    round(float(pf_stats_raw.get("Calmar Ratio", 0)), 2),
+            "expectancy":     expectancy,
+            "consecutiveLosses": max_consec,
+            "avgDrawdownDuration": avg_dd_duration,
+            "status": "completed",
+        }
+        clean_metrics = clean_float_values(metrics)
+        alerts: list[dict] = AlertManager.analyze_backtest({"metrics": clean_metrics}, df)
+
+        # Inject 0-trade explanation if applicable
+        if clean_metrics.get("totalTrades", 0) == 0:
+            alerts.insert(0, {
+                "type": "warning", 
+                "msg": "0 trades executed. Check if your entry logic is reversed, or if indicator conditions ever converged."
+            })
+            
+        clean_metrics["alerts"] = alerts
+        return clean_metrics
+
+    @staticmethod
+    def _compute_monthly_returns(returns_series: pd.Series) -> list[dict]:
+        """Aggregate daily returns into cleanly formatted monthly returns."""
+        data = []
+        try:
             try:
-                raw_dd = pf.drawdown() if callable(pf.drawdown) else pf.drawdown
-                dd_series = raw_dd if not universe else raw_dd.mean(axis=1)
-                in_dd = dd_series < 0
-                # Count consecutive bars in drawdown
-                durations = []
-                count = 0
-                for val in in_dd:
-                    if val:
-                        count += 1
-                    elif count > 0:
-                        durations.append(count)
-                        count = 0
-                if count > 0:
-                    durations.append(count)
-                avg_dur = int(np.mean(durations)) if durations else 0
-                avg_dd_duration = f"{avg_dur}d"
-            except Exception:
-                avg_dd_duration = "0d"
-
-            return {
-                "expectancy": expectancy,
-                "consecutiveLosses": int(max_consec),
-                "kellyCriterion": kelly,
-                "avgDrawdownDuration": avg_dd_duration,
-            }
-
+                monthly_resampled = returns_series.resample("ME").apply(lambda x: (1 + x).prod() - 1)
+            except ValueError:
+                # Fallback for pandas < 2.2.0
+                monthly_resampled = returns_series.resample("M").apply(lambda x: (1 + x).prod() - 1)
+                
+            for date, ret in monthly_resampled.items():
+                data.append({
+                    "year": date.year,
+                    "month": date.month - 1,  # JS 0-indexed months
+                    "returnPct": round(ret * 100, 2),
+                })
         except Exception as exc:
-            logger.warning(f"Advanced metrics calculation failed: {exc}")
-            return {
-                "expectancy": 0.0,
-                "consecutiveLosses": 0,
-                "kellyCriterion": 0.0,
-                "avgDrawdownDuration": "0d",
-            }
+            logger.warning(f"Failed to calculate monthly returns: {exc}")
+        return data
+
+

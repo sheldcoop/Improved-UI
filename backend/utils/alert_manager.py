@@ -50,7 +50,7 @@ class AlertManager:
 
         # 3. Drawdown check
         max_dd = metrics.get("maxDrawdownPct", 0)
-        if max_dd > AlertManager.MAX_SAFE_DRAWDOWN_PCT:
+        if max_dd is not None and max_dd > AlertManager.MAX_SAFE_DRAWDOWN_PCT:
              AlertManager._add_alert(
                 alerts, "warning", 
                 f"Extreme Drawdown ({max_dd:.1f}%) → Risk of ruin is very high."

@@ -30,19 +30,19 @@ const StatsGrid: React.FC<{ data: Record<string, any>; emptyMessage: string }> =
           val === null || val === undefined
             ? '—'
             : isNum
-            ? isPercent
-              ? `${numVal.toFixed(2)}%`
-              : Number.isInteger(numVal)
-              ? numVal.toString()
-              : numVal.toFixed(4)
-            : String(val);
+              ? isPercent
+                ? `${numVal.toFixed(2)}%`
+                : Number.isInteger(numVal)
+                  ? numVal.toString()
+                  : numVal.toFixed(4)
+              : String(val);
         const colorClass =
           isNum && isPercent
             ? numVal > 0
               ? 'text-emerald-400'
               : numVal < 0
-              ? 'text-red-400'
-              : 'text-slate-100'
+                ? 'text-red-400'
+                : 'text-slate-100'
             : 'text-slate-100';
         return (
           <div key={key} className="bg-slate-900 border border-slate-800 rounded-lg p-3 hover:border-slate-700 transition-colors">
@@ -139,9 +139,9 @@ const Results: React.FC = () => {
 
   const handleTradeClick = (trade: Trade) => {
     const tradeEntry = normaliseDate(trade.entryDate);
-    const tradeExit  = normaliseDate(trade.exitDate);
+    const tradeExit = normaliseDate(trade.exitDate);
     const entryIdx = result?.equityCurve.findIndex(c => normaliseDate(c.date) === tradeEntry) ?? -1;
-    const exitIdx  = result?.equityCurve.findIndex(c => normaliseDate(c.date) === tradeExit)  ?? -1;
+    const exitIdx = result?.equityCurve.findIndex(c => normaliseDate(c.date) === tradeExit) ?? -1;
 
     const padding = 5;
     const startIdx = Math.max(0, (entryIdx >= 0 ? entryIdx : 0) - padding);
@@ -317,7 +317,7 @@ const Results: React.FC = () => {
             <MetricBox label="Win Rate" value={`${formatMetric(result.metrics?.winRate, 1)}%`} good={(result.metrics?.winRate ?? 0) > 50} />
             <MetricBox label="Expectancy" value={formatMetric(result.metrics?.expectancy)} good={(result.metrics?.expectancy ?? 0) > 0} />
             <MetricBox label="Profit Factor" value={formatMetric(result.metrics?.profitFactor)} />
-            <MetricBox label="Kelly %" value={`${formatMetric(result.metrics?.kellyCriterion, 1)}%`} />
+
             <MetricBox label="Total Trades" value={result.metrics?.totalTrades?.toString() || '0'} />
           </div>
 

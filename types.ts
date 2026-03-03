@@ -233,7 +233,6 @@ export interface BacktestResult {
     avgDrawdownDuration: string;
     winRate: number;
     profitFactor: number;
-    kellyCriterion: number;
     totalTrades: number;
     consecutiveLosses: number;
     alpha: number;
@@ -259,7 +258,6 @@ export interface BacktestResult {
   paramSet?: Record<string, number>;
   // additional statistics produced when the user specifies
   // `statsFreq`/`statsWindow` via the integration payloads.
-  returnsStats?: Record<string, any>;
   statsParams?: { freq?: string; window?: number };
   pfStats?: Record<string, any>;        // full pf.stats() output — for Stats tab
   advancedStats?: Record<string, any>;  // pf.returns().vbt.returns.stats() — for Advanced Stats tab

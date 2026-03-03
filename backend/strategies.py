@@ -43,7 +43,7 @@ class BaseStrategy:
             df: OHLCV DataFrame or dict of DataFrames (universe mode).
 
         Returns:
-            Tuple of (entries, exits) — boolean Series or DataFrames.
+            Tuple of (entries, exits, warnings) — boolean Series or DataFrames, and a list of warning strings.
 
         Raises:
             NotImplementedError: Subclasses must implement this method.
@@ -232,7 +232,7 @@ class DynamicStrategy(BaseStrategy):
 
     def generate_signals(
         self, df: pd.DataFrame | dict
-    ) -> tuple[pd.Series | pd.DataFrame, pd.Series | pd.DataFrame]:
+    ) -> tuple[pd.Series | pd.DataFrame, pd.Series | pd.DataFrame, list[str]]:
         """Generate entry and exit signals from the strategy config.
 
         Supports both VISUAL mode (rule builder) and CODE mode
@@ -248,11 +248,12 @@ class DynamicStrategy(BaseStrategy):
             df: OHLCV DataFrame or dict of DataFrames (universe mode).
 
         Returns:
-            Tuple of (entries, exits) — boolean Series or DataFrames
-            aligned to the input DataFrame's index.
+            Tuple of (entries, exits, warnings) — boolean Series or DataFrames
+            aligned to the input DataFrame's index, and a list of warnings.
         """
+        warnings_list: list[str] = []
         if self.config.get("mode") == "CODE":
-            entries, exits = self._execute_python_code(df)
+            entries, exits, warnings_list = self._execute_python_code(df)
         else:
             entry_group = self.config.get("entryLogic")
             exit_group = self.config.get("exitLogic")
@@ -293,11 +294,11 @@ class DynamicStrategy(BaseStrategy):
             entries = entries.shift(1).fillna(False)
             exits = exits.shift(1).fillna(False)
 
-        return entries, exits
+        return entries, exits, warnings_list
 
     def _execute_python_code(
         self, df: pd.DataFrame | dict
-    ) -> tuple[pd.Series | None, pd.Series | None]:
+    ) -> tuple[pd.Series | None, pd.Series | None, list[str]]:
         """Execute user-defined Python code in a restricted sandbox.
 
         The sandbox blocks object introspection escape vectors
@@ -310,17 +311,18 @@ class DynamicStrategy(BaseStrategy):
                 into the user's code scope.
 
         Returns:
-            Tuple of (entries, exits) from the user's signal_logic(df)
-            function, or (None, None) on error or missing function.
+            Tuple of (entries, exits, warnings) from the user's signal_logic(df)
+            function, or (None, None, []) on error or missing function.
 
         Raises:
             No exceptions are raised — all errors are logged.
         """
         import ast
+        import warnings
 
         code = self.config.get("pythonCode", "")
         if not code:
-            return None, None
+            return None, None, []
 
         # --- Issue #13: AST scan for blocked attribute accesses ---
         try:
@@ -330,15 +332,15 @@ class DynamicStrategy(BaseStrategy):
                     logger.error(
                         f"Code sandbox violation: blocked attribute '{node.attr}' detected."
                     )
-                    return None, None
+                    return None, None, []
                 if isinstance(node, ast.Name) and node.id in _BLOCKED_ATTRS:
                     logger.error(
                         f"Code sandbox violation: blocked name '{node.id}' detected."
                     )
-                    return None, None
+                    return None, None, []
         except SyntaxError as exc:
             logger.error(f"Code Syntax Error: {exc}")
-            return None, None
+            return None, None, []
 
         try:
             safe_globals: dict = {
@@ -357,16 +359,21 @@ class DynamicStrategy(BaseStrategy):
                 # 'config' gives code access to strategy params (e.g. period, multiplier)
                 "config": self.config.get("params", self.config),
             }
-            exec(code, safe_globals)  # noqa: S102
+            
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                exec(code, safe_globals)  # noqa: S102
 
-            if "signal_logic" in safe_globals:
-                return safe_globals["signal_logic"](df)
-            else:
-                logger.error("Python Code must define a 'signal_logic(df)' function.")
-                return None, None
+                if "signal_logic" in safe_globals:
+                    entries, exits = safe_globals["signal_logic"](df)
+                    captured_warnings = [str(warn.message) for warn in w]
+                    return entries, exits, captured_warnings
+                else:
+                    logger.error("Python Code must define a 'signal_logic(df)' function.")
+                    return None, None, []
         except Exception as exc:
             logger.error(f"Code Execution Error: {exc}")
-            return None, None
+            return None, None, []
 
 
 class StrategyFactory:
