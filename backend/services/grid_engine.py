@@ -168,7 +168,7 @@ class GridEngine:
 
             try:
                 strategy = StrategyFactory.get_strategy(strategy_id, trial_params)
-                entries, exits = strategy.generate_signals(df)
+                entries, exits, *_ = strategy.generate_signals(df)
 
                 pf = build_portfolio(
                     df["close"], entries, exits,

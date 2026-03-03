@@ -106,7 +106,7 @@ class TestColumnNormalisation:
         df = _make_oscillating_ohlcv()
         df.columns = [c.lower() for c in df.columns]
         strategy = StrategyFactory.get_strategy("1", {"period": 14, "lower": 30, "upper": 70})
-        entries, exits = strategy.generate_signals(df)
+        entries, exits, *_ = strategy.generate_signals(df)
         assert isinstance(entries, pd.Series), f"entries is {type(entries)}, expected pd.Series"
         assert isinstance(exits, pd.Series), f"exits is {type(exits)}, expected pd.Series"
 

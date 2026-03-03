@@ -235,8 +235,7 @@ export interface BacktestResult {
     profitFactor: number;
     totalTrades: number;
     consecutiveLosses: number;
-    alpha: number;
-    beta: number;
+    omegaRatio: number;
     volatility: number;
     expectancy: number;
     alerts?: Alert[];

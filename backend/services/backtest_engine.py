@@ -101,7 +101,8 @@ class BacktestEngine:
 
         # --- 2. GENERATE SIGNALS ---
         strategy = StrategyFactory.get_strategy(strategy_id, config)
-        entries, exits, exec_warnings = strategy.generate_signals(df)
+        entries, exits, *_w = strategy.generate_signals(df)
+        exec_warnings: list = list(_w[0]) if _w and _w[0] else []
 
         # --- SANITISE SIGNALS (fix numba failures when dtype==object) ---
         entries = boolify(entries)
@@ -273,19 +274,25 @@ class BacktestEngine:
         except Exception:
             cagr = round(float(pf_stats_raw.get("Ann. Return [%]", 0)), 2)
 
+        # Compute max drawdown once so Calmar can reuse it.
+        # VBT's built-in Calmar mixes units (divides % return by decimal drawdown),
+        # producing values like 422 instead of ~8. We compute it correctly here:
+        # Calmar = CAGR (%) / Max Drawdown (%) — both in the same unit.
+        max_dd_pct = round(abs(float(pf_stats_raw.get("Max Drawdown [%]", 0))), 2)
+        calmar = round(cagr / max_dd_pct, 2) if max_dd_pct > 0 else 0.0
+
         metrics = {
             "totalReturnPct": total_return_pct,
             "sharpeRatio":    round(float(pf_stats_raw.get("Sharpe Ratio", 0)), 2),
-            "maxDrawdownPct": round(abs(float(pf_stats_raw.get("Max Drawdown [%]", 0))), 2),
+            "maxDrawdownPct": max_dd_pct,
             "winRate":        round(float(pf_stats_raw.get("Win Rate [%]", 0)), 1),
             "profitFactor":   round(float(pf_stats_raw.get("Profit Factor", 0)), 2),
             "totalTrades":    int(pf_stats_raw.get("Total Trades", 0)),
-            "alpha":          round(float(pf_stats_raw.get("Alpha", 0)), 2),
-            "beta":           round(float(pf_stats_raw.get("Beta", 0)), 2),
+            "omegaRatio":     round(float(pf_stats_raw.get("Omega Ratio", 0)), 2),
             "volatility":     round(float(pf_stats_raw.get("Volatility (Ann.) [%]", 0)), 1),
             "cagr":           cagr,
             "sortinoRatio":   round(float(pf_stats_raw.get("Sortino Ratio", 0)), 2),
-            "calmarRatio":    round(float(pf_stats_raw.get("Calmar Ratio", 0)), 2),
+            "calmarRatio":    calmar,
             "expectancy":     expectancy,
             "consecutiveLosses": max_consec,
             "avgDrawdownDuration": avg_dd_duration,

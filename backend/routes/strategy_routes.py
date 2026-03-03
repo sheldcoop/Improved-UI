@@ -268,7 +268,7 @@ def preview_signals():
 
         strategy_id = data.get("strategyId", None)
         strategy = StrategyFactory.get_strategy(strategy_id, data)
-        entries, exits = strategy.generate_signals(df)
+        entries, exits, *_ = strategy.generate_signals(df)
 
         # CODE mode returns (None, None) on error — surface it to the user
         if entries is None or exits is None:
