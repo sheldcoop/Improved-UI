@@ -14,6 +14,8 @@ import vectorbt as vbt
 from logging import getLogger
 import ta
 
+from services.indicator_registry import compute_indicator
+
 from services.timeframe_resampler import TimeframeResampler
 
 logger = getLogger(__name__)
@@ -65,28 +67,22 @@ class DynamicStrategy(BaseStrategy):
     ) -> pd.Series | pd.DataFrame | None:
         """Compute an indicator series, with optional MTF resampling.
 
-        When *timeframe* is provided and is different from the base
-        timeframe, the OHLCV data is resampled to that higher timeframe
-        (using :class:`~services.timeframe_resampler.TimeframeResampler`),
-        the indicator is computed on the resampled data, and the result is
-        forward-filled back to the base index so it aligns with every
-        original bar.
+        Delegates all indicator computation to indicator_registry.compute_indicator().
+        To add a new indicator to the platform, update indicator_registry.py only.
+        No changes are required in this file.
 
         Args:
             df: OHLCV DataFrame or dict of DataFrames.
-            indicator_type: Indicator name (e.g. 'RSI', 'SMA', 'Close Price').
+            indicator_type: Indicator name matching a key in INDICATOR_REGISTRY.
             period: Lookback period for the indicator. Default 14.
             timeframe: Optional higher timeframe for MTF resampling
-                (e.g. '1W', '1ME'). If None or 'Curr', uses the base
-                timeframe unchanged.
+                (e.g. '1W', '1ME'). If None or 'Curr', uses base timeframe.
 
         Returns:
             Indicator Series (or DataFrame for universe mode), re-indexed
             to the original timeline when MTF resampling is applied.
         """
         # --- MTF resampling -------------------------------------------------
-        # Use the shared TimeframeResampler (cached on this instance) so that
-        # multiple conditions sharing the same higher TF reuse one DataFrame.
         if timeframe and timeframe not in ("Curr", "curr", ""):
             if not hasattr(self, "_resampler") or self._resampler is None:
                 self._resampler = TimeframeResampler(df)
@@ -94,63 +90,24 @@ class DynamicStrategy(BaseStrategy):
         else:
             base_df = df
 
+        # --- Universe mode: compute indicator per-asset then reassemble -----
         is_universe = isinstance(base_df, dict)
-
         if is_universe:
-            close  = base_df.get("close")
-            high   = base_df.get("high", close)
-            low    = base_df.get("low",  close)
-            volume = base_df.get("volume", None)
-            open_p = base_df.get("open",  close)
+            close_df = base_df.get("close")
+            results = {}
+            for col in close_df.columns:
+                asset_df_flat = pd.DataFrame({
+                    k: base_df[k][col]
+                    for k in base_df
+                    if isinstance(base_df[k], pd.DataFrame) and col in base_df[k].columns
+                })
+                results[col] = compute_indicator(asset_df_flat, indicator_type, int(period) if period else 14)
+            result_series = pd.DataFrame(results)
         else:
-            close  = base_df["close"]
-            high   = base_df.get("high",   close)
-            low    = base_df.get("low",    close)
-            volume = base_df.get("volume", None)
-            open_p = base_df.get("open",   None)
-
-        period = int(period) if period else 14
-        result_series = None
-
-        try:
-            if indicator_type == "RSI":
-                result_series = vbt.RSI.run(close, window=period).rsi
-            elif indicator_type == "SMA":
-                result_series = vbt.MA.run(close, window=period).ma
-            elif indicator_type == "EMA":
-                result_series = close.ewm(span=period, adjust=False).mean()
-            elif indicator_type == "MACD":
-                result_series = ta.trend.macd(close, window_slow=26, window_fast=12)
-            elif indicator_type == "MACD Signal":
-                result_series = ta.trend.macd_signal(close, window_slow=26, window_fast=12, window_sign=9)
-            elif indicator_type == "Bollinger Upper":
-                result_series = vbt.BBANDS.run(close, window=period).upper
-            elif indicator_type == "Bollinger Lower":
-                result_series = vbt.BBANDS.run(close, window=period).lower
-            elif indicator_type == "Bollinger Mid":
-                result_series = vbt.BBANDS.run(close, window=period).middle
-            elif indicator_type == "ATR":
-                result_series = vbt.ATR.run(high, low, close, window=period).atr
-            elif indicator_type == "Close Price":
-                result_series = close
-            elif indicator_type == "Open Price":
-                result_series = open_p
-            elif indicator_type == "High Price":
-                result_series = high
-            elif indicator_type == "Low Price":
-                result_series = low
-            elif indicator_type == "Volume":
-                result_series = volume if volume is not None else close
-            else:
-                result_series = close
-        except Exception as exc:
-            logger.error(f"Indicator Error ({indicator_type}): {exc}")
-            result_series = close
+            # --- Single-asset mode ----------------------------------------
+            result_series = compute_indicator(base_df, indicator_type, int(period) if period else 14)
 
         # --- Align back to base index (MTF only) ----------------------------
-        # When we resampled to a higher timeframe, align the computed series
-        # back to the original daily index via forward-fill so that every
-        # base bar has the most recent higher-TF indicator value.
         if timeframe and timeframe not in ("Curr", "curr", "") and result_series is not None:
             if hasattr(self, "_resampler") and self._resampler is not None:
                 result_series = self._resampler.align_to_base(result_series)

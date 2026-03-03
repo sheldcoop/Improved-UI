@@ -25,6 +25,7 @@ from routes.optimization_routes import optimization_bp
 from routes.risk_routes import risk_bp
 from routes.paper_routes import paper_bp
 from routes.strategy_routes import strategy_bp
+from services.indicator_registry import get_indicator_metadata
 
 # --- LOGGING SETUP ---
 LOG_BUFFER = deque(maxlen=500)
@@ -110,6 +111,19 @@ def log_request(response):
 @app.route('/api/v1/debug/logs', methods=['GET'])
 def get_logs():
     return jsonify(list(LOG_BUFFER))
+
+@app.route('/api/v1/indicators', methods=['GET'])
+def get_indicators():
+    """Return the full indicator registry metadata for the frontend.
+
+    The response contains an ordered list of groups, each with the list of
+    indicators in that group. The frontend uses this to build grouped dropdowns
+    without hardcoding indicator names in TypeScript.
+
+    Returns:
+        JSON: {groups: [{group: str, indicators: [{name, hasPeriod, periodConfig}]}]}
+    """
+    return jsonify(get_indicator_metadata())
 
 @app.route('/api/v1/debug/clear', methods=['POST'])
 def clear_logs():

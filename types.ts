@@ -14,20 +14,47 @@ export enum Timeframe {
 }
 
 export enum IndicatorType {
-  RSI = 'RSI',
-  SMA = 'SMA',
-  EMA = 'EMA',
-  MACD = 'MACD',
-  MACD_SIGNAL = 'MACD Signal',
-  BOL_UPPER = 'Bollinger Upper',
-  BOL_LOWER = 'Bollinger Lower',
-  BOL_MID = 'Bollinger Mid',
-  ATR = 'ATR',
+  // ── Price ─────────────────────────────────────────────────────────────
   CLOSE = 'Close Price',
   OPEN = 'Open Price',
   HIGH = 'High Price',
   LOW = 'Low Price',
   VOLUME = 'Volume',
+
+  // ── Trend ─────────────────────────────────────────────────────────────
+  SMA = 'SMA',
+  EMA = 'EMA',
+  MACD = 'MACD',
+  MACD_SIGNAL = 'MACD Signal',
+  ADX = 'ADX',
+  PSAR_UP = 'Parabolic SAR Up',
+  PSAR_DOWN = 'Parabolic SAR Down',
+  ICHIMOKU_TENKAN = 'Ichimoku Tenkan',
+  ICHIMOKU_KIJUN = 'Ichimoku Kijun',
+
+  // ── Momentum ──────────────────────────────────────────────────────────
+  RSI = 'RSI',
+  STOCH_K = 'Stochastic K',
+  STOCH_D = 'Stochastic D',
+  WILLIAMS_R = 'Williams %R',
+  CCI = 'CCI',
+  ROC = 'ROC',
+  MFI = 'MFI',
+
+  // ── Volatility ────────────────────────────────────────────────────────
+  ATR = 'ATR',
+  BOL_UPPER = 'Bollinger Upper',
+  BOL_LOWER = 'Bollinger Lower',
+  BOL_MID = 'Bollinger Mid',
+  KELTNER_UPPER = 'Keltner Upper',
+  KELTNER_LOWER = 'Keltner Lower',
+  DONCHIAN_HIGH = 'Donchian High',
+  DONCHIAN_LOW = 'Donchian Low',
+
+  // ── Volume ────────────────────────────────────────────────────────────
+  VWAP = 'VWAP',
+  OBV = 'OBV',
+  CMF = 'CMF',
 }
 
 export enum Operator {

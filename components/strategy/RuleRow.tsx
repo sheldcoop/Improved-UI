@@ -9,27 +9,117 @@ interface RuleRowProps {
     onRemove: () => void;
 }
 
-/** Per-indicator period constraints. null = hide period input (e.g. raw price series). */
-const PERIOD_CONFIG: Record<string, { min: number; max: number; label: string } | null> = {
-    [IndicatorType.RSI]: { min: 2, max: 100, label: 'Period (2–100)' },
-    [IndicatorType.SMA]: { min: 2, max: 500, label: 'Period (2–500)' },
-    [IndicatorType.EMA]: { min: 2, max: 500, label: 'Period (2–500)' },
-    [IndicatorType.MACD]: { min: 2, max: 50, label: 'Fast period (2–50)' },
-    [IndicatorType.MACD_SIGNAL]: { min: 2, max: 50, label: 'Signal period (2–50)' },
-    [IndicatorType.BOL_UPPER]: { min: 2, max: 100, label: 'Period (2–100)' },
-    [IndicatorType.BOL_LOWER]: { min: 2, max: 100, label: 'Period (2–100)' },
-    [IndicatorType.BOL_MID]: { min: 2, max: 100, label: 'Period (2–100)' },
-    [IndicatorType.ATR]: { min: 1, max: 50, label: 'Period (1–50)' },
-    // Price / Volume — period has no meaning, hide the input
-    [IndicatorType.CLOSE]: null,
-    [IndicatorType.OPEN]: null,
-    [IndicatorType.HIGH]: null,
-    [IndicatorType.LOW]: null,
-    [IndicatorType.VOLUME]: null,
-};
+// ─────────────────────────────────────────────────────────────────────────────
+// INDICATOR_GROUPS — single source of truth for the dropdown and period config.
+// Order mirrors indicator_registry.py on the backend. To add a new indicator:
+//   1. Add it to indicator_registry.py (backend)
+//   2. Add enum value to IndicatorType in types.ts
+//   3. Add it to the matching group below
+// ─────────────────────────────────────────────────────────────────────────────
+
+type PeriodCfg = { min: number; max: number; label: string } | null;
+
+interface IndicatorSpec {
+    value: IndicatorType;
+    label: string;
+    period: PeriodCfg;
+}
+
+interface IndicatorGroup {
+    group: string;
+    indicators: IndicatorSpec[];
+}
+
+const p = (min: number, max: number, label: string): PeriodCfg => ({ min, max, label });
+
+const INDICATOR_GROUPS: IndicatorGroup[] = [
+    {
+        group: 'Price',
+        indicators: [
+            { value: IndicatorType.CLOSE, label: 'Close Price', period: null },
+            { value: IndicatorType.OPEN, label: 'Open Price', period: null },
+            { value: IndicatorType.HIGH, label: 'High Price', period: null },
+            { value: IndicatorType.LOW, label: 'Low Price', period: null },
+            { value: IndicatorType.VOLUME, label: 'Volume', period: null },
+        ],
+    },
+    {
+        group: 'Trend',
+        indicators: [
+            { value: IndicatorType.SMA, label: 'SMA', period: p(2, 500, 'Period (2–500)') },
+            { value: IndicatorType.EMA, label: 'EMA', period: p(2, 500, 'Period (2–500)') },
+            { value: IndicatorType.MACD, label: 'MACD', period: p(2, 50, 'Fast period (2–50)') },
+            { value: IndicatorType.MACD_SIGNAL, label: 'MACD Signal', period: p(2, 50, 'Signal period (2–50)') },
+            { value: IndicatorType.ADX, label: 'ADX', period: p(2, 50, 'Period (2–50)') },
+            { value: IndicatorType.PSAR_UP, label: 'Parabolic SAR Up', period: null },
+            { value: IndicatorType.PSAR_DOWN, label: 'Parabolic SAR Down', period: null },
+            { value: IndicatorType.ICHIMOKU_TENKAN, label: 'Ichimoku Tenkan', period: p(5, 50, 'Conversion (5–50)') },
+            { value: IndicatorType.ICHIMOKU_KIJUN, label: 'Ichimoku Kijun', period: p(10, 100, 'Base (10–100)') },
+        ],
+    },
+    {
+        group: 'Momentum',
+        indicators: [
+            { value: IndicatorType.RSI, label: 'RSI', period: p(2, 100, 'Period (2–100)') },
+            { value: IndicatorType.STOCH_K, label: 'Stochastic K', period: p(5, 50, 'Period (5–50)') },
+            { value: IndicatorType.STOCH_D, label: 'Stochastic D', period: p(5, 50, 'Period (5–50)') },
+            { value: IndicatorType.WILLIAMS_R, label: 'Williams %R', period: p(5, 50, 'Period (5–50)') },
+            { value: IndicatorType.CCI, label: 'CCI', period: p(5, 100, 'Period (5–100)') },
+            { value: IndicatorType.ROC, label: 'ROC', period: p(2, 50, 'Period (2–50)') },
+            { value: IndicatorType.MFI, label: 'MFI', period: p(5, 50, 'Period (5–50)') },
+        ],
+    },
+    {
+        group: 'Volatility',
+        indicators: [
+            { value: IndicatorType.ATR, label: 'ATR', period: p(1, 50, 'Period (1–50)') },
+            { value: IndicatorType.BOL_UPPER, label: 'Bollinger Upper', period: p(2, 100, 'Period (2–100)') },
+            { value: IndicatorType.BOL_LOWER, label: 'Bollinger Lower', period: p(2, 100, 'Period (2–100)') },
+            { value: IndicatorType.BOL_MID, label: 'Bollinger Mid', period: p(2, 100, 'Period (2–100)') },
+            { value: IndicatorType.KELTNER_UPPER, label: 'Keltner Upper', period: p(5, 50, 'Period (5–50)') },
+            { value: IndicatorType.KELTNER_LOWER, label: 'Keltner Lower', period: p(5, 50, 'Period (5–50)') },
+            { value: IndicatorType.DONCHIAN_HIGH, label: 'Donchian High', period: p(5, 100, 'Period (5–100)') },
+            { value: IndicatorType.DONCHIAN_LOW, label: 'Donchian Low', period: p(5, 100, 'Period (5–100)') },
+        ],
+    },
+    {
+        group: 'Volume',
+        indicators: [
+            { value: IndicatorType.VWAP, label: 'VWAP', period: null },
+            { value: IndicatorType.OBV, label: 'OBV', period: null },
+            { value: IndicatorType.CMF, label: 'CMF', period: p(5, 50, 'Period (5–50)') },
+        ],
+    },
+];
+
+/** Flat lookup: indicator value → period config. */
+const PERIOD_CONFIG: Record<string, PeriodCfg> = Object.fromEntries(
+    INDICATOR_GROUPS.flatMap(g => g.indicators.map(ind => [ind.value, ind.period]))
+);
 
 const clamp = (val: number, min: number, max: number) =>
     Math.max(min, Math.min(max, isNaN(val) ? min : val));
+
+/** Grouped indicator <select> — renders <optgroup> sections per indicator category. */
+const IndicatorSelect: React.FC<{
+    value: IndicatorType;
+    onChange: (v: IndicatorType) => void;
+    className?: string;
+}> = ({ value, onChange, className }) => (
+    <select
+        value={value}
+        onChange={e => onChange(e.target.value as IndicatorType)}
+        className={className}
+    >
+        {INDICATOR_GROUPS.map(({ group, indicators }) => (
+            <optgroup key={group} label={`── ${group} ──`}>
+                {indicators.map(ind => (
+                    <option key={ind.value} value={ind.value}>{ind.label}</option>
+                ))}
+            </optgroup>
+        ))}
+    </select>
+);
 
 export const RuleRow: React.FC<RuleRowProps> = ({ condition, onChange, onRemove }) => {
     const leftCfg = PERIOD_CONFIG[condition.indicator] ?? { min: 2, max: 500, label: 'Period' };
@@ -52,18 +142,15 @@ export const RuleRow: React.FC<RuleRowProps> = ({ condition, onChange, onRemove 
                     {Object.values(Timeframe).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
 
-                <select
+                <IndicatorSelect
                     value={condition.indicator}
-                    onChange={(e) => {
-                        const newInd = e.target.value as IndicatorType;
+                    onChange={(newInd) => {
                         const cfg = PERIOD_CONFIG[newInd];
                         const keepPeriod = cfg !== null && condition.period >= cfg.min && condition.period <= cfg.max;
                         onChange({ ...condition, indicator: newInd, period: keepPeriod ? condition.period : 14 });
                     }}
-                    className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 w-28 outline-none"
-                >
-                    {Object.values(IndicatorType).map(i => <option key={i} value={i}>{i}</option>)}
-                </select>
+                    className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 w-36 outline-none"
+                />
 
                 {/* Period input — hidden for raw price/volume indicators */}
                 {leftCfg !== null && (
@@ -118,18 +205,15 @@ export const RuleRow: React.FC<RuleRowProps> = ({ condition, onChange, onRemove 
                             {Object.values(Timeframe).map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
 
-                        <select
-                            value={condition.rightIndicator}
-                            onChange={(e) => {
-                                const newInd = e.target.value as IndicatorType;
+                        <IndicatorSelect
+                            value={condition.rightIndicator ?? IndicatorType.CLOSE}
+                            onChange={(newInd) => {
                                 const cfg = PERIOD_CONFIG[newInd];
                                 const keepPeriod = cfg !== null && (condition.rightPeriod ?? 14) >= cfg.min && (condition.rightPeriod ?? 14) <= cfg.max;
                                 onChange({ ...condition, rightIndicator: newInd, rightPeriod: keepPeriod ? (condition.rightPeriod ?? 14) : 14 });
                             }}
-                            className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 w-28 outline-none"
-                        >
-                            {Object.values(IndicatorType).map(i => <option key={i} value={i}>{i}</option>)}
-                        </select>
+                            className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 w-36 outline-none"
+                        />
 
                         {rightCfg !== null && (
                             <input
