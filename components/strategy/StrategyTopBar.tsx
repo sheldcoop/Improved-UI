@@ -1,4 +1,5 @@
 import React from 'react';
+import { DateRangePicker } from '../DateRangePicker';
 
 const COMMON_SYMBOLS = [
     'NIFTY 50', 'BANKNIFTY', 'SENSEX',
@@ -49,25 +50,12 @@ export const StrategyTopBar: React.FC<StrategyTopBarProps> = ({
                 </datalist>
             </div>
 
-            {/* From date */}
-            <div>
-                <label className="text-[10px] text-slate-500 uppercase tracking-wider block mb-1">From</label>
-                <input
-                    type="date"
-                    value={startDate}
-                    onChange={e => onStartDateChange(e.target.value)}
-                    className={DATE_INPUT_CLASS}
-                />
-            </div>
-
-            {/* To date */}
-            <div>
-                <label className="text-[10px] text-slate-500 uppercase tracking-wider block mb-1">To</label>
-                <input
-                    type="date"
-                    value={endDate}
-                    onChange={e => onEndDateChange(e.target.value)}
-                    className={DATE_INPUT_CLASS}
+            <div className="flex-1 min-w-[300px]">
+                <DateRangePicker
+                    startDate={startDate}
+                    endDate={endDate}
+                    setStartDate={onStartDateChange}
+                    setEndDate={onEndDateChange}
                 />
             </div>
 

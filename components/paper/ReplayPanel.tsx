@@ -2,6 +2,7 @@ import React from 'react';
 import { FastForward, Play, Pause, RotateCcw } from 'lucide-react';
 import { Card } from '../ui/Card';
 import { StrategyPicker } from '../shared/StrategyPicker';
+import { DateRangePicker } from '../DateRangePicker';
 import { Strategy, StrategyPreset, Timeframe } from '../../types';
 
 const COMMON_SYMBOLS = [
@@ -91,27 +92,14 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 text-sm pt-2 border-t border-slate-800">
-                <div>
-                    <label className="text-xs text-slate-500 block mb-1">From Date</label>
-                    <input
-                        type="date"
-                        value={startDate}
-                        onChange={e => onStartDateChange(e.target.value)}
-                        disabled={isPlaying}
-                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-slate-200 disabled:opacity-50"
-                    />
-                </div>
-                <div>
-                    <label className="text-xs text-slate-500 block mb-1">To Date</label>
-                    <input
-                        type="date"
-                        value={endDate}
-                        onChange={e => onEndDateChange(e.target.value)}
-                        disabled={isPlaying}
-                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-slate-200 disabled:opacity-50"
-                    />
-                </div>
+            <div className="pt-2 border-t border-slate-800">
+                <DateRangePicker
+                    startDate={startDate}
+                    endDate={endDate}
+                    setStartDate={onStartDateChange}
+                    setEndDate={onEndDateChange}
+                    disabled={isPlaying}
+                />
             </div>
 
             <div className="space-y-1">
