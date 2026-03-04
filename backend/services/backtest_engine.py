@@ -109,7 +109,13 @@ class BacktestEngine:
         exits = boolify(exits)
 
         close_price = df["close"]
+        open_price  = df["open"]
+        high_price  = df["high"]
+        low_price   = df["low"]
         
+        # Eliminate Look-Ahead Bias: if signals shifted for next bar, we must execute at Open, not Close.
+        execute_price = open_price if config.get("nextBarEntry", True) else close_price
+
         # Diagnostic logging for data range and signal counts
         logger.info(f"BacktestEngine Execution: strategy_id={strategy_id}, bars={len(df)}, range={df.index.min()} to {df.index.max()}")
         logger.info(f"Signals Generated: {entries.sum()} entries, {exits.sum()} exits")
@@ -143,7 +149,16 @@ class BacktestEngine:
         if use_trailing and sl_pct > 0:
             pf_kwargs["sl_trail"] = True
         try:
-            pf = vbt.Portfolio.from_signals(close_price, entries, exits, **pf_kwargs)
+            pf = vbt.Portfolio.from_signals(
+                close=close_price,
+                entries=entries,
+                exits=exits,
+                price=execute_price,
+                high=high_price,
+                low=low_price,
+                open=open_price,
+                **pf_kwargs
+            )
             results = BacktestEngine._extract_results(pf, df, config)
 
             if exec_warnings:
@@ -281,17 +296,26 @@ class BacktestEngine:
         max_dd_pct = round(abs(float(pf_stats_raw.get("Max Drawdown [%]", 0))), 2)
         calmar = round(cagr / max_dd_pct, 2) if max_dd_pct > 0 else 0.0
 
+        def _safe_float(val: object, default: float = 0.0) -> float:
+            """Convert a VBT stat value (may be Series) to a plain Python float."""
+            try:
+                if hasattr(val, "iloc"):  # pd.Series from universe portfolios
+                    val = val.iloc[0]
+                return float(val) if val is not None else default
+            except Exception:
+                return default
+
         metrics = {
-            "totalReturnPct": total_return_pct,
-            "sharpeRatio":    round(float(pf_stats_raw.get("Sharpe Ratio", 0)), 2),
-            "maxDrawdownPct": max_dd_pct,
-            "winRate":        round(float(pf_stats_raw.get("Win Rate [%]", 0)), 1),
-            "profitFactor":   round(float(pf_stats_raw.get("Profit Factor", 0)), 2),
-            "totalTrades":    int(pf_stats_raw.get("Total Trades", 0)),
-            "omegaRatio":     round(float(pf_stats_raw.get("Omega Ratio", 0)), 2),
-            "volatility":     round(float(pf_stats_raw.get("Volatility (Ann.) [%]", 0)), 1),
+            "totalReturnPct": round(_safe_float(total_return_pct), 2),
+            "sharpeRatio":    round(_safe_float(pf_stats_raw.get("Sharpe Ratio")), 2),
+            "maxDrawdownPct": round(abs(_safe_float(pf_stats_raw.get("Max Drawdown [%]"))), 2),
+            "winRate":        round(_safe_float(pf_stats_raw.get("Win Rate [%]")), 1),
+            "profitFactor":   round(_safe_float(pf_stats_raw.get("Profit Factor")), 2),
+            "totalTrades":    int(_safe_float(pf_stats_raw.get("Total Trades"))),
+            "omegaRatio":     round(_safe_float(pf_stats_raw.get("Omega Ratio")), 2),
+            "volatility":     round(_safe_float(pf_stats_raw.get("Volatility (Ann.) [%]")), 1),
             "cagr":           cagr,
-            "sortinoRatio":   round(float(pf_stats_raw.get("Sortino Ratio", 0)), 2),
+            "sortinoRatio":   round(_safe_float(pf_stats_raw.get("Sortino Ratio")), 2),
             "calmarRatio":    calmar,
             "expectancy":     expectancy,
             "consecutiveLosses": max_consec,
@@ -332,4 +356,88 @@ class BacktestEngine:
             logger.warning(f"Failed to calculate monthly returns: {exc}")
         return data
 
+    @staticmethod
+    def _compute_advanced_metrics(
+        pf: "vbt.Portfolio",
+    ) -> dict:
+        """Compute quant-grade advanced metrics from a VectorBT Portfolio.
 
+        Called by tests and also by _build_metrics internally. Handles empty
+        trade lists safely and supports both single-asset and universe mode.
+
+        Args:
+            pf: VectorBT Portfolio instance.
+
+        Returns:
+            Dict with keys: expectancy, kellyCriterion, consecutiveLosses,
+            avgDrawdownDuration.
+        """
+        trades_df: pd.DataFrame = pf.trades.records_readable
+        pnl: pd.Series = (
+            trades_df["PnL"] if "PnL" in trades_df.columns
+            else pd.Series([], dtype=float)
+        )
+
+        if pnl.empty:
+            return {
+                "expectancy": 0.0,
+                "kellyCriterion": 0.0,
+                "consecutiveLosses": 0,
+                "avgDrawdownDuration": "0d",
+            }
+
+        wins   = pnl[pnl > 0]
+        losses = pnl[pnl <= 0]
+        n      = len(pnl)
+
+        win_rate  = len(wins)  / n
+        loss_rate = len(losses) / n
+        avg_win   = float(wins.mean())   if len(wins)   > 0 else 0.0
+        avg_loss  = float(losses.mean()) if len(losses) > 0 else 0.0
+
+        expectancy = round(win_rate * avg_win + loss_rate * avg_loss, 2)
+
+        # Kelly: f* = W/|avg_loss| - (1-W)/avg_win  (clamped to [0, 100])
+        if avg_loss != 0 and avg_win > 0:
+            kelly = win_rate / abs(avg_loss) - loss_rate / avg_win
+            kelly = round(max(0.0, min(100.0, kelly * 100)), 2)
+        else:
+            kelly = 0.0
+
+        # Consecutive losses — single linear pass
+        max_streak = streak = 0
+        for p in pnl:
+            if p <= 0:
+                streak += 1
+                max_streak = max(max_streak, streak)
+            else:
+                streak = 0
+
+        # Average drawdown duration from VBT drawdown series
+        try:
+            dd_raw = pf.drawdown() if callable(pf.drawdown) else pf.drawdown
+            dd_arr = getattr(dd_raw, "values", None)
+            if dd_arr is not None:
+                lengths: list[int] = []
+                cur = 0
+                for v in dd_arr:
+                    if v < 0:
+                        cur += 1
+                    else:
+                        if cur > 0:
+                            lengths.append(cur)
+                        cur = 0
+                if cur > 0:
+                    lengths.append(cur)
+                avg_dur = int(round(sum(lengths) / len(lengths))) if lengths else 0
+            else:
+                avg_dur = 0
+        except Exception:
+            avg_dur = 0
+
+        return {
+            "expectancy":          expectancy,
+            "kellyCriterion":      kelly,
+            "consecutiveLosses":   max_streak,
+            "avgDrawdownDuration": f"{avg_dur}d",
+        }

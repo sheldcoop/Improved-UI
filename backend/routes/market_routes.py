@@ -11,11 +11,10 @@ import pandas as pd
 
 from services.data_fetcher import DataFetcher
 from services.scrip_master import search_instruments, get_instrument_by_symbol
-from services.dhan_historical import fetch_historical_data
 from services.strategy_store import StrategyStore
 from services.backtest_engine import BacktestEngine
 from services.data_health import DataHealthService
-from utils.market_calendar import get_nse_trading_days, is_trading_day
+
 from utils.json_utils import clean_float_values
 
 market_bp = Blueprint("market", __name__)

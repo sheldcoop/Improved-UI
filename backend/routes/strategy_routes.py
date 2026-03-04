@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from flask import Blueprint, jsonify, request
 import logging
 import os

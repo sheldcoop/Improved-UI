@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from flask import Blueprint, request, jsonify, Response
+from flask import Blueprint, request, jsonify
 from logging import getLogger
 import json
 
@@ -166,21 +166,50 @@ def create_monitor():
 def delete_monitor(monitor_id: str):
     """Stop and delete a strategy monitor.
 
+    Performs a force-close on any open position tied to this monitor
+    before deleting it, so no position is ever left orphaned without
+    an active LTP/signal checker.
+
     Args:
         monitor_id: Monitor UUID from URL path.
 
     Returns:
-        200 with deleted monitor, 404 if not found.
+        200 with deleted id, 404 if monitor not found.
     """
     try:
+        # ------------------------------------------------------------------
+        # Force-close any open positions tied to this monitor
+        # ------------------------------------------------------------------
+        all_positions = paper_store.get_positions()
+        orphaned = [p for p in all_positions if p.get("monitor_id") == monitor_id]
+
+        if orphaned:
+            from services.ltp_service import get_ltp
+            for pos in orphaned:
+                ltp = get_ltp(pos["symbol"])
+                # Fall back to avg_price if live LTP unavailable (weekend / API error)
+                exit_price = ltp if ltp is not None else float(pos["avg_price"])
+                paper_store.close_position(pos["id"], exit_price, exit_reason="MONITOR_DELETED")
+                logger.info(
+                    f"Force-closed position {pos['id']} ({pos['symbol']}) "
+                    f"@ ₹{exit_price:.2f} — monitor {monitor_id} deleted"
+                )
+
+        # ------------------------------------------------------------------
+        # Stop scheduler job and delete monitor from DB
+        # ------------------------------------------------------------------
         stop_monitor(monitor_id)
         deleted = paper_store.delete_monitor(monitor_id)
         if not deleted:
             return jsonify({"status": "error", "message": "Monitor not found"}), 404
-        return jsonify({"status": "success", "id": monitor_id}), 200
+
+        return jsonify({"status": "success", "id": monitor_id,
+                        "forceClosed": len(orphaned)}), 200
+
     except Exception as exc:
         logger.error(f"delete_monitor failed: {exc}", exc_info=True)
         return jsonify({"status": "error", "message": "Failed to delete monitor"}), 500
+
 
 
 # ---------------------------------------------------------------------------
@@ -307,150 +336,93 @@ def get_trade_history():
 @paper_bp.route("/replay", methods=["POST"])
 def run_replay():
     """Run historical replay for a single configuration.
-    
+
+    Delegates all simulation logic to ``ReplayEngine.run()`` which handles
+    data fetching (cache-first), signal computation, LONG/SHORT position
+    management, SL/TP triggers, and equity tracking.
+
     Request JSON:
         symbol (str): NSE ticker
-        strategyId (str): Preset or saved strategy ID
-        timeframe (str): Candle interval
+        strategyId (str): Preset ('1'-'7') or saved-strategy UUID
+        timeframe (str): Candle interval (e.g. '15m', '1d')
         fromDate (str): YYYY-MM-DD
         toDate (str): YYYY-MM-DD
-        slPct (float): Stop-loss % (optional)
-        tpPct (float): Take-profit % (optional)
-        
+        slPct (float): Stop-loss %, optional
+        tpPct (float): Take-profit %, optional
+
     Returns:
-        JSON with 'events' array representing bar-by-bar updates.
+        JSON with 'events' list and 'summary' performance stats.
     """
     try:
-        data = request.json or {}
-        symbol = data.get("symbol")
-        strategy_id = data.get("strategyId")
-        timeframe = data.get("timeframe", "15min")
-        from_date = data.get("fromDate")
-        to_date = data.get("toDate")
-        sl_pct = data.get("slPct")
-        tp_pct = data.get("tpPct")
-        capital_pct = float(paper_store.get_setting("capital_pct", "10.0"))
+        data         = request.json or {}
+        symbol       = data.get("symbol", "").strip()
+        strategy_id  = data.get("strategyId", "").strip()
+        timeframe    = data.get("timeframe", "15m")
+        from_date    = data.get("fromDate", "").strip()
+        to_date      = data.get("toDate", "").strip()
+        sl_pct       = data.get("slPct")
+        tp_pct       = data.get("tpPct")
+
+        # ------------------------------------------------------------------
+        # Input validation
+        # ------------------------------------------------------------------
+        missing = [f for f, v in [("symbol", symbol), ("strategyId", strategy_id),
+                                   ("fromDate", from_date), ("toDate", to_date)] if not v]
+        if missing:
+            return jsonify({"status": "error",
+                            "message": f"Missing required fields: {', '.join(missing)}"}), 400
+
+        try:
+            from datetime import datetime as _dt
+            _dt.strptime(from_date, "%Y-%m-%d")
+            _dt.strptime(to_date,   "%Y-%m-%d")
+        except ValueError:
+            return jsonify({"status": "error",
+                            "message": "fromDate and toDate must be YYYY-MM-DD"}), 400
+
+        if sl_pct is not None:
+            try:
+                sl_pct = float(sl_pct)
+                if sl_pct <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return jsonify({"status": "error", "message": "slPct must be a positive number"}), 400
+
+        if tp_pct is not None:
+            try:
+                tp_pct = float(tp_pct)
+                if tp_pct <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return jsonify({"status": "error", "message": "tpPct must be a positive number"}), 400
+
+        capital_pct     = float(paper_store.get_setting("capital_pct",     "10.0"))
         virtual_capital = float(paper_store.get_setting("virtual_capital", "100000.0"))
 
-        if not all([symbol, strategy_id, from_date, to_date]):
-            return jsonify({"status": "error", "message": "Missing required fields"}), 400
+        # ------------------------------------------------------------------
+        # Delegate to ReplayEngine — all simulation logic lives there
+        # ------------------------------------------------------------------
+        from services.replay_engine import ReplayEngine
 
-        from services.dhan_historical import DhanHistoricalService
-        from services.scrip_master import get_instrument_by_symbol
-        scrip = get_instrument_by_symbol(symbol)
-        if not scrip:
-            return jsonify({"status": "error", "message": f"Could not find scrip for symbol {symbol}"}), 404
-
-        fetcher = DhanHistoricalService()
-        df = fetcher.fetch_ohlcv(
-            security_id=scrip['security_id'],
-            exchange_segment=scrip['exchange_segment'],
-            instrument_type=scrip['instrument_type'],
+        result = ReplayEngine.run(
+            symbol=symbol,
+            strategy_id=strategy_id,
             timeframe=timeframe,
             from_date=from_date,
-            to_date=to_date
+            to_date=to_date,
+            sl_pct=sl_pct,
+            tp_pct=tp_pct,
+            capital_pct=capital_pct,
+            virtual_capital=virtual_capital,
         )
 
-        if df is None or df.empty:
-            return jsonify({"status": "error", "message": "No historical data found for range"}), 404
+        if not result["events"]:
+            return jsonify({"status": "error",
+                            "message": f"No data found for {symbol} [{from_date} → {to_date}]"}), 404
 
-        # Load custom strategy config from store (same pattern as backtest engine)
-        from strategies.presets import StrategyFactory
-        from services.strategy_store import StrategyStore
-        config = {}
-        if strategy_id not in ("1", "2", "3", "4", "5", "6", "7"):
-            saved = StrategyStore.get_by_id(strategy_id)
-            if saved:
-                config = saved
-                logger.info(f"Replay loaded custom strategy: {saved.get('name')}")
-
-        # Pre-compute all signals once on the full DataFrame (O(n) not O(n²))
-        strategy = StrategyFactory.get_strategy(strategy_id, config)
-        entries, exits, _ = strategy.generate_signals(df)
-
-        import uuid as _uuid
-        events = []
-        open_pos = None
-
-        for bar_idx in range(len(df)):
-            row = df.iloc[bar_idx]
-            ltp = float(row['close'])
-            timestamp = str(row['timestamp']) if 'timestamp' in row else str(df.index[bar_idx])
-
-            # Check SL / TP first
-            sl_hit = tp_hit = False
-            if open_pos:
-                if sl_pct and ltp <= open_pos["avg_price"] * (1 - sl_pct / 100.0):
-                    sl_hit = True
-                elif tp_pct and ltp >= open_pos["avg_price"] * (1 + tp_pct / 100.0):
-                    tp_hit = True
-
-                if sl_hit or tp_hit:
-                    reason = "SL" if sl_hit else "TP"
-                    pnl = (ltp - open_pos["avg_price"]) * open_pos["qty"]
-                    pnl_pct = (ltp / open_pos["avg_price"] - 1) * 100
-                    events.append({
-                        "type": "TRADE_CLOSED",
-                        "timestamp": timestamp,
-                        "ltp": ltp,
-                        "trade": {
-                            **open_pos,
-                            "exit_price": ltp,
-                            "exit_time": timestamp,
-                            "exit_reason": reason,
-                            "pnl": pnl,
-                            "pnl_pct": pnl_pct
-                        }
-                    })
-                    open_pos = None
-                    continue  # Wait until next bar to evaluate signals
-
-            # Read pre-computed signal for this bar
-            entry_sig = bool(entries.iloc[bar_idx]) if bar_idx < len(entries) else False
-            exit_sig  = bool(exits.iloc[bar_idx])  if bar_idx < len(exits)   else False
-
-            if entry_sig and not open_pos:
-                qty = max(1, int((virtual_capital * (capital_pct / 100.0)) / ltp)) if ltp > 0 else 1
-                open_pos = {
-                    "id": str(_uuid.uuid4())[:8],
-                    "symbol": symbol,
-                    "side": "LONG",
-                    "qty": qty,
-                    "avg_price": ltp,
-                    "entry_time": timestamp,
-                }
-                events.append({
-                    "type": "POSITION_OPENED",
-                    "timestamp": timestamp,
-                    "ltp": ltp,
-                    "position": dict(open_pos)
-                })
-            elif exit_sig and open_pos:
-                pnl = (ltp - open_pos["avg_price"]) * open_pos["qty"]
-                pnl_pct = (ltp / open_pos["avg_price"] - 1) * 100
-                events.append({
-                    "type": "TRADE_CLOSED",
-                    "timestamp": timestamp,
-                    "ltp": ltp,
-                    "trade": {
-                        **open_pos,
-                        "exit_price": ltp,
-                        "exit_time": timestamp,
-                        "exit_reason": "SIGNAL",
-                        "pnl": pnl,
-                        "pnl_pct": pnl_pct
-                    }
-                })
-                open_pos = None
-            else:
-                events.append({
-                    "type": "TICK",
-                    "timestamp": timestamp,
-                    "ltp": ltp
-                })
-
-        return jsonify({"events": events}), 200
+        return jsonify({"status": "success", **result}), 200
 
     except Exception as exc:
         logger.error(f"run_replay failed: {exc}", exc_info=True)
         return jsonify({"status": "error", "message": f"Replay failed: {exc}"}), 500
+

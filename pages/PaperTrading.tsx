@@ -48,6 +48,16 @@ const PaperTrading: React.FC = () => {
     const [settingsSaved, setSettingsSaved] = useState(false);
     const [settingsError, setSettingsError] = useState<string | null>(null);
     const [replayFinished, setReplayFinished] = useState(false);
+    const [replaySummary, setReplaySummary] = useState<{
+        totalTrades: number;
+        winTrades: number;
+        winRate: number;
+        netPnl: number;
+        netPnlPct: number;
+        maxDrawdown: number;
+        finalEquity: number;
+        startingEquity: number;
+    } | null>(null);
 
     // Global Market Data Selection (for Live Mkt & Replay)
     const [segment, setSegment] = useState('NSE_EQ');
@@ -266,6 +276,7 @@ const PaperTrading: React.FC = () => {
                     tpPct: replayTpPct || undefined
                 });
                 setReplayEvents(res.events || []);
+                setReplaySummary(res.summary || null);
                 replayIndexRef.current = 0;
                 setPositions([]);
                 setHistory([]);
@@ -297,12 +308,16 @@ const PaperTrading: React.FC = () => {
 
             const ev = replayEvents[idx];
             if (ev.type === 'TICK') {
-                setPositions(prev => prev.map(p => ({
-                    ...p,
-                    ltp: ev.ltp,
-                    pnl: (ev.ltp - p.avg_price) * p.qty,
-                    pnl_pct: (ev.ltp / p.avg_price - 1) * 100
-                })));
+                setPositions(prev => prev.map(p => {
+                    const isShort = p.side === 'SHORT';
+                    const pnl = isShort
+                        ? (p.avg_price - ev.ltp) * p.qty
+                        : (ev.ltp - p.avg_price) * p.qty;
+                    const pnl_pct = isShort
+                        ? (p.avg_price / ev.ltp - 1) * 100
+                        : (ev.ltp / p.avg_price - 1) * 100;
+                    return { ...p, ltp: ev.ltp, pnl, pnl_pct };
+                }));
             } else if (ev.type === 'POSITION_OPENED') {
                 setPositions([ev.position]);
             } else if (ev.type === 'TRADE_CLOSED') {
@@ -328,6 +343,7 @@ const PaperTrading: React.FC = () => {
         if (replayIntervalRef.current) clearInterval(replayIntervalRef.current);
         setReplayEvents([]);
         setReplayFinished(false);
+        setReplaySummary(null);
         replayIndexRef.current = 0;
         setPositions([]);
         setHistory([]);
@@ -500,10 +516,42 @@ const PaperTrading: React.FC = () => {
                         />
                     )}
 
-                    {replayFinished && (
-                        <div className="bg-purple-900/20 text-purple-300 border border-purple-800 p-3 rounded text-sm flex items-center gap-2">
-                            <CheckCircle className="w-4 h-4 shrink-0 text-purple-400" />
-                            Replay complete — {history.length} trade{history.length !== 1 ? 's' : ''} simulated.
+                    {replayFinished && replaySummary && (
+                        <div className="bg-purple-900/20 border border-purple-800 rounded p-4 space-y-3">
+                            <div className="flex items-center gap-2 text-purple-300 text-sm font-semibold">
+                                <CheckCircle className="w-4 h-4 text-purple-400" />
+                                Replay complete — {replaySummary.totalTrades} trade{replaySummary.totalTrades !== 1 ? 's' : ''} simulated
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                <div className="bg-slate-900 rounded p-2 text-center">
+                                    <div className="text-[10px] text-slate-500 uppercase mb-0.5">Win Rate</div>
+                                    <div className={`text-sm font-bold font-mono ${replaySummary.winRate >= 50 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                        {replaySummary.winRate.toFixed(1)}%
+                                    </div>
+                                    <div className="text-[10px] text-slate-600">{replaySummary.winTrades}W / {replaySummary.totalTrades - replaySummary.winTrades}L</div>
+                                </div>
+                                <div className="bg-slate-900 rounded p-2 text-center">
+                                    <div className="text-[10px] text-slate-500 uppercase mb-0.5">Net P&amp;L</div>
+                                    <div className={`text-sm font-bold font-mono ${replaySummary.netPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                        {replaySummary.netPnl >= 0 ? '+' : ''}₹{replaySummary.netPnl.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                    </div>
+                                    <div className={`text-[10px] ${replaySummary.netPnlPct >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                        {replaySummary.netPnlPct >= 0 ? '+' : ''}{replaySummary.netPnlPct.toFixed(2)}%
+                                    </div>
+                                </div>
+                                <div className="bg-slate-900 rounded p-2 text-center">
+                                    <div className="text-[10px] text-slate-500 uppercase mb-0.5">Max Drawdown</div>
+                                    <div className="text-sm font-bold font-mono text-amber-400">
+                                        {replaySummary.maxDrawdown.toFixed(2)}%
+                                    </div>
+                                </div>
+                                <div className="bg-slate-900 rounded p-2 text-center">
+                                    <div className="text-[10px] text-slate-500 uppercase mb-0.5">Final Equity</div>
+                                    <div className={`text-sm font-bold font-mono ${replaySummary.finalEquity >= replaySummary.startingEquity ? 'text-emerald-400' : 'text-red-400'}`}>
+                                        ₹{replaySummary.finalEquity.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     )}
 

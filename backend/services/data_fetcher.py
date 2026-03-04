@@ -14,7 +14,7 @@ import pandas as pd
 import numpy as np
 
 from services.cache_service import CacheService
-from services.dhan_historical import fetch_historical_data as fetch_dhan_data
+from services.dhan_historical import DhanHistoricalService
 from services.scrip_master import get_instrument_by_symbol
 
 logger = logging.getLogger(__name__)
@@ -97,33 +97,34 @@ class DataFetcher:
     def _fetch_from_api(
         self, symbol: str, timeframe: str, from_date: Optional[str], to_date: Optional[str]
     ) -> Optional[pd.DataFrame]:
-        """Fetch data from Dhan API via service."""
+        """Fetch data from Dhan API via DhanHistoricalService (cache miss path)."""
         try:
             inst = get_instrument_by_symbol(symbol)
             if not inst:
                 logger.error(f"Symbol {symbol} not found")
                 return None
-            
+
             # Default ranges
-            to_date = to_date or datetime.now().strftime("%Y-%m-%d")
+            to_date   = to_date   or datetime.now().strftime("%Y-%m-%d")
             from_date = from_date or (datetime.now() - pd.Timedelta(days=365)).strftime("%Y-%m-%d")
 
-            df = fetch_dhan_data(
+            service = DhanHistoricalService()
+            df = service.fetch_ohlcv(
                 security_id=inst["security_id"],
                 exchange_segment=inst["exchange_segment"],
                 instrument_type=inst["instrument_type"],
                 timeframe=timeframe,
                 from_date=from_date,
-                to_date=to_date
+                to_date=to_date,
             )
-            
+
             if df is not None and not df.empty:
-                # Casing and cleaning is handled by the provider service and DataCleaner
                 return df
             return None
         except Exception as e:
             logger.error(f"API fetch error for {symbol}: {e}")
             return None
+
 
     # _generate_synthetic / _fetch_alphavantage / _fetch_yfinance removed.
     # Only Dhan API is supported as the data source.

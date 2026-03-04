@@ -33,13 +33,16 @@ class AlertManager:
         metrics = results.get("metrics", {})
         
         # 1. Overfitting Check (Win Rate)
-        win_rate = metrics.get("winRate", 0)
-        total_trades = metrics.get("totalTrades", 0)
+        # Guard against None — clean_float_values converts NaN → None and
+        # a direct >= comparison would raise TypeError on Python 3.9.
+        win_rate     = metrics.get("winRate")    or 0
+        total_trades = metrics.get("totalTrades") or 0
         if total_trades > 0 and win_rate >= AlertManager.WIN_RATE_OVERFIT_THRESHOLD:
             AlertManager._add_alert(
-                alerts, "warning", 
+                alerts, "warning",
                 f"Win Rate {win_rate}% → Likely overfitted or look-ahead bias detected."
             )
+
 
         # 2. Low trade count (Sampling Bias)
         if 0 < total_trades < AlertManager.MIN_TRADES_REQUIRED:

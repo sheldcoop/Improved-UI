@@ -47,7 +47,10 @@ def _trading_days_needed(timeframe: str, bars: int) -> int:
 
 
 def _fetch_candles(symbol: str, timeframe: str, lookback: int = _LOOKBACK_BARS) -> pd.DataFrame:
-    """Fetch recent OHLCV candles from the data fetcher service.
+    """Fetch recent OHLCV candles using the cache-first DataFetcher.
+
+    Uses the Parquet cache when available (populated from earlier backtests)
+    and only hits the Dhan API on a cache miss.
 
     Args:
         symbol: NSE ticker/index symbol (e.g. 'RELIANCE', 'NIFTY 50').
@@ -60,24 +63,29 @@ def _fetch_candles(symbol: str, timeframe: str, lookback: int = _LOOKBACK_BARS) 
     Raises:
         RuntimeError: If data fetch fails or returns empty DataFrame.
     """
-    from services.dhan_fetcher import DhanDataFetcher
+    from services.data_fetcher import DataFetcher
+    from services.dhan_fetcher import DhanDataFetcher  # for _TF_MAP only
 
     calendar_days = _trading_days_needed(timeframe, lookback)
     to_date   = datetime.now().strftime("%Y-%m-%d")
     from_date = (datetime.now() - timedelta(days=calendar_days)).strftime("%Y-%m-%d")
 
-    fetcher = DhanDataFetcher()
-    is_intraday = timeframe != "daily"
+    # Normalise the timeframe string to what DataFetcher/DhanHistoricalService expects
+    normalised_tf = DhanDataFetcher._TF_MAP.get(timeframe, timeframe)
 
-    if is_intraday:
-        df = fetcher.get_historical_intraday(symbol, timeframe, from_date, to_date)
-    else:
-        df = fetcher.get_historical_daily(symbol, from_date, to_date)
+    fetcher = DataFetcher()
+    df = fetcher.fetch_historical_data(
+        symbol=symbol,
+        timeframe=normalised_tf,
+        from_date=from_date,
+        to_date=to_date,
+    )
 
     if df is None or df.empty:
         raise RuntimeError(f"No data returned for {symbol} / {timeframe}")
 
     return df.tail(lookback)
+
 
 
 def check_signal(

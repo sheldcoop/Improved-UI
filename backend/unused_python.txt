@@ -1,0 +1,5 @@
+routes/market_routes.py:17: unused import 'get_nse_trading_days' (90% confidence)
+routes/market_routes.py:17: unused import 'is_trading_day' (90% confidence)
+routes/paper_routes.py:10: unused import 'Response' (90% confidence)
+services/backtest_engine.py:347: unused variable 'universe' (100% confidence)
+services/indicator_registry.py:19: unused import 'Callable' (90% confidence)

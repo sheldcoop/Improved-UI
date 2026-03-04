@@ -140,7 +140,11 @@ class DhanDataFetcher:
         from_date: str,
         to_date: str,
     ) -> Optional[pd.DataFrame]:
-        """Internal dispatcher for historical data fetches.
+        """Fetch historical OHLCV data, cache-first via DataFetcher.
+
+        Routes through `DataFetcher` so Parquet cache is consulted first;
+        live Dhan API is only called on a cache miss.  This prevents burning
+        API quota on every scheduled signal check.
 
         Args:
             symbol: NSE ticker.
@@ -149,21 +153,15 @@ class DhanDataFetcher:
             to_date: 'YYYY-MM-DD'.
 
         Returns:
-            DataFrame or None.
+            DataFrame with lowercase OHLCV columns and DatetimeIndex, or None.
         """
         try:
-            from services.dhan_historical import DhanHistoricalService
-            inst = self._get_instrument(symbol)
-            if not inst:
-                logger.warning(f"DhanDataFetcher: no instrument found for {symbol}")
-                return None
+            from services.data_fetcher import DataFetcher
 
             normalised_tf = self._TF_MAP.get(timeframe, timeframe)
-            service = DhanHistoricalService()
-            df = service.fetch_ohlcv(
-                security_id=inst["security_id"],
-                exchange_segment=inst.get("exchange_segment", "NSE_EQ"),
-                instrument_type=inst.get("instrument_type", "EQUITY"),
+            fetcher = DataFetcher()
+            df = fetcher.fetch_historical_data(
+                symbol=symbol,
                 timeframe=normalised_tf,
                 from_date=from_date,
                 to_date=to_date,
@@ -172,14 +170,8 @@ class DhanDataFetcher:
                 logger.warning(f"DhanDataFetcher: empty response for {symbol} / {timeframe}")
                 return None
 
-            # Ensure lowercase columns (DataCleaner may already do this but be safe)
+            # Ensure lowercase columns (DataFetcher already does this, but be defensive)
             df.columns = [c.lower() for c in df.columns]
-
-            # Ensure 'timestamp' column exists for signal_checker compatibility
-            if "timestamp" not in df.columns:
-                df = df.copy()
-                df["timestamp"] = df.index
-
             return df
         except Exception as exc:
             logger.error(

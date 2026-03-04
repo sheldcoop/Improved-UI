@@ -161,20 +161,3 @@ class DhanHistoricalService:
         
         # Run Rule 10/Sanitation via DataCleaner
         return DataCleaner.clean(df, symbol=symbol, is_intraday=is_intraday)
-
-
-# Legacy functional interface for compatibility with existing code
-def fetch_historical_data(
-    security_id: str,
-    exchange_segment: str,
-    instrument_type: str,
-    timeframe: str,
-    from_date: str,
-    to_date: str,
-    include_oi: bool = False # Keeping signature for compat, though library handle varies
-) -> pd.DataFrame:
-    """Wrapper for DhanHistoricalService.fetch_ohlcv."""
-    service = DhanHistoricalService()
-    return service.fetch_ohlcv(
-        security_id, exchange_segment, instrument_type, timeframe, from_date, to_date
-    )

@@ -130,6 +130,7 @@ def start_monitor(monitor: dict) -> None:
     scheduler = _get_scheduler()
     monitor_id = monitor["id"]
     interval_sec = _TIMEFRAME_SECONDS.get(monitor.get("timeframe", "15min"), 900)
+    _tz = pytz.timezone("Asia/Kolkata")
 
     job_id = f"monitor_{monitor_id}"
     if scheduler.get_job(job_id):
@@ -138,7 +139,7 @@ def start_monitor(monitor: dict) -> None:
 
     scheduler.add_job(
         _run_monitor_job,
-        trigger=IntervalTrigger(seconds=interval_sec),
+        trigger=IntervalTrigger(seconds=interval_sec, timezone=_tz),
         id=job_id,
         args=[monitor_id],
         replace_existing=True,
@@ -185,12 +186,17 @@ def init_scheduler(app) -> None:
         scheduler.start()
         logger.info("APScheduler started")
 
-    # Global LTP refresh — always running
+    # Global LTP refresh — always running.
+    # coalesce=True: if a tick is missed, skip it (don't pile up).
+    # max_instances=1: never run two LTP refreshes concurrently.
+    _tz = pytz.timezone("Asia/Kolkata")
     if not scheduler.get_job("ltp_refresh"):
         scheduler.add_job(
             _run_ltp_refresh,
-            trigger=IntervalTrigger(seconds=_LTP_REFRESH_SECONDS),
+            trigger=IntervalTrigger(seconds=_LTP_REFRESH_SECONDS, timezone=_tz),
             id="ltp_refresh",
+            coalesce=True,
+            max_instances=1,
         )
 
     # Restore monitors from DB

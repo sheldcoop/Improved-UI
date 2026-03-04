@@ -6,8 +6,11 @@ import RiskControls from './backtest/RiskControls';
 
 /** Compute the calendar date at a given % point between start and end. */
 function computeSplitDate(start: string, end: string, ratioPercent: number): string {
+    if (!start || !end) return '-';
     const s = new Date(start).getTime();
     const e = new Date(end).getTime();
+    if (isNaN(s) || isNaN(e)) return '-';
+
     return new Date(s + (e - s) * (ratioPercent / 100)).toISOString().split('T')[0];
 }
 
@@ -130,8 +133,8 @@ const StrategyLogic: React.FC<StrategyLogicProps> = ({
                     />
                     {!customStrategies.find(s => s.id === strategyId)?.params?.length
                         && strategyId !== '1' && strategyId !== '3' && (
-                        <p className="text-xs text-slate-600 italic">No configurable parameters.</p>
-                    )}
+                            <p className="text-xs text-slate-600 italic">No configurable parameters.</p>
+                        )}
                 </div>
 
                 {/* Row 3: Risk controls — always visible, same grid style as params */}

@@ -94,13 +94,15 @@ def _is_tp_hit(side: str, ltp: float, tp_price: float | None) -> bool:
 def refresh_all_positions() -> list[dict]:
     """Update LTP and P&L for every open position. Close on SL/TP breach.
 
-    Fetches live LTP for each unique symbol, updates the database, and
-    automatically closes positions where SL or TP has been triggered.
+    Fetches live LTP for each unique symbol in parallel, applies zero-trust
+    anomalous tick validation, updates the database, and automatically closes
+    positions where SL or TP has been triggered.
 
     Returns:
         Updated list of all open positions after refresh.
     """
     from services import paper_store
+    from concurrent.futures import ThreadPoolExecutor
 
     positions = paper_store.get_positions()
     if not positions:
@@ -109,15 +111,33 @@ def refresh_all_positions() -> list[dict]:
     # Deduplicate LTP calls — fetch each symbol once
     unique_symbols = {p["symbol"] for p in positions}
     ltp_map: dict[str, float] = {}
-    for sym in unique_symbols:
-        price = get_ltp(sym)
-        if price is not None:
-            ltp_map[sym] = price
+    
+    # Phase 3 Fix: Execute in parallel to avoid single-thread I/O blocking
+    with ThreadPoolExecutor(max_workers=min(10, len(unique_symbols))) as executor:
+        future_to_sym = {executor.submit(get_ltp, sym): sym for sym in unique_symbols}
+        for future in future_to_sym:
+            sym = future_to_sym[future]
+            try:
+                price = future.result()
+                # ZTS check: Must be positive number
+                if price is not None and price > 0:
+                    ltp_map[sym] = price
+                elif price is not None and price <= 0:
+                    logger.critical(f"ZTS Block: Received negative/zero price for {sym}: {price}")
+            except Exception as e:
+                logger.error(f"Parallel LTP fetch failed for {sym}: {e}", exc_info=True)
 
     for pos in positions:
         ltp = ltp_map.get(pos["symbol"])
         if ltp is None:
             logger.debug(f"Skipping LTP update for {pos['symbol']} — no price available")
+            continue
+
+        # ZTS check: Reject anomalous instantaneous jumps >15%
+        reference_price = pos.get("ltp") if pos.get("ltp", 0) > 0 else pos["avg_price"]
+        jump_pct = abs((ltp - reference_price) / reference_price) * 100
+        if jump_pct > 15.0:
+            logger.warning(f"ZTS Block: Rejecting anomalous tick {pos['symbol']} @ ₹{ltp:.2f} (Implies {jump_pct:.1f}% jump)")
             continue
 
         pnl_abs, pnl_pct = _calc_pnl(pos["side"], pos["avg_price"], ltp, pos["qty"])
