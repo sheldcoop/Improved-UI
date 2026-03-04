@@ -35,6 +35,7 @@ interface ReplayPanelProps {
     isPlaying: boolean;
     onTogglePlay: () => void;
     onReset: () => void;
+    progress?: { current: number; total: number };
 }
 
 export const ReplayPanel: React.FC<ReplayPanelProps> = ({
@@ -46,7 +47,8 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({
     startDate, onStartDateChange,
     endDate, onEndDateChange,
     speed, onSpeedChange,
-    isPlaying, onTogglePlay, onReset
+    isPlaying, onTogglePlay, onReset,
+    progress,
 }) => {
     return (
         <Card title="Historical Replay Control" className="p-4 space-y-4">
@@ -149,9 +151,26 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({
                 </button>
             </div>
 
-            <p className="text-[10px] text-slate-500 leading-tight">
-                Configure your historical replay scenario above, then hit Play to simulate a live data feed stream through your strategy rule set.
-            </p>
+            {progress && progress.total > 0 && (
+                <div className="space-y-1">
+                    <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                            className="h-full bg-purple-600 rounded-full transition-all"
+                            style={{ width: `${(progress.current / progress.total) * 100}%` }}
+                        />
+                    </div>
+                    <div className="flex justify-between text-[10px] text-slate-500">
+                        <span>{isPlaying ? 'Replaying…' : progress.current > 0 ? 'Paused' : 'Ready'}</span>
+                        <span className="font-mono text-slate-400">Bar {progress.current} / {progress.total}</span>
+                    </div>
+                </div>
+            )}
+
+            {!progress && (
+                <p className="text-[10px] text-slate-500 leading-tight">
+                    Configure your historical replay scenario above, then hit Play to simulate a live data feed stream through your strategy rule set.
+                </p>
+            )}
         </Card>
     );
 };

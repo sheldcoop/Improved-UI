@@ -19,15 +19,18 @@ def client(tmp_path):
     })()
     ps.init_db()
 
-    # Import app after patching the DB path
-    from app import app as flask_app
-    flask_app.config["TESTING"] = True
-
-    # Disable scheduler for tests
-    from unittest.mock import patch
-    with patch("services.paper_scheduler.init_scheduler"), \
-         flask_app.test_client() as c:
-        yield c
+    # Patch init_scheduler BEFORE importing app so it doesn't start APScheduler
+    from unittest.mock import patch, MagicMock
+    with patch("services.paper_scheduler.init_scheduler", MagicMock()):
+        # Import (or reload) app inside the patch context so the module-level
+        # _init_scheduler(app) call hits the mock, not the real scheduler.
+        import importlib
+        import app as app_module
+        importlib.reload(app_module)
+        flask_app = app_module.app
+        flask_app.config["TESTING"] = True
+        with flask_app.test_client() as c:
+            yield c
 
 
 # ---------------------------------------------------------------------------

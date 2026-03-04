@@ -54,3 +54,11 @@ export const fetchAndValidateMarketData = async (symbol: string, timeframe: stri
         body: JSON.stringify({ symbol, timeframe, from_date: start, to_date: end }),
     });
 };
+
+/**
+ * Search instruments from the Dhan Scrip Master.
+ * Used by MarketDataSelector and PaperTrading for symbol look-up.
+ */
+export const searchInstruments = async (query: string, segment: string = 'NSE_EQ'): Promise<any[]> => {
+    return fetchClient<any[]>(`/market/instruments?q=${encodeURIComponent(query)}&segment=${encodeURIComponent(segment)}`);
+};

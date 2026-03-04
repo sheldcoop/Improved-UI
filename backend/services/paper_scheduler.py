@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from logging import getLogger
 
+import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -33,7 +34,7 @@ _scheduler: BackgroundScheduler | None = None
 def _get_scheduler() -> BackgroundScheduler:
     global _scheduler
     if _scheduler is None:
-        _scheduler = BackgroundScheduler(timezone="Asia/Kolkata")
+        _scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Kolkata"))
     return _scheduler
 
 
@@ -67,6 +68,7 @@ def _run_monitor_job(monitor_id: str) -> None:
     try:
         signal, qty, ltp = check_signal(
             monitor,
+            virtual_capital=float(paper_store.get_setting("virtual_capital", "100000.0")),
             has_open_position=has_pos,
         )
     except Exception as exc:

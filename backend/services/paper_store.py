@@ -293,6 +293,16 @@ def close_position(position_id: str, exit_price: float, exit_reason: str = "SIGN
         pnl_pct = (pnl / (pos["avg_price"] * pos["qty"])) * 100
 
         conn.execute("UPDATE positions SET status='CLOSED' WHERE id=?", (position_id,))
+
+        # Look up monitor's strategy_id so trade history is filterable
+        strategy_id: str | None = None
+        if pos.get("monitor_id"):
+            mon_row = conn.execute(
+                "SELECT strategy_id FROM monitors WHERE id=?", (pos["monitor_id"],)
+            ).fetchone()
+            if mon_row:
+                strategy_id = mon_row["strategy_id"]
+
         conn.execute(
             """
             INSERT INTO trade_history
@@ -304,7 +314,7 @@ def close_position(position_id: str, exit_price: float, exit_reason: str = "SIGN
                 f"h_{position_id}", pos["monitor_id"], pos["symbol"], pos["side"],
                 pos["qty"], pos["avg_price"], exit_price,
                 round(pnl, 2), round(pnl_pct, 4),
-                pos["entry_time"], exit_time, None, exit_reason,
+                pos["entry_time"], exit_time, strategy_id, exit_reason,
             ),
         )
         logger.info(f"Position closed: {position_id} {exit_reason} P&L=₹{pnl:.2f}")

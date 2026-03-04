@@ -118,6 +118,15 @@ def check_signal(
     config     = monitor.get("config", {})
     capital_pct = float(monitor.get("capital_pct", 10.0))
 
+    # Load saved strategy config for custom strategies (same pattern as backtest engine)
+    if strategy_id not in ("1", "2", "3", "4", "5", "6", "7") and not config.get("entryLogic") and not config.get("pythonCode"):
+        from services.strategy_store import StrategyStore
+        saved = StrategyStore.get_by_id(strategy_id)
+        if saved:
+            for k, v in saved.items():
+                if k not in config or not config[k]:
+                    config[k] = v
+
     logger.info(f"Checking signal: {symbol} / {strategy_id} / {timeframe}")
 
     df = _fetch_candles(symbol, timeframe)

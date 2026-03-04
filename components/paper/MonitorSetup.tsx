@@ -13,7 +13,7 @@ const COMMON_SYMBOLS = [
 ];
 
 interface MonitorSetupProps {
-    onStartMonitor: () => Promise<void>;
+    onStartMonitor: (strategyId: string, slPct: number | null, tpPct: number | null) => Promise<void>;
     presets: StrategyPreset[];
     savedStrategies: Strategy[];
     activeMonitorsCount: number;
@@ -57,7 +57,11 @@ export const MonitorSetup: React.FC<MonitorSetupProps> = ({
 
         setLoading(true);
         try {
-            await onStartMonitor();
+            await onStartMonitor(
+                selectedStrategyId,
+                slPct === '' ? null : Number(slPct),
+                tpPct === '' ? null : Number(tpPct)
+            );
         } catch (err: any) {
             setError(err?.message || 'Failed to start monitor');
         } finally {

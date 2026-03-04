@@ -13,8 +13,6 @@ import json
 
 from services import paper_store
 from services.paper_scheduler import start_monitor, stop_monitor
-from services.dhan_historical import DhanHistoricalService
-from services.signal_checker import check_signal_on_df
 
 paper_bp = Blueprint("paper_trading", __name__)
 logger = getLogger(__name__)
@@ -35,8 +33,8 @@ def get_settings():
     """
     try:
         return jsonify({
-            "capitalPct":      float(paper_store.get_setting("capital_pct", "10.0")),
-            "virtualCapital":  100_000.0,
+            "capitalPct":     float(paper_store.get_setting("capital_pct", "10.0")),
+            "virtualCapital": float(paper_store.get_setting("virtual_capital", "100000.0")),
         }), 200
     except Exception as exc:
         logger.error(f"get_settings failed: {exc}", exc_info=True)
@@ -49,6 +47,7 @@ def update_settings():
 
     Request JSON:
         capitalPct (float): % of capital per trade. Must be 1–100.
+        virtualCapital (float): Virtual capital in ₹. Must be > 0. (optional)
 
     Returns:
         Updated settings JSON (200) or 400 on invalid input.
@@ -56,14 +55,25 @@ def update_settings():
     try:
         data = request.json or {}
         capital_pct = data.get("capitalPct")
+        virtual_capital = data.get("virtualCapital")
 
-        if capital_pct is None:
-            return jsonify({"status": "error", "message": "capitalPct is required"}), 400
-        if not isinstance(capital_pct, (int, float)) or not (1 <= capital_pct <= 100):
-            return jsonify({"status": "error", "message": "capitalPct must be between 1 and 100"}), 400
+        if capital_pct is None and virtual_capital is None:
+            return jsonify({"status": "error", "message": "capitalPct or virtualCapital is required"}), 400
 
-        paper_store.set_setting("capital_pct", str(float(capital_pct)))
-        return jsonify({"capitalPct": float(capital_pct), "virtualCapital": 100_000.0}), 200
+        if capital_pct is not None:
+            if not isinstance(capital_pct, (int, float)) or not (1 <= capital_pct <= 100):
+                return jsonify({"status": "error", "message": "capitalPct must be between 1 and 100"}), 400
+            paper_store.set_setting("capital_pct", str(float(capital_pct)))
+
+        if virtual_capital is not None:
+            if not isinstance(virtual_capital, (int, float)) or virtual_capital <= 0:
+                return jsonify({"status": "error", "message": "virtualCapital must be a positive number"}), 400
+            paper_store.set_setting("virtual_capital", str(float(virtual_capital)))
+
+        return jsonify({
+            "capitalPct":     float(paper_store.get_setting("capital_pct", "10.0")),
+            "virtualCapital": float(paper_store.get_setting("virtual_capital", "100000.0")),
+        }), 200
     except Exception as exc:
         logger.error(f"update_settings failed: {exc}", exc_info=True)
         return jsonify({"status": "error", "message": "Failed to update settings"}), 500
@@ -320,7 +330,7 @@ def run_replay():
         sl_pct = data.get("slPct")
         tp_pct = data.get("tpPct")
         capital_pct = float(paper_store.get_setting("capital_pct", "10.0"))
-        virtual_capital = 100_000.0
+        virtual_capital = float(paper_store.get_setting("virtual_capital", "100000.0"))
 
         if not all([symbol, strategy_id, from_date, to_date]):
             return jsonify({"status": "error", "message": "Missing required fields"}), 400
@@ -343,6 +353,20 @@ def run_replay():
 
         if df is None or df.empty:
             return jsonify({"status": "error", "message": "No historical data found for range"}), 404
+
+        # Load custom strategy config from store (same pattern as backtest engine)
+        from strategies.presets import StrategyFactory
+        from services.strategy_store import StrategyStore
+        config = {}
+        if strategy_id not in ("1", "2", "3", "4", "5", "6", "7"):
+            saved = StrategyStore.get_by_id(strategy_id)
+            if saved:
+                config = saved
+                logger.info(f"Replay loaded custom strategy: {saved.get('name')}")
+
+        # Pre-compute all signals once on the full DataFrame (O(n) not O(n²))
+        strategy = StrategyFactory.get_strategy(strategy_id, config)
+        entries, exits, _ = strategy.generate_signals(df)
 
         import uuid as _uuid
         events = []
@@ -379,12 +403,13 @@ def run_replay():
                         }
                     })
                     open_pos = None
-                    continue # Wait until next bar to evaluate signals
+                    continue  # Wait until next bar to evaluate signals
 
-            # Check Signal
-            signal, _ = check_signal_on_df(df, strategy_id, {}, bar_idx)
-            
-            if signal == "BUY" and not open_pos:
+            # Read pre-computed signal for this bar
+            entry_sig = bool(entries.iloc[bar_idx]) if bar_idx < len(entries) else False
+            exit_sig  = bool(exits.iloc[bar_idx])  if bar_idx < len(exits)   else False
+
+            if entry_sig and not open_pos:
                 qty = max(1, int((virtual_capital * (capital_pct / 100.0)) / ltp)) if ltp > 0 else 1
                 open_pos = {
                     "id": str(_uuid.uuid4())[:8],
@@ -400,7 +425,7 @@ def run_replay():
                     "ltp": ltp,
                     "position": dict(open_pos)
                 })
-            elif signal == "SELL" and open_pos:
+            elif exit_sig and open_pos:
                 pnl = (ltp - open_pos["avg_price"]) * open_pos["qty"]
                 pnl_pct = (ltp / open_pos["avg_price"] - 1) * 100
                 events.append({

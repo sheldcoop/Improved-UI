@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { RefreshCw, Play, FastForward, Activity, Monitor } from 'lucide-react';
+import { RefreshCw, Play, FastForward, Activity, Monitor, AlertCircle, CheckCircle } from 'lucide-react';
 import { Strategy, StrategyPreset, Timeframe } from '../types';
 import {
     getPaperMonitors,
@@ -15,12 +15,14 @@ import {
     runPaperReplay
 } from '../services/paperService';
 import { fetchSavedStrategies, fetchStrategies } from '../services/api';
+import { searchInstruments } from '../services/marketService';
 
 import { MonitorSetup } from '../components/paper/MonitorSetup';
 import { MonitorList } from '../components/paper/MonitorList';
 import { PositionsTable, PaperPosition } from '../components/paper/PositionsTable';
 import { TradeHistory } from '../components/paper/TradeHistory';
 import { ReplayPanel } from '../components/paper/ReplayPanel';
+import { ReplayChart, ReplayChartPoint } from '../components/paper/ReplayChart';
 import MarketDataSelector from '../components/MarketDataSelector';
 
 const PaperTrading: React.FC = () => {
@@ -30,6 +32,7 @@ const PaperTrading: React.FC = () => {
     const [history, setHistory] = useState<any[]>([]);
     const [settings, setSettings] = useState<{ capitalPct: number; virtualCapital: number }>({ capitalPct: 10, virtualCapital: 100000 });
     const [capitalInput, setCapitalInput] = useState('10');
+    const [virtualCapitalInput, setVirtualCapitalInput] = useState('100000');
 
     const [presets, setPresets] = useState<StrategyPreset[]>([]);
     const [savedStrategies, setSavedStrategies] = useState<Strategy[]>([]);
@@ -37,7 +40,14 @@ const PaperTrading: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [stoppingId, setStoppingId] = useState<string | null>(null);
     const [closingId, setClosingId] = useState<string | null>(null);
+
+    // Inline error/success states (no alert() popups)
     const [error, setError] = useState<string | null>(null);
+    const [stopError, setStopError] = useState<string | null>(null);
+    const [closeError, setCloseError] = useState<string | null>(null);
+    const [settingsSaved, setSettingsSaved] = useState(false);
+    const [settingsError, setSettingsError] = useState<string | null>(null);
+    const [replayFinished, setReplayFinished] = useState(false);
 
     // Global Market Data Selection (for Live Mkt & Replay)
     const [segment, setSegment] = useState('NSE_EQ');
@@ -48,56 +58,42 @@ const PaperTrading: React.FC = () => {
     const [isSearching, setIsSearching] = useState(false);
     const [globalTimeframe, setGlobalTimeframe] = useState<Timeframe>(Timeframe.M15);
 
-    // Live Mkt Strategy Picker
-    const [liveActivePresetId, setLiveActivePresetId] = useState<string>('');
-    const [liveSelectedStrategyId, setLiveSelectedStrategyId] = useState<string | null>(null);
-    const [liveShowSaved, setLiveShowSaved] = useState(false);
-
-    // Live Mkt Sl/TP
-    const [liveSlPct, setLiveSlPct] = useState<number | ''>('');
-    const [liveTpPct, setLiveTpPct] = useState<number | ''>('');
-
     // Replay State
-    // Strategy Picker logic for Replay
     const [replayActivePresetId, setReplayActivePresetId] = useState<string>('');
     const [replaySelectedStrategyId, setReplaySelectedStrategyId] = useState<string | null>(null);
     const [replayShowSaved, setReplayShowSaved] = useState(false);
-
-    // Sl / Tp
     const [replaySlPct, setReplaySlPct] = useState<number | ''>('');
     const [replayTpPct, setReplayTpPct] = useState<number | ''>('');
-
     const [replayStart, setReplayStart] = useState('');
     const [replayEnd, setReplayEnd] = useState('');
     const [replaySpeed, setReplaySpeed] = useState(1);
     const [isReplaying, setIsReplaying] = useState(false);
     const [replayEvents, setReplayEvents] = useState<any[]>([]);
 
+    // Replay chart state
+    const [replayChartData, setReplayChartData] = useState<ReplayChartPoint[]>([]);
+    const [replayTotalBars, setReplayTotalBars] = useState(0);
+    const [replayCurrentBar, setReplayCurrentBar] = useState(0);
+
     const replayIndexRef = useRef<number>(0);
     const replayIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
     const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     useEffect(() => {
         if (symbolSearchQuery.length >= 2) {
             const delayDebounceFn = setTimeout(() => {
-                const searchMarketData = async () => {
+                const doSearch = async () => {
                     setIsSearching(true);
                     try {
-                        const token = localStorage.getItem('token');
-                        const res = await fetch(`http://localhost:5001/api/v1/market/instruments?q=${symbolSearchQuery}&segment=${segment}`, {
-                            headers: { 'Authorization': `Bearer ${token}` }
-                        });
-                        if (!res.ok) throw new Error('Search failed');
-                        const data = await res.json();
-                        setSearchResults(data);
+                        const results = await searchInstruments(symbolSearchQuery, segment);
+                        setSearchResults(results);
                     } catch (err) {
                         console.error('Symbol search failed:', err);
                     } finally {
                         setIsSearching(false);
                     }
                 };
-                searchMarketData();
+                doSearch();
             }, 300);
             return () => clearTimeout(delayDebounceFn);
         } else {
@@ -125,7 +121,8 @@ const PaperTrading: React.FC = () => {
 
     useEffect(() => {
         setCapitalInput(settings.capitalPct.toString());
-    }, [settings.capitalPct]);
+        setVirtualCapitalInput(settings.virtualCapital.toString());
+    }, [settings.capitalPct, settings.virtualCapital]);
 
     const loadData = async () => {
         try {
@@ -161,7 +158,7 @@ const PaperTrading: React.FC = () => {
             } catch (e) {
                 console.error("Polling error:", e);
             }
-        }, 15000); // 15s poll
+        }, 15000);
     };
 
     const stopPolling = () => {
@@ -169,71 +166,71 @@ const PaperTrading: React.FC = () => {
         pollIntervalRef.current = null;
     };
 
-    const handleStartLiveMonitor = async () => {
+    // strategyId, slPct, tpPct are now passed directly from MonitorSetup
+    const handleStartLiveMonitor = async (strategyId: string, slPct: number | null, tpPct: number | null) => {
         setError(null);
         if (!globalSymbol) {
-            setError('Please search and select a symbol from Market Data.');
-            return;
-        }
-        if (!liveSelectedStrategyId) {
-            setError('Please select a strategy or preset.');
-            return;
+            throw new Error('Please search and select a symbol from Market Data.');
         }
 
         const monitorData = {
             symbol: globalSymbol,
-            strategyId: liveSelectedStrategyId,
+            strategyId,
             config: {},
             timeframe: globalTimeframe,
-            slPct: liveSlPct === '' ? null : Number(liveSlPct),
-            tpPct: liveTpPct === '' ? null : Number(liveTpPct),
+            slPct,
+            tpPct,
         };
 
-        try {
-            await startPaperMonitor(monitorData);
-            await loadData();
-            // Reset
-            setGlobalSymbol('');
-            setSymbolSearchQuery('');
-            setSelectedInstrument(null);
-        } catch (e: any) {
-            setError(e.message || 'Failed to start monitor');
-        }
+        await startPaperMonitor(monitorData);
+        // Reset symbol after successful creation
+        setGlobalSymbol('');
+        setSymbolSearchQuery('');
+        setSelectedInstrument(null);
+        // Refresh data silently — don't let loadData failure mask successful creation
+        loadData().catch(console.error);
     };
 
     const handleStopMonitor = async (id: string) => {
+        setStopError(null);
         try {
             setStoppingId(id);
             await stopPaperMonitor(id);
             await loadData();
         } catch (e: any) {
-            alert(e.message || 'Failed to stop monitor');
+            setStopError(e.message || 'Failed to stop monitor');
         } finally {
             setStoppingId(null);
         }
     };
 
     const handleClosePosition = async (id: string) => {
+        setCloseError(null);
         try {
             setClosingId(id);
             await closePaperPosition(id);
-            await loadData(); // Reload positions and history
+            await loadData();
         } catch (e: any) {
-            alert(e.message || 'Failed to close position');
+            setCloseError(e.message || 'Failed to close position');
         } finally {
             setClosingId(null);
         }
     };
 
     const handleSaveSettings = async () => {
+        setSettingsError(null);
+        setSettingsSaved(false);
         try {
             const pct = parseFloat(capitalInput);
-            if (isNaN(pct) || pct <= 0 || pct > 100) throw new Error('Invalid percentage');
-            await updatePaperSettings({ capitalPct: pct });
-            setSettings(s => ({ ...s, capitalPct: pct }));
-            alert('Settings saved');
+            if (isNaN(pct) || pct <= 0 || pct > 100) throw new Error('Invalid percentage (must be 1–100)');
+            const vc = parseFloat(virtualCapitalInput);
+            if (isNaN(vc) || vc <= 0) throw new Error('Invalid capital (must be > 0)');
+            await updatePaperSettings({ capitalPct: pct, virtualCapital: vc });
+            setSettings(s => ({ ...s, capitalPct: pct, virtualCapital: vc }));
+            setSettingsSaved(true);
+            setTimeout(() => setSettingsSaved(false), 2000);
         } catch (e: any) {
-            alert(e.message || 'Failed to save settings');
+            setSettingsError(e.message || 'Failed to save settings');
         }
     };
 
@@ -245,8 +242,11 @@ const PaperTrading: React.FC = () => {
         }
 
         if (!replayEvents.length) {
-            if (!globalSymbol || !replayActivePresetId && !replaySelectedStrategyId) {
-                setError("Please select a Symbol from Market Data and Strategy before Replaying.");
+            // Use whichever strategy ID is set (saved takes priority, falls back to preset)
+            const finalStrategyId = replaySelectedStrategyId || replayActivePresetId;
+
+            if (!globalSymbol || !finalStrategyId) {
+                setError("Please select a Symbol from Market Data and a Strategy before Replaying.");
                 return;
             }
             if (!replayStart || !replayEnd) {
@@ -254,10 +254,8 @@ const PaperTrading: React.FC = () => {
                 return;
             }
             setLoading(true);
+            setReplayFinished(false);
             try {
-                // Find actual Strategy ID (Preset or Saved)
-                const finalStrategyId = replayShowSaved ? replaySelectedStrategyId : replayActivePresetId;
-
                 const res = await runPaperReplay({
                     symbol: globalSymbol,
                     strategyId: finalStrategyId,
@@ -271,6 +269,9 @@ const PaperTrading: React.FC = () => {
                 replayIndexRef.current = 0;
                 setPositions([]);
                 setHistory([]);
+                setReplayChartData([]);
+                setReplayTotalBars((res.events || []).length);
+                setReplayCurrentBar(0);
             } catch (err: any) {
                 setError(err.message || 'Failed to fetch replay data');
                 setLoading(false);
@@ -290,7 +291,7 @@ const PaperTrading: React.FC = () => {
             if (idx >= replayEvents.length) {
                 setIsReplaying(false);
                 clearInterval(replayIntervalRef.current!);
-                alert("Replay Finished!");
+                setReplayFinished(true);
                 return;
             }
 
@@ -309,6 +310,13 @@ const PaperTrading: React.FC = () => {
                 setHistory(prev => [ev.trade, ...prev]);
             }
 
+            // Accumulate chart point for every event
+            const chartPoint: ReplayChartPoint = { time: ev.timestamp, price: ev.ltp };
+            if (ev.type === 'POSITION_OPENED') chartPoint.event = 'entry';
+            if (ev.type === 'TRADE_CLOSED') chartPoint.event = 'exit';
+            setReplayChartData(prev => [...prev, chartPoint]);
+            setReplayCurrentBar(idx + 1);
+
             replayIndexRef.current++;
         }, tickInterval);
 
@@ -319,11 +327,15 @@ const PaperTrading: React.FC = () => {
         setIsReplaying(false);
         if (replayIntervalRef.current) clearInterval(replayIntervalRef.current);
         setReplayEvents([]);
+        setReplayFinished(false);
         replayIndexRef.current = 0;
         setPositions([]);
         setHistory([]);
         setReplayStart('');
         setReplayEnd('');
+        setReplayChartData([]);
+        setReplayTotalBars(0);
+        setReplayCurrentBar(0);
     };
 
     return (
@@ -361,14 +373,29 @@ const PaperTrading: React.FC = () => {
                                 type="number"
                                 min="1" max="100"
                                 value={capitalInput}
-                                onChange={e => setCapitalInput(e.target.value)}
+                                onChange={e => { setCapitalInput(e.target.value); setSettingsSaved(false); setSettingsError(null); }}
                                 onBlur={handleSaveSettings}
                                 className="w-12 ml-2 bg-slate-950 border border-slate-700 rounded text-xs px-1 py-0.5 text-center text-slate-200 hide-arrows"
                             />
                             <span className="ml-1">%</span>
+                            {settingsSaved && <CheckCircle className="w-3.5 h-3.5 ml-2 text-emerald-400" />}
                         </div>
-                        <div className="text-emerald-400 font-mono font-bold mt-1 text-sm text-right">
-                            Cap: ₹{settings.virtualCapital.toLocaleString()}
+                        {settingsError && (
+                            <div className="text-red-400 text-[10px] mt-0.5 text-right">{settingsError}</div>
+                        )}
+                        <div className="text-xs text-slate-500 flex items-center justify-end gap-1 mt-1">
+                            <span className="text-slate-400">₹</span>
+                            <input
+                                type="number"
+                                min="1000"
+                                step="10000"
+                                value={virtualCapitalInput}
+                                onChange={e => { setVirtualCapitalInput(e.target.value); setSettingsSaved(false); setSettingsError(null); }}
+                                onBlur={handleSaveSettings}
+                                title="Virtual Capital"
+                                className="w-24 bg-slate-950 border border-slate-700 rounded text-xs px-1 py-0.5 text-center text-emerald-400 font-mono font-bold hide-arrows"
+                            />
+                            <span className="text-slate-500 text-[10px]">virtual cap</span>
                         </div>
                     </div>
                     <Button icon={loading ? <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" /> : <RefreshCw className="w-4 h-4" />} onClick={loadData}>
@@ -378,8 +405,20 @@ const PaperTrading: React.FC = () => {
             </div>
 
             {error && (
-                <div className="bg-red-900/20 text-red-500 border border-red-800 p-3 rounded text-sm font-bold flex items-center">
-                    Failed: {error}
+                <div className="bg-red-900/20 text-red-500 border border-red-800 p-3 rounded text-sm font-bold flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+                </div>
+            )}
+
+            {stopError && (
+                <div className="bg-red-900/20 text-red-500 border border-red-800 p-3 rounded text-sm flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" /> {stopError}
+                </div>
+            )}
+
+            {closeError && (
+                <div className="bg-red-900/20 text-red-500 border border-red-800 p-3 rounded text-sm flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" /> {closeError}
                 </div>
             )}
 
@@ -435,6 +474,7 @@ const PaperTrading: React.FC = () => {
                             isPlaying={isReplaying}
                             onTogglePlay={handleReplayToggle}
                             onReset={handleReplayReset}
+                            progress={replayTotalBars > 0 ? { current: replayCurrentBar, total: replayTotalBars } : undefined}
                         />
                     )}
 
@@ -451,6 +491,22 @@ const PaperTrading: React.FC = () => {
 
                 {/* RIGHT COLUMN: Positions & History */}
                 <div className="lg:col-span-8 flex flex-col gap-6">
+                    {mode === 'REPLAY' && (
+                        <ReplayChart
+                            data={replayChartData}
+                            currentBar={replayCurrentBar}
+                            totalBars={replayTotalBars}
+                            symbol={globalSymbol}
+                        />
+                    )}
+
+                    {replayFinished && (
+                        <div className="bg-purple-900/20 text-purple-300 border border-purple-800 p-3 rounded text-sm flex items-center gap-2">
+                            <CheckCircle className="w-4 h-4 shrink-0 text-purple-400" />
+                            Replay complete — {history.length} trade{history.length !== 1 ? 's' : ''} simulated.
+                        </div>
+                    )}
+
                     <PositionsTable
                         positions={positions}
                         onClosePosition={handleClosePosition}

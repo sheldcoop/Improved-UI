@@ -75,6 +75,10 @@ os.makedirs('data', exist_ok=True)
 from services.paper_store import init_db as init_paper_db
 init_paper_db()
 
+# Start APScheduler (live signal checks + LTP refresh for paper trading)
+from services.paper_scheduler import init_scheduler as _init_scheduler
+_init_scheduler(app)
+
 # --- REGISTER BLUEPRINTS ---
 app.register_blueprint(backtest_bp, url_prefix='/api/v1/backtest')
 app.register_blueprint(broker_bp, url_prefix='/api/v1/broker')
