@@ -52,10 +52,10 @@ let mockStrategies: StrategyPreset[] = [
         },
     },
     {
-        id: '5', name: 'Supertrend', description: 'ATR-based trend following',
+        id: '5', name: 'Supertrend', description: 'Flip-based Supertrend (matches TradingView). Enter on bullish flip, exit on bearish flip.',
         mode: 'CODE',
         params: [{ name: 'period', type: 'int', default: 10 }, { name: 'multiplier', type: 'float', default: 3.0 }],
-        pythonCode: "def signal_logic(df):\n    atr = vbt.ATR.run(df['high'], df['low'], df['close'], window=10).atr\n    ema = vbt.MA.run(df['close'], 10, ewm=True).ma\n    entries = df['close'].vbt.crossed_above(ema + 3.0 * atr)\n    exits = df['close'].vbt.crossed_below(ema - 3.0 * atr)\n    return entries, exits",
+        pythonCode: "// Supertrend runs on the backend with canonical Pine Script flip logic.",
     },
     {
         id: '6', name: 'Stochastic RSI', description: 'Stoch RSI crossover',

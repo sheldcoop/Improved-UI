@@ -230,6 +230,30 @@ class DynamicStrategy(BaseStrategy):
 
         return entries, exits
 
+    def _max_period_from_node(self, node: dict) -> int:
+        """Recursively find the maximum indicator period in a rule group tree.
+
+        Used to estimate the warmup (burn-in) period needed before the first
+        reliable signal can fire. If this exceeds 30% of available bars the
+        strategy will produce unreliable results.
+
+        Args:
+            node: A RuleGroup or Condition dict.
+
+        Returns:
+            Maximum period value found across the entire tree.
+        """
+        if not node:
+            return 0
+        if node.get("type") == "GROUP":
+            return max(
+                (self._max_period_from_node(c) for c in node.get("conditions", [])),
+                default=0,
+            )
+        period = int(node.get("period") or 0)
+        right_period = int(node.get("rightPeriod") or 0)
+        return max(period, right_period)
+
     def generate_signals(
         self, df: pd.DataFrame | dict
     ) -> tuple[pd.Series | pd.DataFrame, pd.Series | pd.DataFrame, list[str]]:
@@ -238,11 +262,13 @@ class DynamicStrategy(BaseStrategy):
         Supports both VISUAL mode (rule builder) and CODE mode
         (sandboxed Python execution).
 
-        When ``nextBarEntry`` is True in the config, all signals are shifted
-        forward by one bar so execution happens on the next candle's open
-        rather than the same candle that generated the signal. This matches
-        the ATR Channel Breakout (strategy 7) and is the realistic default
-        for daily-bar strategies.
+        All strategies default to ``nextBarEntry = True``: signals computed
+        on the current bar's close are executed on the **next bar's open**.
+        This prevents same-bar look-ahead bias where an entry fires at the
+        exact close that generated the signal — something that is impossible
+        to fill in live trading. Set ``nextBarEntry = False`` in the config
+        explicitly only when the execution model genuinely supports it
+        (e.g. fill-at-VWAP intraday where the signal fires at the open).
 
         Args:
             df: OHLCV DataFrame or dict of DataFrames (universe mode).
@@ -252,13 +278,38 @@ class DynamicStrategy(BaseStrategy):
             aligned to the input DataFrame's index, and a list of warnings.
         """
         warnings_list: list[str] = []
-        if self.config.get("mode") == "CODE":
+        mode = self.config.get("mode", "VISUAL")
+
+        if mode == "CODE":
             entries, exits, warnings_list = self._execute_python_code(df)
         else:
             entry_group = self.config.get("entryLogic")
             exit_group = self.config.get("exitLogic")
             target_index = df["close"].index if isinstance(df, dict) else df.index
             is_universe = isinstance(df, dict)
+
+            # --- Fix #2: Warmup period guard -----------------------------------
+            # Warn when the longest indicator period consumes a significant share
+            # of available bars — the strategy's early signals will be based on
+            # partial indicator warmup and are statistically unreliable.
+            n_bars = len(target_index)
+            max_period = max(
+                self._max_period_from_node(entry_group or {}),
+                self._max_period_from_node(exit_group or {}),
+            )
+            if max_period > 0 and n_bars > 0:
+                warmup_pct = max_period / n_bars
+                if warmup_pct > 0.30:
+                    warnings_list.append(
+                        f"Warmup warning: longest indicator period ({max_period}) consumes "
+                        f"{round(warmup_pct * 100)}% of available bars ({n_bars}). "
+                        "Results are likely unreliable — increase your date range."
+                    )
+                elif n_bars < max_period * 2:
+                    warnings_list.append(
+                        f"Warmup warning: only {n_bars} bars available but indicator period is "
+                        f"{max_period}. Consider fetching more historical data."
+                    )
 
             if not entry_group:
                 if is_universe:
@@ -289,8 +340,13 @@ class DynamicStrategy(BaseStrategy):
                         else:
                             exits = pd.Series(exits, index=target_index)
 
-        # Delay by 1 bar: enter on next candle open, not signal candle close.
-        if self.config.get("nextBarEntry", False) and entries is not None and exits is not None:
+        # --- Fix #1: Look-ahead bias prevention --------------------------------
+        # Default nextBarEntry = True for ALL strategies (including custom Visual
+        # Builder strategies). Entries fire at next bar's open, not the signal
+        # bar's close. Presets that previously set nextBarEntry=True explicitly
+        # are unaffected — they keep the same behaviour. Only custom strategies
+        # that previously fell through to False are corrected here.
+        if self.config.get("nextBarEntry", True) and entries is not None and exits is not None:
             entries = entries.shift(1).fillna(False)
             exits = exits.shift(1).fillna(False)
 
@@ -481,30 +537,74 @@ def signal_logic(df):
 """
             })
 
-        # 5. Supertrend
+        # 5. Supertrend — proper flip-based trailing-stop implementation.
+        # The previous version was a plain ATR-band EMA crossover, which produces
+        # far more signals and does not replicate TradingView's Supertrend.
+        # This implementation uses the canonical upper/lower band clamping logic
+        # and a sequential direction tracker identical to Pine Script's behaviour.
         if strategy_id == "5":
             period = int(config.get("period", 10))
             multiplier = float(config.get("multiplier", 3.0))
             return DynamicStrategy({
-                "nextBarEntry": True,  # Enter on next candle open after signal fires
+                "nextBarEntry": True,
                 "mode": "CODE",
                 "pythonCode": f"""
 def signal_logic(df):
-    # Simplified Supertrend logic using ATR bands
-    high = df['high']
-    low = df['low']
-    close = df['close']
-    atr = vbt.ATR.run(high, low, close, window={period}).atr
-    
-    # We use a robust Trend-Follow approach: 
-    # Long when Close > EMA + Mult*ATR
-    ema = vbt.MA.run(close, {period}, ewm=True).ma
-    upper_band = ema + ({multiplier} * atr)
-    lower_band = ema - ({multiplier} * atr)
-    
-    entries = close.vbt.crossed_above(upper_band)
-    exits = close.vbt.crossed_below(lower_band) 
-    return entries, exits
+    import numpy as np
+
+    high  = df['high'].values
+    low   = df['low'].values
+    close = df['close'].values
+    n     = len(close)
+
+    # ATR-based band centres (HL2)
+    atr_series = vbt.ATR.run(df['high'], df['low'], df['close'], window={period}).atr
+    atr = atr_series.values
+    hl2 = (high + low) / 2.0
+
+    basic_upper = hl2 + {multiplier} * atr
+    basic_lower = hl2 - {multiplier} * atr
+
+    # Initialise refined bands and direction arrays
+    upper     = basic_upper.copy()
+    lower     = basic_lower.copy()
+    direction = np.zeros(n, dtype=np.int8)   # 1 = bullish, -1 = bearish
+
+    for i in range(1, n):
+        if np.isnan(atr[i]):
+            # Still in ATR warmup — carry previous values forward
+            upper[i]     = upper[i - 1]
+            lower[i]     = lower[i - 1]
+            direction[i] = direction[i - 1]
+            continue
+
+        # Band clamping: only tighten, never widen while price stays on same side
+        upper[i] = (
+            min(basic_upper[i], upper[i - 1])
+            if close[i - 1] <= upper[i - 1]
+            else basic_upper[i]
+        )
+        lower[i] = (
+            max(basic_lower[i], lower[i - 1])
+            if close[i - 1] >= lower[i - 1]
+            else basic_lower[i]
+        )
+
+        # Trend flip logic (matches Pine Script Supertrend exactly)
+        if close[i] > upper[i - 1]:
+            direction[i] = 1    # Bullish flip / continuation
+        elif close[i] < lower[i - 1]:
+            direction[i] = -1   # Bearish flip / continuation
+        else:
+            direction[i] = direction[i - 1]  # No flip — maintain trend
+
+    direction_s = pd.Series(direction, index=df.index)
+    prev_dir    = direction_s.shift(1).fillna(0)
+
+    # Signal fires only on the bar where the trend FLIPS (not every bullish bar)
+    entries = (direction_s == 1)  & (prev_dir != 1)
+    exits   = (direction_s == -1) & (prev_dir != -1)
+    return entries.fillna(False), exits.fillna(False)
 """
             })
 

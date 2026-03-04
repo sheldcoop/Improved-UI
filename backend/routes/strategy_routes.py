@@ -138,7 +138,7 @@ PRESET_STRATEGIES = [
     {
         "id": "5",
         "name": "Supertrend",
-        "description": "Trend following using ATR-based trailing stop.",
+        "description": "Trend following using canonical flip-based Supertrend (matches TradingView). Enter on bullish flip, exit on bearish flip.",
         "params": [
             {"name": "period", "label": "ATR Period", "min": 7, "max": 20, "default": 10},
             {"name": "multiplier", "label": "Multiplier", "min": 1.0, "max": 5.0, "default": 3.0, "step": 0.1}
