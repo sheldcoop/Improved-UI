@@ -59,4 +59,8 @@ class ATRChannelBreakoutStrategy(DynamicStrategy):
 
         entries = df["close"] > upper_channel
         exits   = df["close"] < lower_channel
-        return entries.fillna(False), exits.fillna(False), []
+        return entries.fillna(False), exits.fillna(False), [], {
+            "ATR": atr.round(2),
+            "Upper Channel": upper_channel.round(2),
+            "Lower Channel": lower_channel.round(2),
+        }

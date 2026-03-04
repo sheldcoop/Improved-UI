@@ -105,4 +105,10 @@ class SupertrendStrategy(DynamicStrategy):
 
         entries = (direction_s == 1)  & (prev_dir != 1)   # Long flip bar
         exits   = (direction_s == -1) & (prev_dir != -1)  # Short flip bar
-        return entries.fillna(False), exits.fillna(False), []
+        
+        indicators = {
+            "Direction": direction_s,
+            "Upper Band": pd.Series(upper, index=df.index).round(2),
+            "Lower Band": pd.Series(lower, index=df.index).round(2),
+        }
+        return entries.fillna(False), exits.fillna(False), [], indicators

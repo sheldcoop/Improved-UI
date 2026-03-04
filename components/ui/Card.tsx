@@ -11,14 +11,18 @@ interface CardProps {
   bodyClassName?: string;
   title?: string | React.ReactNode;
   action?: React.ReactNode;
+  icon?: React.ReactNode;
 }
 
-export const Card: React.FC<CardProps> = ({ children, className = '', bodyClassName = '', title, action }) => {
+export const Card: React.FC<CardProps> = ({ children, className = '', bodyClassName = '', title, action, icon }) => {
   return (
     <div className={`bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm ${className}`}>
-      {(title || action) && (
+      {(title || action || icon) && (
         <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center">
-          {title && <h3 className="text-lg font-semibold text-slate-100">{title}</h3>}
+          <div className="flex items-center">
+            {icon && <span className="mr-2">{icon}</span>}
+            {title && <h3 className="text-lg font-semibold text-slate-100">{title}</h3>}
+          </div>
           {action && <div>{action}</div>}
         </div>
       )}

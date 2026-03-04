@@ -362,6 +362,8 @@ def run_replay():
         to_date      = data.get("toDate", "").strip()
         sl_pct       = data.get("slPct")
         tp_pct       = data.get("tpPct")
+        slippage     = data.get("slippage", 0.05)
+        commission   = data.get("commission", 20.0)
 
         # ------------------------------------------------------------------
         # Input validation
@@ -379,6 +381,14 @@ def run_replay():
         except ValueError:
             return jsonify({"status": "error",
                             "message": "fromDate and toDate must be YYYY-MM-DD"}), 400
+
+        try:
+            slippage = float(slippage)
+            commission = float(commission)
+            if slippage < 0 or commission < 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "message": "slippage and commission must be positive numbers"}), 400
 
         if sl_pct is not None:
             try:
@@ -414,15 +424,82 @@ def run_replay():
             tp_pct=tp_pct,
             capital_pct=capital_pct,
             virtual_capital=virtual_capital,
+            slippage=slippage,
+            commission=commission,
         )
 
         if not result["events"]:
             return jsonify({"status": "error",
                             "message": f"No data found for {symbol} [{from_date} → {to_date}]"}), 404
 
+        # Save run into Vault
+        try:
+            import uuid
+            run_id = str(uuid.uuid4())[:12]
+            
+            vault_summary = {
+                "id": run_id,
+                "strategyName": f"Replay: Strategy {strategy_id}",
+                "timeframe": timeframe,
+            }
+            if "summary" in result:
+                vault_summary.update(result["summary"])
+                
+            paper_store.save_run(
+                run_id=run_id,
+                run_type="REPLAY",
+                symbol=symbol,
+                strategy_id=strategy_id,
+                summary=vault_summary,
+                results={"events": result["events"]}
+            )
+            result["id"] = run_id
+        except Exception as e:
+            logger.error(f"Failed to auto-save replay to vault: {e}", exc_info=True)
+
         return jsonify({"status": "success", **result}), 200
 
     except Exception as exc:
         logger.error(f"run_replay failed: {exc}", exc_info=True)
         return jsonify({"status": "error", "message": f"Replay failed: {exc}"}), 500
+
+
+# ---------------------------------------------------------------------------
+# Saved Runs (Vault)
+# ---------------------------------------------------------------------------
+
+@paper_bp.route("/runs", methods=["GET"])
+def list_runs():
+    """List all saved runs (metadata only)."""
+    try:
+        run_type = request.args.get("type", None)
+        vault_items = paper_store.get_runs_list(run_type)
+        return jsonify(vault_items), 200
+    except Exception as exc:
+        logger.error(f"list_runs failed: {exc}", exc_info=True)
+        return jsonify({"status": "error", "message": "Failed to fetch runs"}), 500
+
+@paper_bp.route("/runs/<run_id>", methods=["GET"])
+def get_run_details(run_id: str):
+    """Get full details of a specific run."""
+    try:
+        run = paper_store.get_run(run_id)
+        if not run:
+            return jsonify({"status": "error", "message": "Run not found"}), 404
+        return jsonify(run), 200
+    except Exception as exc:
+        logger.error(f"get_run_details failed: {exc}", exc_info=True)
+        return jsonify({"status": "error", "message": "Failed to fetch run"}), 500
+
+@paper_bp.route("/runs/<run_id>", methods=["DELETE"])
+def delete_run_endpoint(run_id: str):
+    """Delete a saved run."""
+    try:
+        deleted = paper_store.delete_run(run_id)
+        if not deleted:
+            return jsonify({"status": "error", "message": "Run not found"}), 404
+        return jsonify({"status": "success", "message": "Run deleted"}), 200
+    except Exception as exc:
+        logger.error(f"delete_run failed: {exc}", exc_info=True)
+        return jsonify({"status": "error", "message": "Failed to delete run"}), 500
 

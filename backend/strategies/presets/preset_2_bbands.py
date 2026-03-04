@@ -31,16 +31,20 @@ class BollingerBandsMeanReversionStrategy(DynamicStrategy):
 
     def _compute_signals(
         self, df: pd.DataFrame | dict
-    ) -> tuple[pd.Series, pd.Series, list[str]]:
+    ) -> tuple[pd.Series, pd.Series, list[str], dict[str, pd.Series]]:
         """Compute Bollinger Band mean-reversion signals.
 
         Args:
             df: OHLCV DataFrame with lowercase column names.
 
         Returns:
-            Tuple of (entries, exits, warnings).
+            Tuple of (entries, exits, warnings, indicators).
         """
         bb = vbt.BBANDS.run(df["close"], window=self._period, alpha=self._std_dev)
         entries = df["close"].vbt.crossed_below(bb.lower)
         exits   = df["close"].vbt.crossed_above(bb.middle)
-        return entries.fillna(False), exits.fillna(False), []
+        return entries.fillna(False), exits.fillna(False), [], {
+            "Upper Band": bb.upper.round(2),
+            "Middle Band": bb.middle.round(2),
+            "Lower Band": bb.lower.round(2),
+        }

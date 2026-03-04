@@ -67,3 +67,17 @@ class RSIMeanReversionStrategy(DynamicStrategy):
                 }],
             },
         })
+
+    def _compute_signals(
+        self, df: pd.DataFrame | dict
+    ) -> tuple[pd.Series, pd.Series, list[str], dict[str, pd.Series]]:
+        import ta
+        period = int(self.config.get("period", 14))
+        lower = float(self.config.get("lower", 30))
+        upper = float(self.config.get("upper", 70))
+        
+        rsi = ta.momentum.RSIIndicator(df["close"], window=period).rsi()
+        entries = rsi.vbt.crossed_below(lower)
+        exits = rsi.vbt.crossed_above(upper)
+        
+        return entries.fillna(False), exits.fillna(False), [], {"RSI": rsi.round(2)}

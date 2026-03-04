@@ -43,8 +43,8 @@ class PythonSandbox:
         code: str,
         df: pd.DataFrame | dict,
         config: dict,
-    ) -> tuple[pd.Series | None, pd.Series | None, list[str]]:
-        """Execute user code and return (entries, exits, warnings).
+    ) -> tuple[pd.Series | None, pd.Series | None, list[str], dict[str, pd.Series]]:
+        """Execute user code and return (entries, exits, warnings, indicators).
 
         Args:
             code: Python source defining ``signal_logic(df)``.
@@ -52,26 +52,26 @@ class PythonSandbox:
             config: Strategy config exposed as ``config`` inside the function.
 
         Returns:
-            Tuple of (entries, exits, warnings). Returns (None, None, []) on
+            Tuple of (entries, exits, warnings, indicators). Returns (None, None, [], {}) on
             any error — errors are logged but never re-raised.
         """
         if not code:
-            return None, None, []
+            return None, None, [], {}
 
         # AST scan
         try:
             tree = ast.parse(code)
         except SyntaxError as exc:
             logger.error(f"Code Syntax Error: {exc}")
-            return None, None, []
+            return None, None, [], {}
 
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute) and node.attr in _BLOCKED_ATTRS:
                 logger.error(f"Sandbox violation: blocked attribute '{node.attr}'")
-                return None, None, []
+                return None, None, [], {}
             if isinstance(node, ast.Name) and node.id in _BLOCKED_ATTRS:
                 logger.error(f"Sandbox violation: blocked name '{node.id}'")
-                return None, None, []
+                return None, None, [], {}
 
         safe_globals: dict = {
             "__builtins__": _SAFE_BUILTINS,
@@ -86,13 +86,26 @@ class PythonSandbox:
 
                 if "signal_logic" not in safe_globals:
                     logger.error("Code must define a 'signal_logic(df)' function.")
-                    return None, None, []
+                    return None, None, [], {}
 
-                entries, exits = safe_globals["signal_logic"](df)
+                result = safe_globals["signal_logic"](df)
                 captured = [str(x.message) for x in w]
+                
+                indicators = {}
+                if isinstance(result, tuple):
+                    if len(result) >= 4:
+                        entries, exits, _, indicators = result[:4]
+                    elif len(result) == 3:
+                        entries, exits, _ = result
+                    elif len(result) == 2:
+                        entries, exits = result
+                    else:
+                        entries, exits = None, None
+                else:
+                    return None, None, captured, {}
 
-            return entries, exits, captured
+            return entries, exits, captured, indicators
 
         except Exception as exc:
             logger.error(f"Code Execution Error: {exc}", exc_info=True)
-            return None, None, []
+            return None, None, [], {}

@@ -78,6 +78,8 @@ class ReplayEngine:
         tp_pct: Optional[float],
         capital_pct: float,
         virtual_capital: float,
+        slippage: float = 0.05,
+        commission: float = 20.0,
     ) -> dict:
         """Run a full historical replay and return events + summary.
 
@@ -91,6 +93,8 @@ class ReplayEngine:
             tp_pct: Take-profit percentage. None = disabled.
             capital_pct: Fraction of virtual_capital per trade (e.g. 10 = 10%).
             virtual_capital: Starting virtual cash in INR.
+            slippage: Slippage percentage per trade (e.g., 0.05).
+            commission: Flat commission fee per trade in INR.
 
         Returns:
             dict with keys:
@@ -102,18 +106,21 @@ class ReplayEngine:
         if df is None or df.empty:
             return {"events": [], "summary": ReplayEngine._empty_summary(virtual_capital)}
 
-        entries, exits, sides, next_bar_entry = ReplayEngine._compute_signals(df, strategy_id)
+        entries, exits, sides, next_bar_entry, indicators = ReplayEngine._compute_signals(df, strategy_id)
         events, summary = ReplayEngine._simulate(
             df=df,
             symbol=symbol,
             entries=entries,
             exits=exits,
             sides=sides,
+            indicators=indicators,
             sl_pct=sl_pct,
             tp_pct=tp_pct,
             capital_pct=capital_pct,
             virtual_capital=virtual_capital,
             next_bar_entry=next_bar_entry,
+            slippage=slippage,
+            commission=commission,
         )
         return {"events": events, "summary": summary}
 
@@ -192,12 +199,13 @@ class ReplayEngine:
 
         next_bar_entry = bool(config.get("nextBarEntry", True))
 
-        # generate_signals returns (entries, exits) or (entries, exits, sides)
+        # generate_signals returns (entries, exits, warnings, indicators)
         entries = result[0] if len(result) >= 1 else pd.Series(False, index=df.index)
         exits   = result[1] if len(result) >= 2 else pd.Series(False, index=df.index)
         sides   = result[2] if len(result) >= 3 else None
+        indicators = result[3] if len(result) >= 4 else {}
 
-        return entries, exits, sides, next_bar_entry
+        return entries, exits, sides, next_bar_entry, indicators
 
     @staticmethod
     def _simulate(
@@ -211,6 +219,9 @@ class ReplayEngine:
         capital_pct: float,
         virtual_capital: float,
         next_bar_entry: bool,
+        slippage: float,
+        commission: float,
+        indicators: dict[str, pd.Series] = None,
     ) -> tuple[list[dict], dict]:
         """Walk the DataFrame bar by bar and emit events.
 
@@ -225,6 +236,8 @@ class ReplayEngine:
             capital_pct: Capital per trade (%).
             virtual_capital: Starting equity in INR.
             next_bar_entry: True if shifted execution on bar Open.
+            slippage: Slippage percentage per trade.
+            commission: Flat commission fee in INR.
 
         Returns:
             Tuple of (events list, summary dict).
@@ -238,6 +251,9 @@ class ReplayEngine:
         total_trades = 0
         win_trades = 0
         cumulative_pnl = 0.0
+
+        if indicators is None:
+            indicators = {}
         max_drawdown = 0.0
 
         n = len(df)
@@ -257,7 +273,7 @@ class ReplayEngine:
             # ----------------------------------------------------------
             if is_last_bar and open_pos:
                 closed_evt, open_pos, equity, pnl = ReplayEngine._close_position(
-                    open_pos, ltp, ts, _REASON_EOD
+                    open_pos, ltp, ts, _REASON_EOD, commission
                 )
                 cumulative_pnl += pnl
                 if pnl > 0:
@@ -297,8 +313,12 @@ class ReplayEngine:
 
                 if sl_triggered or tp_triggered:
                     reason = _REASON_SL if sl_triggered else _REASON_TP
+                    
+                    # Apply slippage on the SL/TP execution price
+                    sl_adj_exec = exec_price * (1 - slippage/100) if side == "LONG" else exec_price * (1 + slippage/100)
+                    
                     closed_evt, open_pos, equity, pnl = ReplayEngine._close_position(
-                        open_pos, exec_price, ts, reason
+                        open_pos, sl_adj_exec, ts, reason, commission
                     )
                     cumulative_pnl += pnl
                     if pnl > 0:
@@ -314,7 +334,7 @@ class ReplayEngine:
                     continue
 
             # ----------------------------------------------------------
-            # 3. Entry signal — open new position (only if flat)
+            # 3. Exit signal — close existing position
             # ----------------------------------------------------------
             entry_sig = bool(entries.iloc[bar_idx]) if bar_idx < len(entries) else False
             exit_sig  = bool(exits.iloc[bar_idx])   if bar_idx < len(exits)   else False
@@ -322,36 +342,11 @@ class ReplayEngine:
             entry_exec_price = open_price if next_bar_entry else ltp
             exit_exec_price  = open_price if next_bar_entry else ltp
 
-            if entry_sig and not open_pos:
-                side = "LONG"
-                if sides is not None and bar_idx < len(sides):
-                    raw_side = sides.iloc[bar_idx]
-                    if isinstance(raw_side, str) and raw_side.upper() == "SHORT":
-                        side = "SHORT"
-
-                qty = max(1, int((virtual_capital * (capital_pct / 100.0)) / entry_exec_price)) if entry_exec_price > 0 else 1
-                open_pos = {
-                    "id":         str(uuid.uuid4())[:8],
-                    "symbol":     symbol,
-                    "side":       side,
-                    "qty":        qty,
-                    "avg_price":  entry_exec_price,
-                    "entry_time": ts,
-                }
-                events.append({
-                    "type":      _EVT_POS_OPENED,
-                    "timestamp": ts,
-                    "ltp":       ltp,
-                    "equity":    round(virtual_capital + cumulative_pnl, 2),
-                    "position":  dict(open_pos),
-                })
-
-            # ----------------------------------------------------------
-            # 4. Exit signal — close existing position
-            # ----------------------------------------------------------
-            elif exit_sig and open_pos:
+            if exit_sig and open_pos:
+                side = open_pos["side"]
+                sl_adj_exit = exit_exec_price * (1 - slippage/100) if side == "LONG" else exit_exec_price * (1 + slippage/100)
                 closed_evt, open_pos, equity, pnl = ReplayEngine._close_position(
-                    open_pos, exit_exec_price, ts, _REASON_SIGNAL
+                    open_pos, sl_adj_exit, ts, _REASON_SIGNAL, commission
                 )
                 cumulative_pnl += pnl
                 if pnl > 0:
@@ -361,6 +356,51 @@ class ReplayEngine:
                 drawdown = (peak_equity - (equity + cumulative_pnl)) / peak_equity * 100
                 max_drawdown = max(max_drawdown, drawdown)
                 events.append(closed_evt)
+
+            # ----------------------------------------------------------
+            # 4. Entry signal — open new position (only if flat)
+            # ----------------------------------------------------------
+            # Re-check open_pos as it might have just closed via exit_sig (Stop-and-Reverse fix)
+            if entry_sig and not open_pos:
+                
+                # The indicators payload is unshifted, so if we execute on Next Bar Open, the math occurred 1 tick prior.
+                signal_idx = bar_idx - 1 if next_bar_entry and bar_idx > 0 else bar_idx
+                current_indicators = {}
+                for k, v in indicators.items():
+                    if isinstance(v, pd.Series):
+                        try:
+                            val = float(v.iloc[signal_idx])
+                            if not np.isnan(val) and not np.isinf(val):
+                                current_indicators[k] = round(val, 2)
+                        except Exception:
+                            pass
+
+                side = "LONG"
+                if sides is not None and bar_idx < len(sides):
+                    raw_side = sides.iloc[bar_idx]
+                    if isinstance(raw_side, str) and raw_side.upper() == "SHORT":
+                        side = "SHORT"
+
+                # Apply slippage on entry
+                sl_adj_entry = entry_exec_price * (1 + slippage/100) if side == "LONG" else entry_exec_price * (1 - slippage/100)
+
+                qty = max(1, int((virtual_capital * (capital_pct / 100.0)) / sl_adj_entry)) if sl_adj_entry > 0 else 1
+                open_pos = {
+                    "id":         str(uuid.uuid4())[:8],
+                    "symbol":     symbol,
+                    "side":       side,
+                    "qty":        qty,
+                    "avg_price":  sl_adj_entry,
+                    "entry_time": ts,
+                    "indicators": current_indicators,
+                }
+                events.append({
+                    "type":      _EVT_POS_OPENED,
+                    "timestamp": ts,
+                    "ltp":       ltp,
+                    "equity":    round(virtual_capital + cumulative_pnl, 2),
+                    "position":  dict(open_pos),
+                })
 
             # ----------------------------------------------------------
             # 5. TICK — always emit (for chart animation)
@@ -402,6 +442,7 @@ class ReplayEngine:
         exit_price: float,
         timestamp: str,
         reason: str,
+        commission: float,
     ) -> tuple[dict, None, float, float]:
         """Compute PnL and build a TRADE_CLOSED event.
 
@@ -414,6 +455,7 @@ class ReplayEngine:
             exit_price: Closing price (close of exit bar).
             timestamp: ISO-8601 string of exit bar.
             reason: Exit reason code ('SIGNAL', 'SL', 'TP', 'END_OF_DATA').
+            commission: Fixed commission deducted from PnL logic.
 
         Returns:
             Tuple of (event_dict, None, unused_equity, pnl).
@@ -424,10 +466,14 @@ class ReplayEngine:
 
         if side == "LONG":
             pnl     = (exit_price - avg_entry) * qty
-            pnl_pct = (exit_price / avg_entry - 1) * 100 if avg_entry > 0 else 0.0
         else:  # SHORT
             pnl     = (avg_entry - exit_price) * qty
-            pnl_pct = (avg_entry / exit_price - 1) * 100 if exit_price > 0 else 0.0
+            
+        # Realistic friction implementation: deduct flat commission
+        pnl -= commission
+
+        entry_val = avg_entry * qty
+        pnl_pct = (pnl / entry_val) * 100 if entry_val > 0 else 0.0
 
         event = {
             "type":      _EVT_TRADE_CLOSED,
@@ -435,6 +481,7 @@ class ReplayEngine:
             "ltp":       exit_price,
             "trade": {
                 **open_pos,
+                "entry_price": avg_entry,
                 "exit_price":  round(exit_price, 2),
                 "exit_time":   timestamp,
                 "exit_reason": reason,

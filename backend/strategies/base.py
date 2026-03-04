@@ -25,15 +25,15 @@ class BaseStrategy:
     def generate_signals(
         self,
         df: pd.DataFrame | dict,
-    ) -> tuple[pd.Series, pd.Series, list[str]]:
+    ) -> tuple[pd.Series, pd.Series, list[str], dict[str, pd.Series]]:
         """Generate entry/exit signals from OHLCV data.
 
         Args:
             df: OHLCV DataFrame (single asset) or dict of DataFrames (universe).
 
         Returns:
-            Tuple of (entries, exits, warnings) — boolean Series/DataFrames
-            aligned to the input index, and a list of warning strings.
+            Tuple of (entries, exits, warnings, indicators) — boolean Series/DataFrames
+            aligned to the input index, a list of warning strings, and a dictionary of indicator Series.
 
         Raises:
             NotImplementedError: Subclasses must implement this method.

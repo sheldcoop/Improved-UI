@@ -152,6 +152,37 @@ def run_backtest():
             "syntheticData": False,
             **results,
         }
+        
+        # Save run into Vault
+        try:
+            from services.paper_store import save_run
+            import uuid
+            run_id = str(uuid.uuid4())[:12]
+            response["id"] = run_id
+            
+            # The vault UI expects 'summary' specifically.
+            vault_summary = {
+                "id": run_id,
+                "strategyName": response["strategyName"],
+                "timeframe": timeframe,
+            }
+            if "summary" in results:
+                vault_summary.update(results["summary"])
+            else:
+                vault_summary["totalTrades"] = len(results.get("trades", []))
+                vault_summary["netPnl"] = sum(t.get("pnl", 0) for t in results.get("trades", []))
+                
+            save_run(
+                run_id=run_id,
+                run_type="BACKTEST",
+                symbol=symbol,
+                strategy_id=strategy_id,
+                summary=vault_summary,
+                results=response
+            )
+        except Exception as e:
+            logger.error(f"Failed to auto-save backtest to vault: {e}", exc_info=True)
+
         return jsonify(response), 200
 
     except Exception as exc:

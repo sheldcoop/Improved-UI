@@ -134,7 +134,8 @@ def refresh_all_positions() -> list[dict]:
             continue
 
         # ZTS check: Reject anomalous instantaneous jumps >15%
-        reference_price = pos.get("ltp") if pos.get("ltp", 0) > 0 else pos["avg_price"]
+        recorded_ltp = pos.get("ltp")
+        reference_price = recorded_ltp if recorded_ltp and recorded_ltp > 0 else pos["avg_price"]
         jump_pct = abs((ltp - reference_price) / reference_price) * 100
         if jump_pct > 15.0:
             logger.warning(f"ZTS Block: Rejecting anomalous tick {pos['symbol']} @ ₹{ltp:.2f} (Implies {jump_pct:.1f}% jump)")

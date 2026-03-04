@@ -244,9 +244,11 @@ class TestSignalChecker:
         exits   = pd.Series([False] * n)
         if entries_last:
             entries.iloc[-1] = True
+            entries.iloc[-2] = True
         if exits_last:
             exits.iloc[-1] = True
-        mock.generate_signals.return_value = (entries, exits, [])
+            exits.iloc[-2] = True
+        mock.generate_signals.return_value = (entries, exits, [], {})
         return mock
 
     def test_buy_signal_fires_on_entry(self, paper_store):
@@ -257,7 +259,7 @@ class TestSignalChecker:
              patch("strategies.presets.StrategyFactory") as mock_sf:
             mock_sf.get_strategy.return_value = self._mock_strategy(entries_last=True)
             from services.signal_checker import check_signal
-            signal, qty, ltp = check_signal(monitor, has_open_position=False)
+            signal, qty, ltp, inds = check_signal(monitor, has_open_position=False)
         assert signal == "BUY"
         assert qty >= 1
 
@@ -269,7 +271,7 @@ class TestSignalChecker:
              patch("strategies.presets.StrategyFactory") as mock_sf:
             mock_sf.get_strategy.return_value = self._mock_strategy(exits_last=True)
             from services.signal_checker import check_signal
-            signal, _, _ = check_signal(monitor, has_open_position=True)
+            signal, _, _, _ = check_signal(monitor, has_open_position=True)
         assert signal == "SELL"
 
     def test_no_signal_returns_hold(self, paper_store):
@@ -281,7 +283,7 @@ class TestSignalChecker:
              patch("strategies.presets.StrategyFactory") as mock_sf:
             mock_sf.get_strategy.return_value = self._mock_strategy()
             from services.signal_checker import check_signal
-            signal, _, _ = check_signal(monitor, has_open_position=False)
+            signal, _, _, _ = check_signal(monitor, has_open_position=False)
         assert signal in (None, "HOLD")
 
 
@@ -326,6 +328,7 @@ class TestReplayEngine:
             sides=None,
             sl_pct=None, tp_pct=None,
             capital_pct=10.0, virtual_capital=100_000.0,
+            next_bar_entry=False, slippage=0.0, commission=0.0,
         )
         tick_events = [e for e in events if e["type"] == "TICK"]
         assert len(tick_events) == n
@@ -342,6 +345,7 @@ class TestReplayEngine:
             sides=None,
             sl_pct=None, tp_pct=None,
             capital_pct=100.0, virtual_capital=100_000.0,
+            next_bar_entry=False, slippage=0.0, commission=0.0,
         )
         assert summary["totalTrades"] == 1
         assert summary["netPnl"] > 0  # uptrending data → long position profits
@@ -357,6 +361,7 @@ class TestReplayEngine:
             sides=None,
             sl_pct=None, tp_pct=None,
             capital_pct=10.0, virtual_capital=100_000.0,
+            next_bar_entry=False, slippage=0.0, commission=0.0,
         )
         pos_events = [e for e in events if e["type"] == "POSITION_OPENED"]
         assert len(pos_events) >= 1
@@ -372,6 +377,7 @@ class TestReplayEngine:
             sides=None,
             sl_pct=None, tp_pct=None,
             capital_pct=10.0, virtual_capital=100_000.0,
+            next_bar_entry=False, slippage=0.0, commission=0.0,
         )
         closed_events = [e for e in events if e["type"] == "TRADE_CLOSED"]
         assert len(closed_events) == 1
@@ -395,6 +401,7 @@ class TestReplayEngine:
             sides=None,
             sl_pct=10.0, tp_pct=None,
             capital_pct=100.0, virtual_capital=100_000.0,
+            next_bar_entry=False, slippage=0.0, commission=0.0,
         )
         closed_events = [e for e in events if e["type"] == "TRADE_CLOSED"]
         assert len(closed_events) == 1
@@ -413,6 +420,7 @@ class TestReplayEngine:
             sides=None,
             sl_pct=None, tp_pct=None,
             capital_pct=10.0, virtual_capital=100_000.0,
+            next_bar_entry=False, slippage=0.0, commission=0.0,
         )
         for key in ("totalTrades", "winTrades", "lossTrades", "winRate",
                     "netPnl", "netPnlPct", "maxDrawdown", "finalEquity"):

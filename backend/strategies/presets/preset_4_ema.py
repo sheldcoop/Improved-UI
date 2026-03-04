@@ -68,3 +68,21 @@ class EMACrossoverStrategy(DynamicStrategy):
                 }],
             },
         })
+
+    def _compute_signals(
+        self, df: pd.DataFrame | dict
+    ) -> tuple[pd.Series, pd.Series, list[str], dict[str, pd.Series]]:
+        import ta
+        fast_p = int(self.config.get("fast", 20))
+        slow_p = int(self.config.get("slow", 50))
+        
+        fast_ema = ta.trend.EMAIndicator(df["close"], window=fast_p).ema_indicator()
+        slow_ema = ta.trend.EMAIndicator(df["close"], window=slow_p).ema_indicator()
+        
+        entries = fast_ema.vbt.crossed_above(slow_ema)
+        exits = fast_ema.vbt.crossed_below(slow_ema)
+        
+        return entries.fillna(False), exits.fillna(False), [], {
+            "Fast EMA": fast_ema.round(2),
+            "Slow EMA": slow_ema.round(2)
+        }

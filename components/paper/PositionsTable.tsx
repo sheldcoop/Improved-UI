@@ -15,6 +15,7 @@ export interface PaperPosition {
     sl_price: number | null;
     tp_price: number | null;
     entry_time: string;
+    indicators?: Record<string, number>;
 }
 
 interface PositionsTableProps {
@@ -57,7 +58,10 @@ export const PositionsTable: React.FC<PositionsTableProps> = ({
                         </thead>
                         <tbody className="divide-y divide-slate-800/50">
                             {positions.map(p => {
-                                const isProfitable = p.pnl >= 0;
+                                const ltp = p.ltp ?? p.avg_price;
+                                const pnl = p.pnl ?? 0;
+                                const pnl_pct = p.pnl_pct ?? 0;
+                                const isProfitable = pnl >= 0;
                                 return (
                                     <tr key={p.id} className="hover:bg-slate-800/30 transition-colors">
                                         <td className="px-4 py-3">
@@ -73,18 +77,28 @@ export const PositionsTable: React.FC<PositionsTableProps> = ({
                                             <span className="ml-2 text-slate-300 font-medium">{p.qty}</span>
                                         </td>
                                         <td className="px-4 py-3 text-slate-300">
-                                            ₹{p.avg_price.toFixed(2)}
+                                            <div className="font-medium">₹{(p.avg_price ?? 0).toFixed(2)}</div>
+                                            {p.indicators && Object.keys(p.indicators).length > 0 && (
+                                                <div className="mt-1 flex flex-wrap gap-1 max-w-[150px]">
+                                                    {Object.entries(p.indicators).map(([k, v]) => (
+                                                        <span key={k} className="px-1.5 py-0.5 rounded bg-slate-800 text-[9px] text-slate-400 border border-slate-700/50" title={k}>
+                                                            <span className="text-slate-500 mr-1">{k}:</span>
+                                                            {typeof v === 'number' ? v.toFixed(2) : String(v)}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </td>
                                         <td className="px-4 py-3 text-slate-200 font-medium">
-                                            ₹{p.ltp.toFixed(2)}
+                                            ₹{ltp.toFixed(2)}
                                         </td>
                                         <td className="px-4 py-3">
                                             <div className={`font-bold flex items-center ${isProfitable ? 'text-emerald-400' : 'text-red-400'}`}>
                                                 {isProfitable ? <ArrowUpRight className="w-3 h-3 mr-1" /> : <ArrowDownRight className="w-3 h-3 mr-1" />}
-                                                ₹{Math.abs(p.pnl).toFixed(2)}
+                                                ₹{Math.abs(pnl).toFixed(2)}
                                             </div>
                                             <div className={`text-[10px] ${isProfitable ? 'text-emerald-500/80' : 'text-red-500/80'}`}>
-                                                {isProfitable ? '+' : ''}{p.pnl_pct.toFixed(2)}%
+                                                {isProfitable ? '+' : ''}{pnl_pct.toFixed(2)}%
                                             </div>
                                         </td>
                                         <td className="px-4 py-3 text-right">

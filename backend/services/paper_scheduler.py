@@ -66,7 +66,7 @@ def _run_monitor_job(monitor_id: str) -> None:
     has_pos = existing is not None
 
     try:
-        signal, qty, ltp = check_signal(
+        signal, qty, ltp, current_indicators = check_signal(
             monitor,
             virtual_capital=float(paper_store.get_setting("virtual_capital", "100000.0")),
             has_open_position=has_pos,
@@ -95,6 +95,7 @@ def _run_monitor_job(monitor_id: str) -> None:
             "sl_price":    sl_price,
             "tp_price":    tp_price,
             "entry_time":  datetime.now().isoformat(),
+            "indicators":  current_indicators,
         }
         paper_store.save_position(position)
         logger.info(f"Paper BUY: {symbol} {qty} units @ ₹{ltp:.2f}")

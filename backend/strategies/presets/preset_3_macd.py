@@ -50,4 +50,8 @@ class MACDCrossoverStrategy(DynamicStrategy):
         )
         entries = macd.macd.vbt.crossed_above(macd.signal)
         exits   = macd.macd.vbt.crossed_below(macd.signal)
-        return entries.fillna(False), exits.fillna(False), []
+        return entries.fillna(False), exits.fillna(False), [], {
+            "MACD": macd.macd.round(2),
+            "Signal": macd.signal.round(2),
+            "Histogram": macd.hist.round(2),
+        }

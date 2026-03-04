@@ -75,7 +75,8 @@ def init_db() -> None:
                 sl_price    REAL,
                 tp_price    REAL,
                 entry_time  TEXT NOT NULL,
-                status      TEXT NOT NULL DEFAULT 'OPEN'
+                status      TEXT NOT NULL DEFAULT 'OPEN',
+                indicators  TEXT
             );
 
             CREATE TABLE IF NOT EXISTS trade_history (
@@ -91,14 +92,34 @@ def init_db() -> None:
                 entry_time  TEXT NOT NULL,
                 exit_time   TEXT NOT NULL,
                 strategy_id TEXT,
-                exit_reason TEXT DEFAULT 'SIGNAL'
+                exit_reason TEXT DEFAULT 'SIGNAL',
+                indicators  TEXT
             );
 
             CREATE TABLE IF NOT EXISTS settings (
                 key   TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS saved_runs (
+                id            TEXT PRIMARY KEY,
+                run_type      TEXT NOT NULL, -- 'BACKTEST' or 'REPLAY'
+                symbol        TEXT NOT NULL,
+                strategy_id   TEXT NOT NULL,
+                summary_json  TEXT NOT NULL, -- JSON
+                results_json  TEXT NOT NULL, -- JSON
+                created_at    TEXT NOT NULL
+            );
         """)
+        
+        # Schema upgrade for Phase 1: Trade Audit Trails
+        try:
+            conn.execute("ALTER TABLE positions ADD COLUMN indicators TEXT")
+            conn.execute("ALTER TABLE trade_history ADD COLUMN indicators TEXT")
+            logger.info("Migrated SQLite schema to include 'indicators' columns.")
+        except sqlite3.OperationalError:
+            pass  # Columns already exist
+
     logger.info(f"Paper trading DB initialised at {_DB_PATH}")
 
 
@@ -211,11 +232,11 @@ def save_position(position: dict) -> dict:
         conn.execute(
             """
             INSERT INTO positions (id, monitor_id, symbol, side, qty, avg_price,
-                ltp, pnl, pnl_pct, sl_price, tp_price, entry_time, status)
+                ltp, pnl, pnl_pct, sl_price, tp_price, entry_time, status, indicators)
             VALUES (:id, :monitor_id, :symbol, :side, :qty, :avg_price,
-                :ltp, :pnl, :pnl_pct, :sl_price, :tp_price, :entry_time, 'OPEN')
+                :ltp, :pnl, :pnl_pct, :sl_price, :tp_price, :entry_time, 'OPEN', :indicators)
             """,
-            position,
+            {**position, "indicators": json.dumps(position.get("indicators", {}))},
         )
     return position
 
@@ -230,7 +251,19 @@ def get_positions() -> list[dict]:
         rows = conn.execute(
             "SELECT * FROM positions WHERE status='OPEN' ORDER BY entry_time DESC"
         ).fetchall()
-        return [dict(row) for row in rows]
+        
+        result = []
+        for row in rows:
+            pos = dict(row)
+            if pos.get("indicators"):
+                try:
+                    pos["indicators"] = json.loads(pos["indicators"])
+                except Exception:
+                    pos["indicators"] = {}
+            else:
+                pos["indicators"] = {}
+            result.append(pos)
+        return result
 
 
 def get_position_by_symbol(symbol: str) -> dict | None:
@@ -307,14 +340,15 @@ def close_position(position_id: str, exit_price: float, exit_reason: str = "SIGN
             """
             INSERT INTO trade_history
                 (id, monitor_id, symbol, side, qty, entry_price, exit_price,
-                 pnl, pnl_pct, entry_time, exit_time, strategy_id, exit_reason)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 pnl, pnl_pct, entry_time, exit_time, strategy_id, exit_reason, indicators)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 f"h_{position_id}", pos["monitor_id"], pos["symbol"], pos["side"],
                 pos["qty"], pos["avg_price"], exit_price,
                 round(pnl, 2), round(pnl_pct, 4),
                 pos["entry_time"], exit_time, strategy_id, exit_reason,
+                pos.get("indicators", "{}"),
             ),
         )
         logger.info(f"Position closed: {position_id} {exit_reason} P&L=₹{pnl:.2f}")
@@ -338,4 +372,115 @@ def get_trade_history() -> list[dict]:
         rows = conn.execute(
             "SELECT * FROM trade_history ORDER BY exit_time DESC"
         ).fetchall()
-        return [dict(row) for row in rows]
+        
+        result = []
+        for row in rows:
+            trade = dict(row)
+            if trade.get("indicators"):
+                try:
+                    trade["indicators"] = json.loads(trade["indicators"])
+                except Exception:
+                    trade["indicators"] = {}
+            else:
+                trade["indicators"] = {}
+            result.append(trade)
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Saved Runs (Backtest & Replay Vault)
+# ---------------------------------------------------------------------------
+
+def save_run(
+    run_id: str,
+    run_type: str,
+    symbol: str,
+    strategy_id: str,
+    summary: dict,
+    results: dict | list,
+) -> None:
+    """Save a backtest or replay simulation run for later viewing.
+
+    Args:
+        run_id: Unique UUID string for this simulation.
+        run_type: 'BACKTEST' or 'REPLAY'.
+        symbol: Instrument symbol run on.
+        strategy_id: Used strategy ID.
+        summary: Summary dict to display in the grid view.
+        results: Massive payload of events, equity curves or trade arrays.
+    """
+    with _db() as conn:
+        conn.execute(
+            """
+            INSERT INTO saved_runs 
+                (id, run_type, symbol, strategy_id, summary_json, results_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                run_type,
+                symbol,
+                strategy_id,
+                json.dumps(summary),
+                json.dumps(results),
+                datetime.now().isoformat()
+            )
+        )
+    logger.info(f"Saved {run_type} run '{run_id}' into vault.")
+
+
+def get_runs_list(run_type: str = None) -> list[dict]:
+    """Get metadata for all saved runs, without loading the massive results array.
+    
+    Returns:
+        List of summary dicts.
+    """
+    query = "SELECT id, run_type, symbol, strategy_id, summary_json, created_at FROM saved_runs"
+    params = []
+    if run_type:
+        query += " WHERE run_type = ?"
+        params.append(run_type)
+    query += " ORDER BY created_at DESC"
+
+    with _db() as conn:
+        rows = conn.execute(query, tuple(params)).fetchall()
+        
+        vault = []
+        for row in rows:
+            record = dict(row)
+            try:
+                record["summary"] = json.loads(record.pop("summary_json"))
+            except Exception:
+                record["summary"] = {}
+            vault.append(record)
+        return vault
+
+
+def get_run(run_id: str) -> dict | None:
+    """Load a specific saved run entirely from the vault.
+    
+    Returns:
+        Dict containing summary and full results, or None.
+    """
+    with _db() as conn:
+        row = conn.execute("SELECT * FROM saved_runs WHERE id=?", (run_id,)).fetchone()
+        if not row:
+            return None
+            
+        record = dict(row)
+        try:
+            record["summary"] = json.loads(record["summary_json"])
+            record["results"] = json.loads(record["results_json"])
+        except Exception:
+            return None
+        
+        del record["summary_json"]
+        del record["results_json"]
+        return record
+
+
+def delete_run(run_id: str) -> bool:
+    """Delete a saved run from the vault."""
+    with _db() as conn:
+        cursor = conn.execute("DELETE FROM saved_runs WHERE id=?", (run_id,))
+        return cursor.rowcount > 0

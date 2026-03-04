@@ -12,6 +12,7 @@ import PaperTrading from './pages/PaperTrading';
 import DataManager from './pages/DataManager';
 import Journal from './pages/Journal';
 import Settings from './pages/Settings';
+import Vault from './pages/Vault'; // vault page
 
 import { BacktestProvider } from './context/BacktestContext';
 import { ToastProvider } from './components/ui/Toast';
@@ -19,26 +20,27 @@ import { ToastProvider } from './components/ui/Toast';
 const App: React.FC = () => {
   return (
     <ToastProvider>
-    <BacktestProvider>
-      <Router>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/options" element={<OptionsBuilder />} />
-            <Route path="/strategy" element={<StrategyBuilder />} />
-            <Route path="/backtest" element={<Backtest />} />
-            <Route path="/results" element={<Results />} />
-            <Route path="/optimization" element={<Optimization />} />
-            <Route path="/risk" element={<RiskAnalysis />} />
-            <Route path="/paper-trading" element={<PaperTrading />} />
-            <Route path="/data" element={<DataManager />} />
-            <Route path="/journal" element={<Journal />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Layout>
-      </Router>
-    </BacktestProvider>
+      <BacktestProvider>
+        <Router>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/options" element={<OptionsBuilder />} />
+              <Route path="/strategy" element={<StrategyBuilder />} />
+              <Route path="/backtest" element={<Backtest />} />
+              <Route path="/results" element={<Results />} />
+              <Route path="/optimization" element={<Optimization />} />
+              <Route path="/risk" element={<RiskAnalysis />} />
+              <Route path="/vault" element={<Vault />} />
+              <Route path="/paper-trading" element={<PaperTrading />} />
+              <Route path="/data" element={<DataManager />} />
+              <Route path="/journal" element={<Journal />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Layout>
+        </Router>
+      </BacktestProvider>
     </ToastProvider>
   );
 };

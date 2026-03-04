@@ -82,7 +82,8 @@ def _fetch_candles(symbol: str, timeframe: str, lookback: int = _LOOKBACK_BARS) 
     )
 
     if df is None or df.empty:
-        raise RuntimeError(f"No data returned for {symbol} / {timeframe}")
+        # Do not raise an exception, as this occurs gracefully out of market hours
+        return pd.DataFrame()
 
     return df.tail(lookback)
 
@@ -92,7 +93,7 @@ def check_signal(
     monitor: dict,
     virtual_capital: float = 100_000.0,
     has_open_position: bool = False,
-) -> tuple[SignalResult, int, float]:
+) -> tuple[SignalResult, int, float, dict]:
     """Evaluate the strategy on the most recent candle and return a trading signal.
 
     Decision logic:
@@ -110,10 +111,11 @@ def check_signal(
         has_open_position: Whether an open position already exists for this symbol.
 
     Returns:
-        Tuple of (signal, qty, ltp) where:
+        Tuple of (signal, qty, ltp, indicators) where:
           - signal: 'BUY', 'SELL', or 'HOLD'
           - qty: Number of units to trade (0 for HOLD/SELL)
           - ltp: Last traded price used for sizing
+          - indicators: Dict of indicator values at signal time
 
     Raises:
         RuntimeError: If candle fetch or signal computation fails.
@@ -138,28 +140,59 @@ def check_signal(
     logger.info(f"Checking signal: {symbol} / {strategy_id} / {timeframe}")
 
     df = _fetch_candles(symbol, timeframe)
-    strategy = StrategyFactory.get_strategy(strategy_id, config)
-    entries, exits, warnings = strategy.generate_signals(df)
+    if df.empty:
+        logger.info(f"Market data unavailable for {symbol} (Market closed?). Holding position.")
+        # If no LTP is available, we return 0.0 (ltp_service.py's global ticker handles actual tracking)
+        return "HOLD", 0, 0.0, {}
+    
+    
+    # Phase 1 Fix: Temporarily disable nextBarEntry shift during live signal generation.
+    # Otherwise, pandas .shift(1) drops the newest signal off the edge of the dataframe.
+    next_bar_entry = bool(config.get("nextBarEntry", True))
+    eval_config = config.copy()
+    eval_config["nextBarEntry"] = False
+    
+    strategy = StrategyFactory.get_strategy(strategy_id, eval_config)
+    entries, exits, warnings, indicators = strategy.generate_signals(df)
 
-    last_entry = bool(entries.iloc[-1])
-    last_exit  = bool(exits.iloc[-1])
-    ltp        = float(df["close"].iloc[-1])
+    if next_bar_entry and len(entries) >= 2:
+        # Wait for candle to close: execute on the Open of the NEW candle based on the LAST COMPLETED candle
+        idx = -2
+    else:
+        # Immediate execution: evaluate the currently forming candle
+        idx = -1
+
+    last_entry = bool(entries.iloc[idx])
+    last_exit  = bool(exits.iloc[idx])
+
+    ltp = float(df["close"].iloc[-1])
 
     if warnings:
         for w in warnings:
             logger.warning(f"Signal warning [{symbol}]: {w}")
 
+    current_indicators = {}
+    if indicators:
+        for k, v in indicators.items():
+            if isinstance(v, pd.Series):
+                try:
+                    val = float(v.iloc[idx])
+                    if not math.isnan(val) and not math.isinf(val):
+                        current_indicators[k] = val
+                except Exception:
+                    pass
+
     # Determine signal
     if last_entry and not has_open_position:
         qty = _compute_qty(virtual_capital, capital_pct, ltp)
         logger.info(f"BUY signal: {symbol} qty={qty} @ ₹{ltp:.2f}")
-        return "BUY", qty, ltp
+        return "BUY", qty, ltp, current_indicators
 
     if last_exit and has_open_position:
         logger.info(f"SELL signal: {symbol} @ ₹{ltp:.2f}")
-        return "SELL", 0, ltp
+        return "SELL", 0, ltp, current_indicators
 
-    return "HOLD", 0, ltp
+    return "HOLD", 0, ltp, current_indicators
 
 
 def _compute_qty(capital: float, pct: float, ltp: float) -> int:

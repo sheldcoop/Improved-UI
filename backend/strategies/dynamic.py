@@ -43,7 +43,7 @@ class DynamicStrategy(BaseStrategy, SignalEvaluator):
     def generate_signals(
         self,
         df: pd.DataFrame | dict,
-    ) -> tuple[pd.Series | pd.DataFrame, pd.Series | pd.DataFrame, list[str]]:
+    ) -> tuple[pd.Series | pd.DataFrame, pd.Series | pd.DataFrame, list[str], dict[str, pd.Series | pd.DataFrame]]:
         """Generate entry/exit signals with nextBarEntry and time-filter applied.
 
         All strategies default to ``nextBarEntry = True``: signals computed on
@@ -55,9 +55,9 @@ class DynamicStrategy(BaseStrategy, SignalEvaluator):
             df: OHLCV DataFrame or dict of DataFrames (universe mode).
 
         Returns:
-            Tuple of (entries, exits, warnings).
+            Tuple of (entries, exits, warnings, indicators).
         """
-        entries, exits, warnings_list = self._compute_signals(df)
+        entries, exits, warnings_list, indicators = self._compute_signals(df)
 
         # Apply intraday session filter (no-op for daily strategies)
         if entries is not None and exits is not None:
@@ -68,7 +68,7 @@ class DynamicStrategy(BaseStrategy, SignalEvaluator):
             entries = entries.shift(1).fillna(False)
             exits = exits.shift(1).fillna(False)
 
-        return entries, exits, warnings_list
+        return entries, exits, warnings_list, indicators
 
     # ------------------------------------------------------------------
     # Hook — override in preset subclasses
@@ -77,7 +77,7 @@ class DynamicStrategy(BaseStrategy, SignalEvaluator):
     def _compute_signals(
         self,
         df: pd.DataFrame | dict,
-    ) -> tuple[pd.Series | pd.DataFrame | None, pd.Series | pd.DataFrame | None, list[str]]:
+    ) -> tuple[pd.Series | pd.DataFrame | None, pd.Series | pd.DataFrame | None, list[str], dict[str, pd.Series | pd.DataFrame]]:
         """Produce raw entry/exit signals before nextBarEntry shift.
 
         Default implementation:
@@ -91,7 +91,7 @@ class DynamicStrategy(BaseStrategy, SignalEvaluator):
             df: OHLCV DataFrame or dict of DataFrames.
 
         Returns:
-            Tuple of (entries, exits, warnings).
+            Tuple of (entries, exits, warnings, indicators).
         """
         warnings_list: list[str] = []
         mode = self.config.get("mode", "VISUAL")
@@ -141,4 +141,4 @@ class DynamicStrategy(BaseStrategy, SignalEvaluator):
 
         entries = _eval(entry_group)
         exits = _eval(exit_group)
-        return entries, exits, warnings_list
+        return entries, exits, warnings_list, {}

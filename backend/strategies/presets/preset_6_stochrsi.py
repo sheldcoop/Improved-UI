@@ -53,4 +53,7 @@ class StochasticRSIStrategy(DynamicStrategy):
 
         entries = k_line.vbt.crossed_above(20)
         exits   = k_line.vbt.crossed_below(80)
-        return entries.fillna(False), exits.fillna(False), []
+        return entries.fillna(False), exits.fillna(False), [], {
+            "K-Line": k_line.round(2),
+            "StochRSI": stoch_rsi.round(2)
+        }

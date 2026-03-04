@@ -1,4 +1,5 @@
-import { LucideIcon, LayoutDashboard, Database, Sliders, PlayCircle, BarChart2, BookOpen, Settings, Layers, PieChart, Activity, Zap, ClipboardList } from 'lucide-react';
+import { LucideIcon, LayoutDashboard, Database, Sliders, PlayCircle, BarChart2, BookOpen, Settings, Layers, PieChart, Activity, Zap, ClipboardList, Archive } from 'lucide-react';
+
 
 export const APP_NAME = "VectorBT Pro Plus";
 
@@ -17,6 +18,7 @@ export const NAV_ITEMS: NavItem[] = [
   { name: 'Risk Analysis (MC)', path: '/risk', icon: Activity }, // New
   { name: 'Paper Trading', path: '/paper-trading', icon: ClipboardList }, // New
   { name: 'Analytics', path: '/results', icon: PieChart },
+  { name: 'Saved Runs', path: '/vault', icon: Archive },
   { name: 'Data Manager', path: '/data', icon: Database },
   { name: 'Journal', path: '/journal', icon: BookOpen },
   { name: 'Settings', path: '/settings', icon: Settings },

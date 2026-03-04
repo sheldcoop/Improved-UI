@@ -8,13 +8,15 @@ export interface TradeHistoryItem {
     symbol: string;
     side: 'LONG' | 'SHORT';
     qty: number;
-    entry_price: number;
+    entry_price?: number;
+    avg_price?: number;
     exit_price: number;
     pnl: number;
     pnl_pct: number;
     entry_time: string;
     exit_time: string;
     exit_reason: string;
+    indicators?: Record<string, number>;
 }
 
 interface TradeHistoryProps {
@@ -85,18 +87,28 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ history }) => {
                                                 <span className="ml-2 text-slate-300 font-medium">{h.qty}</span>
                                             </td>
                                             <td className="px-4 py-3 text-slate-300 text-xs">
-                                                ₹{h.entry_price.toFixed(2)}
+                                                <div className="font-medium">₹{(h.entry_price ?? h.avg_price ?? 0).toFixed(2)}</div>
+                                                {h.indicators && Object.keys(h.indicators).length > 0 && (
+                                                    <div className="mt-1 flex flex-wrap gap-1 max-w-[150px]">
+                                                        {Object.entries(h.indicators).map(([k, v]) => (
+                                                            <span key={k} className="px-1.5 py-0.5 rounded bg-slate-800 text-[9px] text-slate-400 border border-slate-700/50" title={k}>
+                                                                <span className="text-slate-500 mr-1">{k}:</span>
+                                                                {typeof v === 'number' ? v.toFixed(2) : String(v)}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </td>
                                             <td className="px-4 py-3 text-slate-300 text-xs">
-                                                ₹{h.exit_price.toFixed(2)}
+                                                ₹{(h.exit_price ?? 0).toFixed(2)}
                                             </td>
                                             <td className="px-4 py-3">
                                                 <div className={`font-bold flex items-center ${isProfitable ? 'text-emerald-400' : 'text-red-400'}`}>
                                                     {isProfitable ? <ArrowUpRight className="w-3 h-3 mr-1" /> : <ArrowDownRight className="w-3 h-3 mr-1" />}
-                                                    ₹{Math.abs(h.pnl).toFixed(2)}
+                                                    ₹{Math.abs(h.pnl ?? 0).toFixed(2)}
                                                 </div>
                                                 <div className={`text-[10px] ${isProfitable ? 'text-emerald-500/80' : 'text-red-500/80'}`}>
-                                                    {isProfitable ? '+' : ''}{h.pnl_pct.toFixed(2)}%
+                                                    {isProfitable ? '+' : ''}{(h.pnl_pct ?? 0).toFixed(2)}%
                                                 </div>
                                             </td>
                                             <td className="px-4 py-3 text-right">
