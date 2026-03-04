@@ -1,14 +1,53 @@
+import { PaperPosition } from '../components/paper/PositionsTable';
+import { fetchClient } from './http';
 
-import { PaperPosition } from '../types';
-import { API_ENDPOINTS } from '../config';
-import { delay, executeWithFallback } from './http';
+const BASE = '/paper-trading';
+
+export const getPaperMonitors = async () => {
+    return fetchClient<any[]>(`${BASE}/monitors`);
+};
+
+export const startPaperMonitor = async (monitorData: any) => {
+    return fetchClient<any>(`${BASE}/monitors`, {
+        method: 'POST',
+        body: JSON.stringify(monitorData)
+    });
+};
+
+export const stopPaperMonitor = async (id: string) => {
+    return fetchClient<any>(`${BASE}/monitors/${id}`, {
+        method: 'DELETE'
+    });
+};
 
 export const getPaperPositions = async (): Promise<PaperPosition[]> => {
-    return executeWithFallback(API_ENDPOINTS.PAPER_TRADING, undefined, async () => {
-        await delay(500);
-        return [
-            { id: 'p1', symbol: 'NIFTY 50', side: 'LONG', qty: 50, avgPrice: 22100, ltp: 22150, pnl: 2500, pnlPct: 0.22, entryTime: '10:30 AM', status: 'OPEN' },
-            { id: 'p2', symbol: 'BANKNIFTY', side: 'SHORT', qty: 15, avgPrice: 46600, ltp: 46500, pnl: 1500, pnlPct: 0.32, entryTime: '11:15 AM', status: 'OPEN' },
-        ];
+    return fetchClient<PaperPosition[]>(`${BASE}/positions`);
+};
+
+export const closePaperPosition = async (id: string) => {
+    return fetchClient<any>(`${BASE}/positions/${id}`, {
+        method: 'DELETE'
+    });
+};
+
+export const getPaperHistory = async () => {
+    return fetchClient<any[]>(`${BASE}/history`);
+};
+
+export const getPaperSettings = async () => {
+    return fetchClient<any>(`${BASE}/settings`);
+};
+
+export const updatePaperSettings = async (settings: any) => {
+    return fetchClient<any>(`${BASE}/settings`, {
+        method: 'POST',
+        body: JSON.stringify(settings)
+    });
+};
+
+export const runPaperReplay = async (replayData: any) => {
+    return fetchClient<any>(`${BASE}/replay`, {
+        method: 'POST',
+        body: JSON.stringify(replayData)
     });
 };

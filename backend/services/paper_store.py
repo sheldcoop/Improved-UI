@@ -1,0 +1,331 @@
+"""services/paper_store.py — SQLite persistence for paper trading.
+
+Three tables:
+  monitors      — active strategy watches (symbol, strategy config, timeframe)
+  positions     — open paper positions with live LTP/PnL
+  trade_history — record of every closed trade
+"""
+from __future__ import annotations
+
+import json
+import sqlite3
+from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+from logging import getLogger
+
+logger = getLogger(__name__)
+
+# Database file lives alongside other data files
+_DB_PATH = Path(__file__).parent.parent / "data" / "paper_trading.db"
+
+
+def _connect() -> sqlite3.Connection:
+    conn = sqlite3.connect(str(_DB_PATH))
+    conn.row_factory = sqlite3.Row  # rows behave like dicts
+    conn.execute("PRAGMA journal_mode=WAL")  # safe for concurrent reads
+    return conn
+
+
+@contextmanager
+def _db():
+    """Context manager — opens connection, commits on success, rolls back on error."""
+    conn = _connect()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def init_db() -> None:
+    """Create tables if they do not exist.
+
+    Called once at Flask startup. Safe to call multiple times (idempotent).
+    """
+    with _db() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS monitors (
+                id          TEXT PRIMARY KEY,
+                symbol      TEXT NOT NULL,
+                strategy_id TEXT NOT NULL,
+                config      TEXT NOT NULL,   -- JSON
+                timeframe   TEXT NOT NULL,
+                capital_pct REAL NOT NULL DEFAULT 10.0,
+                sl_pct      REAL,
+                tp_pct      REAL,
+                status      TEXT NOT NULL DEFAULT 'WATCHING',
+                created_at  TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS positions (
+                id          TEXT PRIMARY KEY,
+                monitor_id  TEXT,
+                symbol      TEXT NOT NULL,
+                side        TEXT NOT NULL,
+                qty         INTEGER NOT NULL,
+                avg_price   REAL NOT NULL,
+                ltp         REAL NOT NULL,
+                pnl         REAL NOT NULL DEFAULT 0.0,
+                pnl_pct     REAL NOT NULL DEFAULT 0.0,
+                sl_price    REAL,
+                tp_price    REAL,
+                entry_time  TEXT NOT NULL,
+                status      TEXT NOT NULL DEFAULT 'OPEN'
+            );
+
+            CREATE TABLE IF NOT EXISTS trade_history (
+                id          TEXT PRIMARY KEY,
+                monitor_id  TEXT,
+                symbol      TEXT NOT NULL,
+                side        TEXT NOT NULL,
+                qty         INTEGER NOT NULL,
+                entry_price REAL NOT NULL,
+                exit_price  REAL NOT NULL,
+                pnl         REAL NOT NULL,
+                pnl_pct     REAL NOT NULL,
+                entry_time  TEXT NOT NULL,
+                exit_time   TEXT NOT NULL,
+                strategy_id TEXT,
+                exit_reason TEXT DEFAULT 'SIGNAL'
+            );
+
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+        """)
+    logger.info(f"Paper trading DB initialised at {_DB_PATH}")
+
+
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
+
+def get_setting(key: str, default: str = "") -> str:
+    """Retrieve a settings value by key.
+
+    Args:
+        key: Setting name.
+        default: Value to return if not found.
+
+    Returns:
+        Setting value as string.
+    """
+    with _db() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+        return row["value"] if row else default
+
+
+def set_setting(key: str, value: str) -> None:
+    """Upsert a settings value.
+
+    Args:
+        key: Setting name.
+        value: Value to store.
+    """
+    with _db() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Monitors
+# ---------------------------------------------------------------------------
+
+def save_monitor(monitor: dict) -> dict:
+    """Insert or replace a monitor record.
+
+    Args:
+        monitor: Dict with keys: id, symbol, strategy_id, config (dict),
+            timeframe, capital_pct, sl_pct, tp_pct, status, created_at.
+
+    Returns:
+        The monitor dict as stored.
+    """
+    with _db() as conn:
+        conn.execute(
+            """
+            INSERT INTO monitors (id, symbol, strategy_id, config, timeframe,
+                capital_pct, sl_pct, tp_pct, status, created_at)
+            VALUES (:id, :symbol, :strategy_id, :config, :timeframe,
+                :capital_pct, :sl_pct, :tp_pct, :status, :created_at)
+            ON CONFLICT(id) DO UPDATE SET status=excluded.status
+            """,
+            {**monitor, "config": json.dumps(monitor.get("config", {}))},
+        )
+    return monitor
+
+
+def get_monitors() -> list[dict]:
+    """Return all monitors ordered by creation time.
+
+    Returns:
+        List of monitor dicts with config parsed back to dict.
+    """
+    with _db() as conn:
+        rows = conn.execute("SELECT * FROM monitors ORDER BY created_at").fetchall()
+        result = []
+        for row in rows:
+            m = dict(row)
+            m["config"] = json.loads(m["config"])
+            result.append(m)
+        return result
+
+
+def delete_monitor(monitor_id: str) -> bool:
+    """Delete a monitor by ID.
+
+    Args:
+        monitor_id: The monitor's UUID string.
+
+    Returns:
+        True if deleted, False if not found.
+    """
+    with _db() as conn:
+        cursor = conn.execute("DELETE FROM monitors WHERE id=?", (monitor_id,))
+        return cursor.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Positions
+# ---------------------------------------------------------------------------
+
+def save_position(position: dict) -> dict:
+    """Insert a new open position.
+
+    Args:
+        position: Dict with keys: id, monitor_id, symbol, side, qty,
+            avg_price, ltp, pnl, pnl_pct, sl_price, tp_price, entry_time.
+
+    Returns:
+        The position dict as stored.
+    """
+    with _db() as conn:
+        conn.execute(
+            """
+            INSERT INTO positions (id, monitor_id, symbol, side, qty, avg_price,
+                ltp, pnl, pnl_pct, sl_price, tp_price, entry_time, status)
+            VALUES (:id, :monitor_id, :symbol, :side, :qty, :avg_price,
+                :ltp, :pnl, :pnl_pct, :sl_price, :tp_price, :entry_time, 'OPEN')
+            """,
+            position,
+        )
+    return position
+
+
+def get_positions() -> list[dict]:
+    """Return all open positions.
+
+    Returns:
+        List of position dicts.
+    """
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM positions WHERE status='OPEN' ORDER BY entry_time DESC"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_position_by_symbol(symbol: str) -> dict | None:
+    """Return the first open position for a symbol, or None.
+
+    Args:
+        symbol: Stock ticker/index name.
+
+    Returns:
+        Position dict or None.
+    """
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT * FROM positions WHERE symbol=? AND status='OPEN' LIMIT 1",
+            (symbol,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def update_position_ltp(position_id: str, ltp: float, pnl: float, pnl_pct: float) -> None:
+    """Update the live price and P&L of an open position.
+
+    Args:
+        position_id: Position UUID.
+        ltp: Current last traded price.
+        pnl: Absolute P&L in ₹.
+        pnl_pct: P&L as percentage.
+    """
+    with _db() as conn:
+        conn.execute(
+            "UPDATE positions SET ltp=?, pnl=?, pnl_pct=? WHERE id=?",
+            (ltp, pnl, pnl_pct, position_id),
+        )
+
+
+def close_position(position_id: str, exit_price: float, exit_reason: str = "SIGNAL") -> dict | None:
+    """Close an open position and record it in trade_history.
+
+    Args:
+        position_id: Position UUID to close.
+        exit_price: Price at which the position is closed.
+        exit_reason: 'SIGNAL', 'SL', 'TP', or 'MANUAL'.
+
+    Returns:
+        The closed position dict, or None if not found.
+    """
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT * FROM positions WHERE id=? AND status='OPEN'", (position_id,)
+        ).fetchone()
+        if not row:
+            return None
+
+        pos = dict(row)
+        exit_time = datetime.now().isoformat()
+
+        # Calculate final P&L
+        multiplier = 1 if pos["side"] == "LONG" else -1
+        pnl = multiplier * (exit_price - pos["avg_price"]) * pos["qty"]
+        pnl_pct = (pnl / (pos["avg_price"] * pos["qty"])) * 100
+
+        conn.execute("UPDATE positions SET status='CLOSED' WHERE id=?", (position_id,))
+        conn.execute(
+            """
+            INSERT INTO trade_history
+                (id, monitor_id, symbol, side, qty, entry_price, exit_price,
+                 pnl, pnl_pct, entry_time, exit_time, strategy_id, exit_reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                f"h_{position_id}", pos["monitor_id"], pos["symbol"], pos["side"],
+                pos["qty"], pos["avg_price"], exit_price,
+                round(pnl, 2), round(pnl_pct, 4),
+                pos["entry_time"], exit_time, None, exit_reason,
+            ),
+        )
+        logger.info(f"Position closed: {position_id} {exit_reason} P&L=₹{pnl:.2f}")
+        pos["exit_price"] = exit_price
+        pos["pnl"] = round(pnl, 2)
+        pos["exit_reason"] = exit_reason
+        return pos
+
+
+# ---------------------------------------------------------------------------
+# Trade History
+# ---------------------------------------------------------------------------
+
+def get_trade_history() -> list[dict]:
+    """Return all closed trades ordered by exit time descending.
+
+    Returns:
+        List of trade history dicts.
+    """
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM trade_history ORDER BY exit_time DESC"
+        ).fetchall()
+        return [dict(row) for row in rows]

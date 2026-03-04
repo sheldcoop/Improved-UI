@@ -71,6 +71,10 @@ CORS(app)
 # Ensure data directory exists
 os.makedirs('data', exist_ok=True)
 
+# Initialize Paper Trading DB
+from services.paper_store import init_db as init_paper_db
+init_paper_db()
+
 # --- REGISTER BLUEPRINTS ---
 app.register_blueprint(backtest_bp, url_prefix='/api/v1/backtest')
 app.register_blueprint(broker_bp, url_prefix='/api/v1/broker')
