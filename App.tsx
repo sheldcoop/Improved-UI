@@ -12,8 +12,7 @@ import PaperTrading from './pages/PaperTrading';
 import DataManager from './pages/DataManager';
 import Journal from './pages/Journal';
 import Settings from './pages/Settings';
-import Vault from './pages/Vault'; // vault page
-
+import Vault from './pages/Vault';
 import { BacktestProvider } from './context/BacktestContext';
 import { ToastProvider } from './components/ui/Toast';
 
