@@ -12,8 +12,6 @@ export interface ExecutionContextType {
     // Simulation controls
     running: boolean;
     setRunning: (val: boolean) => void;
-    capital: number;
-    setCapital: (val: number) => void;
     showAdvanced: boolean;
     setShowAdvanced: (val: boolean) => void;
 
@@ -44,7 +42,6 @@ const load = (key: string, def: any) => {
 
 export const ExecutionProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [running, setRunning] = useState(false);
-    const [capital, setCapital] = useState<number>(() => load('capital', 100000));
     const [showAdvanced, setShowAdvanced] = useState(false);
     const [optResults, setOptResults] = useState<(OptimizationResponse & { wfo: WFOResult[]; period?: string }) | null>(null);
     const [top5Trials, setTop5Trials] = useState<any[]>([]);
@@ -54,13 +51,11 @@ export const ExecutionProvider: React.FC<{ children: ReactNode }> = ({ children 
     const [statsWindow, setStatsWindow] = useState<number | null>(() => load('statsWindow', null));
 
     // Persistence for frequently-restored fields
-    useEffect(() => { localStorage.setItem('backtest_capital', JSON.stringify(capital)); }, [capital]);
     useEffect(() => { localStorage.setItem('backtest_statsFreq', JSON.stringify(statsFreq)); }, [statsFreq]);
     useEffect(() => { localStorage.setItem('backtest_statsWindow', JSON.stringify(statsWindow)); }, [statsWindow]);
 
     const value: ExecutionContextType = {
         running, setRunning,
-        capital, setCapital,
         showAdvanced, setShowAdvanced,
         optResults, setOptResults,
         top5Trials, setTop5Trials, oosResults, setOosResults,

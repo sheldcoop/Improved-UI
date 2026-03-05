@@ -136,15 +136,11 @@ export interface Strategy {
   // Advanced Settings
   startTime?: string; // "09:30"
   endTime?: string;   // "15:00"
-  pyramiding: number; // Max entries
-
   // Risk & Sizing
   stopLossPct: number;
   takeProfitPct: number;
   trailingStopPct?: number;
   useTrailingStop: boolean;
-  positionSizing: PositionSizeMode;
-  positionSizeValue: number; // e.g., 1 (lot) or 5 (%) or 100000 (cash)
 
   // Execution costs
   slippage: number;   // % per trade, e.g. 0.05

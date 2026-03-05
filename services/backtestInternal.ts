@@ -50,7 +50,6 @@ export const runBacktestWithDhan = async (payload: {
         timeframe: string;
         start_date: string;
         end_date: string;
-        initial_capital: number;
         slippage?: number;
         commission?: number;
         /** Frequency string used by backend to compute return statistics (e.g. '1D', '1h') */

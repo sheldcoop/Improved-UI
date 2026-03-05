@@ -30,14 +30,8 @@ export interface StrategyContextType {
     setUseTrailingStop: (val: boolean) => void;
     trailingStopPct: number;
     setTrailingStopPct: (val: number) => void;
-    pyramiding: number;
-    setPyramiding: (val: number) => void;
-    positionSizing: string;
-    setPositionSizing: (val: string) => void;
-    positionSizeValue: number;
-    setPositionSizeValue: (val: number) => void;
 
-    // WFO / optimization
+    //  WFO / optimization
     isDynamic: boolean;
     setIsDynamic: (val: boolean) => void;
     wfoConfig: { trainWindow: number; testWindow: number };
@@ -72,9 +66,6 @@ export const StrategyProvider: React.FC<{ children: ReactNode }> = ({ children }
     const [takeProfitEnabled, setTakeProfitEnabled] = useState(false);
     const [useTrailingStop, setUseTrailingStop] = useState(false);
     const [trailingStopPct, setTrailingStopPct] = useState(0);
-    const [pyramiding, setPyramiding] = useState(1);
-    const [positionSizing, setPositionSizing] = useState('Fixed Capital');
-    const [positionSizeValue, setPositionSizeValue] = useState(100000);
     const [isDynamic, setIsDynamic] = useState(false);
     const [wfoConfig, setWfoConfig] = useState({ trainWindow: 12, testWindow: 3 });
     const [paramRanges, setParamRanges] = useState<Record<string, { min: number; max: number; step: number }>>({});
@@ -91,8 +82,6 @@ export const StrategyProvider: React.FC<{ children: ReactNode }> = ({ children }
         stopLossPct, setStopLossPct, stopLossEnabled, setStopLossEnabled,
         takeProfitPct, setTakeProfitPct, takeProfitEnabled, setTakeProfitEnabled,
         useTrailingStop, setUseTrailingStop, trailingStopPct, setTrailingStopPct,
-        pyramiding, setPyramiding, positionSizing, setPositionSizing,
-        positionSizeValue, setPositionSizeValue,
         isDynamic, setIsDynamic, wfoConfig, setWfoConfig,
         paramRanges, setParamRanges, showRanges, setShowRanges,
         enableDataSplit, setEnableDataSplit, splitRatio, setSplitRatio,

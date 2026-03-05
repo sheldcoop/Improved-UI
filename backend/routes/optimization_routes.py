@@ -81,6 +81,10 @@ def run_optimization():
         config = data.get("config", {})
         config["slippage"] = float(paper_store.get_setting("slippage", "0.05"))
         config["commission"] = float(paper_store.get_setting("commission", "20.0"))
+        config["initial_capital"] = float(paper_store.get_setting("virtual_capital", "100000.0"))
+        config["pyramiding"] = paper_store.get_setting("pyramiding", "false").lower() == "true"
+        config["positionSizing"] = "percent"
+        config["positionSizeValue"] = float(paper_store.get_setting("capital_pct", "25.0"))
 
         risk_ranges = data.get("riskRanges")  # optional second-phase search space
 
@@ -202,6 +206,10 @@ def run_oos_validate():
         config = data.get("config", {})
         config["slippage"] = float(paper_store.get_setting("slippage", "0.05"))
         config["commission"] = float(paper_store.get_setting("commission", "20.0"))
+        config["initial_capital"] = float(paper_store.get_setting("virtual_capital", "100000.0"))
+        config["pyramiding"] = paper_store.get_setting("pyramiding", "false").lower() == "true"
+        config["positionSizing"] = "percent"
+        config["positionSizeValue"] = float(paper_store.get_setting("capital_pct", "25.0"))
         
         if not symbol or not strategy_id or not start_date or not end_date:
             return jsonify({"status": "error", "message": "Missing required fields"}), 400

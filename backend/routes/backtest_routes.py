@@ -46,14 +46,6 @@ def run_backtest():
         if timeframe not in ("1m", "5m", "15m", "1h", "1d"):
             return jsonify({"status": "error", "message": "Invalid timeframe"}), 400
 
-        # Numeric parameter validation
-        capital_raw = data.get("initial_capital", 100000)
-        try:
-            if float(capital_raw) <= 0:
-                return jsonify({"status": "error", "message": "initial_capital must be > 0"}), 400
-        except (TypeError, ValueError):
-            return jsonify({"status": "error", "message": "initial_capital must be a number"}), 400
-
         # Validate stop-loss / take-profit percentages
         sl_pct_raw = data.get("stopLossPct", 0)
         tp_pct_raw = data.get("takeProfitPct", 0)
@@ -83,7 +75,10 @@ def run_backtest():
         defaults = {
             "slippage": float(paper_store.get_setting("slippage", "0.05")),
             "commission": float(paper_store.get_setting("commission", "20")),
-            "initial_capital": 100000,
+            "initial_capital": float(paper_store.get_setting("virtual_capital", "100000.0")),
+            "pyramiding": paper_store.get_setting("pyramiding", "false").lower() == "true",
+            "positionSizing": "percent",
+            "positionSizeValue": float(paper_store.get_setting("capital_pct", "25.0")),
             "stopLossPct": 0,
             "takeProfitPct": 0,
             "entryRules": [],

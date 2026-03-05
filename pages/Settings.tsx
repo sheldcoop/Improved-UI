@@ -24,6 +24,9 @@ const Settings: React.FC = () => {
 
     const [slippage, setSlippage] = useState('0.05');
     const [commission, setCommission] = useState('20');
+    const [virtualCapital, setVirtualCapital] = useState('100000');
+    const [capitalPct, setCapitalPct] = useState('25');
+    const [pyramiding, setPyramiding] = useState('1');
     const [settingsBusy, setSettingsBusy] = useState(false);
     const [settingsMsg, setSettingsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -47,6 +50,9 @@ const Settings: React.FC = () => {
                 const data = await getPaperSettings();
                 if (data.slippage !== undefined) setSlippage(data.slippage.toString());
                 if (data.commission !== undefined) setCommission(data.commission.toString());
+                if (data.virtualCapital !== undefined) setVirtualCapital(data.virtualCapital.toString());
+                if (data.capitalPct !== undefined) setCapitalPct(data.capitalPct.toString());
+                if (data.pyramiding !== undefined) setPyramiding(data.pyramiding.toString());
             } catch (e) {
                 console.error('Failed to load risk settings', e);
             }
@@ -120,7 +126,10 @@ const Settings: React.FC = () => {
         try {
             await updatePaperSettings({
                 slippage: parseFloat(slippage),
-                commission: parseFloat(commission)
+                commission: parseFloat(commission),
+                virtualCapital: parseFloat(virtualCapital),
+                capitalPct: parseFloat(capitalPct),
+                pyramiding: parseInt(pyramiding, 10)
             });
             setSettingsMsg({ type: 'success', text: 'Risk settings saved globally' });
             setTimeout(() => setSettingsMsg(null), 3000);
@@ -279,23 +288,33 @@ const Settings: React.FC = () => {
                                 <div className="space-y-4">
                                     <div className="flex items-center justify-between">
                                         <div>
-                                            <h4 className="text-slate-200 font-medium">Max Daily Loss Limit</h4>
-                                            <p className="text-xs text-slate-500">Stop all trading if this loss is reached in a day.</p>
+                                            <h4 className="text-slate-200 font-medium">Virtual Capital</h4>
+                                            <p className="text-xs text-slate-500">Total simulated capital for trading operations.</p>
                                         </div>
                                         <div className="flex items-center bg-slate-950 rounded-lg border border-slate-700 px-3">
                                             <span className="text-slate-500 mr-2">₹</span>
-                                            <input type="number" defaultValue="5000" className="w-24 bg-transparent border-none py-2 text-slate-200 focus:ring-0 text-right" />
+                                            <input type="number" value={virtualCapital} onChange={e => setVirtualCapital(e.target.value)} className="w-24 bg-transparent border-none py-2 text-slate-200 focus:ring-0 text-right" />
                                         </div>
                                     </div>
 
                                     <div className="flex items-center justify-between">
                                         <div>
-                                            <h4 className="text-slate-200 font-medium">Max Allocation Per Trade</h4>
-                                            <p className="text-xs text-slate-500">Maximum capital deployed in a single strategy.</p>
+                                            <h4 className="text-slate-200 font-medium">Max Allocation Per Trade (%)</h4>
+                                            <p className="text-xs text-slate-500">Maximum percentage of total capital deployed in a single strategy.</p>
                                         </div>
                                         <div className="flex items-center bg-slate-950 rounded-lg border border-slate-700 px-3">
-                                            <input type="number" defaultValue="25" className="w-16 bg-transparent border-none py-2 text-slate-200 focus:ring-0 text-right" />
+                                            <input type="number" value={capitalPct} onChange={e => setCapitalPct(e.target.value)} className="w-16 bg-transparent border-none py-2 text-slate-200 focus:ring-0 text-right" />
                                             <span className="text-slate-500 ml-1">%</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
+                                        <div>
+                                            <h4 className="text-slate-200 font-medium">Pyramiding (Max Entries)</h4>
+                                            <p className="text-xs text-slate-500">Maximum number of concurrent scaling entries a strategy can open.</p>
+                                        </div>
+                                        <div className="flex items-center bg-slate-950 rounded-lg border border-slate-700 px-3">
+                                            <input type="number" min="1" max="100" value={pyramiding} onChange={e => setPyramiding(e.target.value)} className="w-16 bg-transparent border-none py-2 text-slate-200 focus:ring-0 text-right" />
                                         </div>
                                     </div>
 

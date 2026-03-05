@@ -37,6 +37,7 @@ def get_settings():
             "virtualCapital": float(paper_store.get_setting("virtual_capital", "100000.0")),
             "slippage":       float(paper_store.get_setting("slippage", "0.05")),
             "commission":     float(paper_store.get_setting("commission", "20.0")),
+            "pyramiding":     paper_store.get_setting("pyramiding", "false").lower() == "true",
         }), 200
     except Exception as exc:
         logger.error(f"get_settings failed: {exc}", exc_info=True)
@@ -62,8 +63,9 @@ def update_settings():
         virtual_capital = data.get("virtualCapital")
         slippage = data.get("slippage")
         commission = data.get("commission")
+        pyramiding = data.get("pyramiding")
 
-        if capital_pct is None and virtual_capital is None and slippage is None and commission is None:
+        if capital_pct is None and virtual_capital is None and slippage is None and commission is None and pyramiding is None:
             return jsonify({"status": "error", "message": "At least one setting parameter is required"}), 400
 
         if capital_pct is not None:
@@ -86,11 +88,17 @@ def update_settings():
                 return jsonify({"status": "error", "message": "commission must be >= 0"}), 400
             paper_store.set_setting("commission", str(float(commission)))
 
+        if pyramiding is not None:
+            if not isinstance(pyramiding, bool):
+                return jsonify({"status": "error", "message": "pyramiding must be a boolean"}), 400
+            paper_store.set_setting("pyramiding", "true" if pyramiding else "false")
+
         return jsonify({
             "capitalPct":     float(paper_store.get_setting("capital_pct", "10.0")),
             "virtualCapital": float(paper_store.get_setting("virtual_capital", "100000.0")),
             "slippage":       float(paper_store.get_setting("slippage", "0.05")),
             "commission":     float(paper_store.get_setting("commission", "20.0")),
+            "pyramiding":     paper_store.get_setting("pyramiding", "false").lower() == "true",
         }), 200
     except Exception as exc:
         logger.error(f"update_settings failed: {exc}", exc_info=True)

@@ -106,23 +106,6 @@ export const StrategyConfigPanel: React.FC<StrategyConfigPanelProps> = ({
             {/* Card 3: Execution */}
             <Card title="Execution" className="p-0">
                 <div className="space-y-3">
-                    <div>
-                        <label className="text-[10px] text-slate-500 block mb-1">Position Sizing</label>
-                        <select
-                            value={strategy.positionSizing}
-                            onChange={e => update({ positionSizing: e.target.value as PositionSizeMode })}
-                            className="w-full bg-slate-950 border border-slate-700 rounded text-xs px-2 py-1 text-slate-200 mb-1"
-                        >
-                            {Object.values(PositionSizeMode).map(m => <option key={m}>{m}</option>)}
-                        </select>
-                        <input
-                            type="number"
-                            value={strategy.positionSizeValue}
-                            onChange={e => update({ positionSizeValue: parseFloat(e.target.value) })}
-                            className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
-                        />
-                    </div>
-
                     <div className="grid grid-cols-2 gap-2">
                         <div>
                             <label className="text-[10px] text-slate-500 block mb-1">Start Time</label>
@@ -142,17 +125,6 @@ export const StrategyConfigPanel: React.FC<StrategyConfigPanelProps> = ({
                                 className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
                             />
                         </div>
-                    </div>
-                    <div>
-                        <label className="text-[10px] text-slate-500 block mb-1">Pyramiding (Max Entries)</label>
-                        <input
-                            type="number"
-                            min="1"
-                            max="10"
-                            value={strategy.pyramiding}
-                            onChange={e => update({ pyramiding: parseInt(e.target.value) })}
-                            className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
-                        />
                     </div>
                 </div>
             </Card>

@@ -33,9 +33,6 @@ const makeInitialStrategy = (): Strategy => ({
     takeProfitPct: 5.0,
     trailingStopPct: 0.0,
     useTrailingStop: false,
-    pyramiding: 1,
-    positionSizing: PositionSizeMode.FIXED_CAPITAL,
-    positionSizeValue: 100000,
     slippage: 0.05,
     commission: 20,
     rankingMethod: RankingMethod.NONE,
@@ -229,7 +226,6 @@ const StrategyBuilder: React.FC = () => {
             const isSaved = strategy.id !== 'new';
             const result = await runBacktest(isSaved ? strategy.id : null, symbol.trim(), {
                 ...(isSaved ? {} : strategy),
-                capital: strategy.positionSizeValue,
                 strategyName: strategy.name,
                 symbol: symbol.trim(),
                 timeframe: strategy.timeframe,
@@ -239,8 +235,6 @@ const StrategyBuilder: React.FC = () => {
                 useTrailingStop: strategy.useTrailingStop,
                 slippage: strategy.slippage,
                 commission: strategy.commission,
-                pyramiding: strategy.pyramiding,
-                positionSizing: strategy.positionSizing,
                 ...(startDate ? { startDate } : {}),
                 ...(endDate ? { endDate } : {}),
             });

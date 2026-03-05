@@ -26,7 +26,6 @@ const Optimization: React.FC = () => {
         symbol, strategyId, customStrategies, setParams: setGlobalParams, startDate, endDate,
         timeframe, paramRanges,
         wfoConfig, setWfoConfig,
-        capital, pyramiding, positionSizing, positionSizeValue,
         stopLossPct, takeProfitPct,
         setStopLossPct, setTakeProfitPct, setTrailingStopPct,
         optResults, setOptResults,
@@ -93,9 +92,7 @@ const Optimization: React.FC = () => {
         PRESET_NAMES[strategyId] ??
         'Strategy';
 
-    const buildConfigPayload = () => ({
-        initial_capital: capital, pyramiding, positionSizing, positionSizeValue,
-    });
+    const buildConfigPayload = () => ({});
 
     const toRanges = (list: ParamConfig[]) =>
         list.reduce((acc, p) => { acc[p.name] = { min: p.min, max: p.max, step: p.step }; return acc; }, {} as any);

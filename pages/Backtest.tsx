@@ -11,7 +11,6 @@ import DataLoadModal from '../components/DataLoadModal';
 import { DateInput } from '../components/ui/DateInput';
 import MarketDataSelector from '../components/MarketDataSelector';
 import StrategyLogic from '../components/StrategyLogic';
-import AdvancedSettings from '../components/AdvancedSettings';
 import HealthReportCard from '../components/HealthReportCard';
 import DateRangePicker from '../components/DateRangePicker';
 import { useToast } from '../components/ui/Toast';
@@ -29,21 +28,21 @@ const Backtest: React.FC = () => {
   const {
     running, segment, symbol, symbolSearchQuery, searchResults, selectedInstrument,
     isSearching, timeframe, strategyId, customStrategies, startDate, endDate,
-    params, capital, showAdvanced, dataStatus, healthReport,
+    params, showAdvanced, dataStatus, healthReport,
     isDynamic, wfoConfig, paramRanges, showRanges,
     top5Trials, oosResults, isOosValidating,
-    stopLossPct, takeProfitPct, trailingStopPct, pyramiding, positionSizing, positionSizeValue,
+    stopLossPct, takeProfitPct, trailingStopPct,
     fullReportData, isReportOpen, useLookback, lookbackMonths,
     enableDataSplit, splitRatio
   } = state;
   const {
     setSegment, setSymbolSearchQuery, setSymbol, setSearchResults, setSelectedInstrument,
     setIsSearching, setTimeframe, setStrategyId, setCustomStrategies, setParams,
-    setStartDate, setEndDate, setCapital, setShowAdvanced,
+    setStartDate, setEndDate, setShowAdvanced,
     setDataStatus, setHealthReport, setRunning, setIsDynamic, setWfoConfig,
     setParamRanges, setShowRanges, setTop5Trials,
     setOosResults, setIsOosValidating,
-    setStopLossPct, setTakeProfitPct, setTrailingStopPct, setPyramiding, setPositionSizing, setPositionSizeValue,
+    setStopLossPct, setTakeProfitPct, setTrailingStopPct,
     setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths,
     setEnableDataSplit, setSplitRatio
   } = setters;
@@ -185,17 +184,6 @@ const Backtest: React.FC = () => {
               {dataStatus === 'READY' && healthReport && (
                 <HealthReportCard healthReport={healthReport} />
               )}
-              <div className="pt-2">
-                <label className="block text-sm font-medium text-slate-400 mb-2 flex items-center">
-                  <DollarSign className="w-4 h-4 mr-2" /> Initial Capital
-                </label>
-                <input
-                  type="number"
-                  value={capital}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCapital(Number(e.target.value))}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:ring-1 focus:ring-emerald-500 outline-none"
-                />
-              </div>
             </div>
           </div>
           <StrategyLogic
@@ -218,16 +206,6 @@ const Backtest: React.FC = () => {
             setEnableDataSplit={setEnableDataSplit}
             splitRatio={splitRatio}
             setSplitRatio={setSplitRatio}
-          />
-          <AdvancedSettings
-            positionSizing={positionSizing}
-            setPositionSizing={setPositionSizing}
-            positionSizeValue={positionSizeValue}
-            setPositionSizeValue={setPositionSizeValue}
-            pyramiding={pyramiding}
-            setPyramiding={setPyramiding}
-            showAdvanced={showAdvanced}
-            setShowAdvanced={setShowAdvanced}
           />
           <div className="pt-2 space-y-4">
             {/* Date range validation banner */}

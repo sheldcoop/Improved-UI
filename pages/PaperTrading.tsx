@@ -10,8 +10,6 @@ import {
     getPaperPositions,
     closePaperPosition,
     getPaperHistory,
-    getPaperSettings,
-    updatePaperSettings,
     runPaperReplay
 } from '../services/paperService';
 import { fetchSavedStrategies, fetchStrategies } from '../services/api';
@@ -30,9 +28,6 @@ const PaperTrading: React.FC = () => {
     const [monitors, setMonitors] = useState<any[]>([]);
     const [positions, setPositions] = useState<PaperPosition[]>([]);
     const [history, setHistory] = useState<any[]>([]);
-    const [settings, setSettings] = useState<{ capitalPct: number; virtualCapital: number }>({ capitalPct: 10, virtualCapital: 100000 });
-    const [capitalInput, setCapitalInput] = useState('10');
-    const [virtualCapitalInput, setVirtualCapitalInput] = useState('100000');
 
     const [presets, setPresets] = useState<StrategyPreset[]>([]);
     const [savedStrategies, setSavedStrategies] = useState<Strategy[]>([]);
@@ -45,8 +40,6 @@ const PaperTrading: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [stopError, setStopError] = useState<string | null>(null);
     const [closeError, setCloseError] = useState<string | null>(null);
-    const [settingsSaved, setSettingsSaved] = useState(false);
-    const [settingsError, setSettingsError] = useState<string | null>(null);
     const [replayFinished, setReplayFinished] = useState(false);
     const [replaySummary, setReplaySummary] = useState<{
         totalTrades: number;
@@ -130,28 +123,18 @@ const PaperTrading: React.FC = () => {
         }
     }, [mode]);
 
-    useEffect(() => {
-        setCapitalInput(settings.capitalPct.toString());
-        setVirtualCapitalInput(settings.virtualCapital.toString());
-    }, [settings.capitalPct, settings.virtualCapital]);
-
     const loadData = async () => {
         try {
             setLoading(true);
             setError(null);
-            const [mRes, pRes, hRes, sRes] = await Promise.all([
+            const [mRes, pRes, hRes] = await Promise.all([
                 getPaperMonitors(),
                 getPaperPositions(),
                 getPaperHistory(),
-                getPaperSettings()
             ]);
             setMonitors(mRes);
             setPositions(pRes);
             setHistory(hRes);
-            setSettings({
-                capitalPct: sRes.capitalPct || 10,
-                virtualCapital: sRes.virtualCapital || 100000
-            });
         } catch (e: any) {
             setError(e.message || 'Failed to load paper trading data');
         } finally {
@@ -226,23 +209,6 @@ const PaperTrading: React.FC = () => {
             setCloseError(e.message || 'Failed to close position');
         } finally {
             setClosingId(null);
-        }
-    };
-
-    const handleSaveSettings = async () => {
-        setSettingsError(null);
-        setSettingsSaved(false);
-        try {
-            const pct = parseFloat(capitalInput);
-            if (isNaN(pct) || pct <= 0 || pct > 100) throw new Error('Invalid percentage (must be 1–100)');
-            const vc = parseFloat(virtualCapitalInput);
-            if (isNaN(vc) || vc <= 0) throw new Error('Invalid capital (must be > 0)');
-            await updatePaperSettings({ capitalPct: pct, virtualCapital: vc });
-            setSettings(s => ({ ...s, capitalPct: pct, virtualCapital: vc }));
-            setSettingsSaved(true);
-            setTimeout(() => setSettingsSaved(false), 2000);
-        } catch (e: any) {
-            setSettingsError(e.message || 'Failed to save settings');
         }
     };
 
@@ -385,38 +351,6 @@ const PaperTrading: React.FC = () => {
                 </div>
 
                 <div className="flex items-center space-x-4">
-                    <div className="text-right">
-                        <div className="text-xs text-slate-500 uppercase flex items-center">
-                            Capital per Trade
-                            <input
-                                type="number"
-                                min="1" max="100"
-                                value={capitalInput}
-                                onChange={e => { setCapitalInput(e.target.value); setSettingsSaved(false); setSettingsError(null); }}
-                                onBlur={handleSaveSettings}
-                                className="w-12 ml-2 bg-slate-950 border border-slate-700 rounded text-xs px-1 py-0.5 text-center text-slate-200 hide-arrows"
-                            />
-                            <span className="ml-1">%</span>
-                            {settingsSaved && <CheckCircle className="w-3.5 h-3.5 ml-2 text-emerald-400" />}
-                        </div>
-                        {settingsError && (
-                            <div className="text-red-400 text-[10px] mt-0.5 text-right">{settingsError}</div>
-                        )}
-                        <div className="text-xs text-slate-500 flex items-center justify-end gap-1 mt-1">
-                            <span className="text-slate-400">₹</span>
-                            <input
-                                type="number"
-                                min="1000"
-                                step="10000"
-                                value={virtualCapitalInput}
-                                onChange={e => { setVirtualCapitalInput(e.target.value); setSettingsSaved(false); setSettingsError(null); }}
-                                onBlur={handleSaveSettings}
-                                title="Virtual Capital"
-                                className="w-24 bg-slate-950 border border-slate-700 rounded text-xs px-1 py-0.5 text-center text-emerald-400 font-mono font-bold hide-arrows"
-                            />
-                            <span className="text-slate-500 text-[10px]">virtual cap</span>
-                        </div>
-                    </div>
                     <Button icon={loading ? <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" /> : <RefreshCw className="w-4 h-4" />} onClick={loadData}>
                         Refresh
                     </Button>
