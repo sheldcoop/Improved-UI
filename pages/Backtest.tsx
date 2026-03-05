@@ -29,7 +29,7 @@ const Backtest: React.FC = () => {
   const {
     running, segment, symbol, symbolSearchQuery, searchResults, selectedInstrument,
     isSearching, timeframe, strategyId, customStrategies, startDate, endDate,
-    params, capital, slippage, commission, showAdvanced, dataStatus, healthReport,
+    params, capital, showAdvanced, dataStatus, healthReport,
     isDynamic, wfoConfig, paramRanges, showRanges,
     top5Trials, oosResults, isOosValidating,
     stopLossPct, takeProfitPct, trailingStopPct, pyramiding, positionSizing, positionSizeValue,
@@ -39,7 +39,7 @@ const Backtest: React.FC = () => {
   const {
     setSegment, setSymbolSearchQuery, setSymbol, setSearchResults, setSelectedInstrument,
     setIsSearching, setTimeframe, setStrategyId, setCustomStrategies, setParams,
-    setStartDate, setEndDate, setCapital, setSlippage, setCommission, setShowAdvanced,
+    setStartDate, setEndDate, setCapital, setShowAdvanced,
     setDataStatus, setHealthReport, setRunning, setIsDynamic, setWfoConfig,
     setParamRanges, setShowRanges, setTop5Trials,
     setOosResults, setIsOosValidating,

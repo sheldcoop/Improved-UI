@@ -3,6 +3,7 @@ import { Save, Shield, Database, Bell, User, Monitor, Link2 } from 'lucide-react
 import { Button } from '../components/ui/Button';
 import { CONFIG } from '../config';
 import { fetchClient } from '../services/http';
+import { getPaperSettings, updatePaperSettings } from '../services/paperService';
 
 
 const Settings: React.FC = () => {
@@ -21,6 +22,11 @@ const Settings: React.FC = () => {
     const [dhanBusy, setDhanBusy] = useState<'idle' | 'status' | 'save' | 'test'>('idle');
     const [dhanMsg, setDhanMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+    const [slippage, setSlippage] = useState('0.05');
+    const [commission, setCommission] = useState('20');
+    const [settingsBusy, setSettingsBusy] = useState(false);
+    const [settingsMsg, setSettingsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
     useEffect(() => {
         // Pull Dhan status from backend (credentials stay server-side)
         (async () => {
@@ -32,6 +38,17 @@ const Settings: React.FC = () => {
                 }
             } catch (e) {
                 // ignore — backend may be offline
+            }
+        })();
+
+        // Pull Risk Settings
+        (async () => {
+            try {
+                const data = await getPaperSettings();
+                if (data.slippage !== undefined) setSlippage(data.slippage.toString());
+                if (data.commission !== undefined) setCommission(data.commission.toString());
+            } catch (e) {
+                console.error('Failed to load risk settings', e);
             }
         })();
     }, []);
@@ -94,6 +111,23 @@ const Settings: React.FC = () => {
             setDhanMsg({ type: 'error', text: e?.message || 'Failed to test Dhan connection' });
         } finally {
             setDhanBusy('idle');
+        }
+    };
+
+    const handleSaveRiskSettings = async () => {
+        setSettingsBusy(true);
+        setSettingsMsg(null);
+        try {
+            await updatePaperSettings({
+                slippage: parseFloat(slippage),
+                commission: parseFloat(commission)
+            });
+            setSettingsMsg({ type: 'success', text: 'Risk settings saved globally' });
+            setTimeout(() => setSettingsMsg(null), 3000);
+        } catch (e: any) {
+            setSettingsMsg({ type: 'error', text: e?.message || 'Failed to save settings' });
+        } finally {
+            setSettingsBusy(false);
         }
     };
 
@@ -263,6 +297,45 @@ const Settings: React.FC = () => {
                                             <input type="number" defaultValue="25" className="w-16 bg-transparent border-none py-2 text-slate-200 focus:ring-0 text-right" />
                                             <span className="text-slate-500 ml-1">%</span>
                                         </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-between border-t border-slate-800 pt-4 mt-4">
+                                        <div>
+                                            <h4 className="text-slate-200 font-medium">Global Slippage</h4>
+                                            <p className="text-xs text-slate-500">Percentage slippage mathematically applied to simulated trades (e.g. 0.05).</p>
+                                        </div>
+                                        <div className="flex items-center bg-slate-950 rounded-lg border border-slate-700 px-3">
+                                            <input type="number" step="0.01" value={slippage} onChange={e => setSlippage(e.target.value)} className="w-24 bg-transparent border-none py-2 text-slate-200 focus:ring-0 text-right" />
+                                            <span className="text-slate-500 ml-2">%</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h4 className="text-slate-200 font-medium">Global Commission</h4>
+                                            <p className="text-xs text-slate-500">Absolute ₹ equivalent commission fee applied per simulated entry/exit order.</p>
+                                        </div>
+                                        <div className="flex items-center bg-slate-950 rounded-lg border border-slate-700 px-3">
+                                            <span className="text-slate-500 mr-2">₹</span>
+                                            <input type="number" step="1" value={commission} onChange={e => setCommission(e.target.value)} className="w-24 bg-transparent border-none py-2 text-slate-200 focus:ring-0 text-right" />
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-between pt-4">
+                                        <div className="text-sm">
+                                            {settingsMsg && (
+                                                <span className={settingsMsg.type === 'success' ? 'text-emerald-400' : 'text-red-400'}>
+                                                    {settingsMsg.text}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <Button
+                                            onClick={handleSaveRiskSettings}
+                                            disabled={settingsBusy}
+                                            className="bg-emerald-600 hover:bg-emerald-500 text-white"
+                                        >
+                                            {settingsBusy ? 'Saving...' : 'Save Settings'}
+                                        </Button>
                                     </div>
                                 </div>
                             </div>

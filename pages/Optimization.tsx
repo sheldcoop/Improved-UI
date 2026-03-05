@@ -26,7 +26,7 @@ const Optimization: React.FC = () => {
         symbol, strategyId, customStrategies, setParams: setGlobalParams, startDate, endDate,
         timeframe, paramRanges,
         wfoConfig, setWfoConfig,
-        capital, commission, slippage, pyramiding, positionSizing, positionSizeValue,
+        capital, pyramiding, positionSizing, positionSizeValue,
         stopLossPct, takeProfitPct,
         setStopLossPct, setTakeProfitPct, setTrailingStopPct,
         optResults, setOptResults,
@@ -54,8 +54,8 @@ const Optimization: React.FC = () => {
                 const v = p.default || 1;
                 let min = p.type === 'float' ? v / 2 : Math.max(1, Math.floor(v / 2));
                 let max = p.type === 'float' ? v * 1.5 : Math.ceil(v * 1.5);
-                if (p.name === 'upper')  max = Math.min(99, max);
-                if (p.name === 'lower')  max = Math.min(49, max);
+                if (p.name === 'upper') max = Math.min(99, max);
+                if (p.name === 'lower') max = Math.min(49, max);
                 if (p.name === 'period') { min = Math.max(2, min); max = Math.min(100, max); }
                 return { id: idx.toString(), name: p.name, min, max, step: p.type === 'float' ? 0.1 : 1 };
             });
@@ -75,17 +75,17 @@ const Optimization: React.FC = () => {
 
     // ── Phase 2 state ─────────────────────────────────────────────────────────
     const [riskParams, setRiskParams] = useState<ParamConfig[]>([
-        { id: 'r0', name: 'stopLossPct',     min: 0, max: 5,  step: 0.5 },
-        { id: 'r1', name: 'takeProfitPct',   min: 0, max: 10, step: 0.5 },
-        { id: 'r2', name: 'trailingStopPct', min: 0, max: 3,  step: 0.5 },
+        { id: 'r0', name: 'stopLossPct', min: 0, max: 5, step: 0.5 },
+        { id: 'r1', name: 'takeProfitPct', min: 0, max: 10, step: 0.5 },
+        { id: 'r2', name: 'trailingStopPct', min: 0, max: 3, step: 0.5 },
     ]);
     const [phase2Running, setPhase2Running] = useState(false);
 
     // ── Derived wizard step ───────────────────────────────────────────────────
     const wizardStep: WizardStep =
         !optResults ? 'setup' :
-        (optResults.riskGrid && optResults.riskGrid.length > 0) ? 'risk' :
-        'results';
+            (optResults.riskGrid && optResults.riskGrid.length > 0) ? 'risk' :
+                'results';
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     const strategyName =
@@ -94,7 +94,7 @@ const Optimization: React.FC = () => {
         'Strategy';
 
     const buildConfigPayload = () => ({
-        initial_capital: capital, commission, slippage, pyramiding, positionSizing, positionSizeValue,
+        initial_capital: capital, pyramiding, positionSizing, positionSizeValue,
     });
 
     const toRanges = (list: ParamConfig[]) =>
@@ -303,9 +303,9 @@ const Optimization: React.FC = () => {
                             <div className="space-y-1">
                                 <p className="text-sm font-semibold text-emerald-300">Ready to backtest with selected params</p>
                                 <p className="text-xs text-slate-400 font-mono">
-                                    Strategy: {Object.entries(selectedParams).map(([k,v]) => `${k}=${v}`).join(', ')}
+                                    Strategy: {Object.entries(selectedParams).map(([k, v]) => `${k}=${v}`).join(', ')}
                                     {'  ·  '}
-                                    Risk: {Object.entries(selectedRiskParams).map(([k,v]) => `${k}=${v}`).join(', ')}
+                                    Risk: {Object.entries(selectedRiskParams).map(([k, v]) => `${k}=${v}`).join(', ')}
                                 </p>
                             </div>
                             <button

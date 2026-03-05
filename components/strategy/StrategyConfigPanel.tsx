@@ -122,30 +122,7 @@ export const StrategyConfigPanel: React.FC<StrategyConfigPanelProps> = ({
                             className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
                         />
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                        <div>
-                            <label className="text-[10px] text-slate-500 block mb-1">Slippage %</label>
-                            <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={strategy.slippage}
-                                onChange={e => update({ slippage: parseFloat(e.target.value) || 0 })}
-                                className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
-                            />
-                        </div>
-                        <div>
-                            <label className="text-[10px] text-slate-500 block mb-1">Commission ₹</label>
-                            <input
-                                type="number"
-                                min="0"
-                                step="1"
-                                value={strategy.commission}
-                                onChange={e => update({ commission: parseFloat(e.target.value) || 0 })}
-                                className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
-                            />
-                        </div>
-                    </div>
+
                     <div className="grid grid-cols-2 gap-2">
                         <div>
                             <label className="text-[10px] text-slate-500 block mb-1">Start Time</label>
