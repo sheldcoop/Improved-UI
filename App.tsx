@@ -8,6 +8,7 @@ import Backtest from './pages/Backtest';
 import Results from './pages/Results';
 import Optimization from './pages/Optimization';
 import RiskAnalysis from './pages/RiskAnalysis';
+import ResearchLab from './pages/ResearchLab';
 import PaperTrading from './pages/PaperTrading';
 import DataManager from './pages/DataManager';
 import Journal from './pages/Journal';
@@ -30,6 +31,7 @@ const App: React.FC = () => {
               <Route path="/results" element={<Results />} />
               <Route path="/optimization" element={<Optimization />} />
               <Route path="/risk" element={<RiskAnalysis />} />
+              <Route path="/research" element={<ResearchLab />} />
               <Route path="/vault" element={<Vault />} />
               <Route path="/paper-trading" element={<PaperTrading />} />
               <Route path="/data" element={<DataManager />} />

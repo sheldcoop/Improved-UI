@@ -25,6 +25,7 @@ from routes.optimization_routes import optimization_bp
 from routes.risk_routes import risk_bp
 from routes.paper_routes import paper_bp
 from routes.strategy_routes import strategy_bp
+from routes.research_routes import research_bp
 from services.indicator_registry import get_indicator_metadata
 
 # --- LOGGING SETUP ---
@@ -87,6 +88,7 @@ app.register_blueprint(optimization_bp, url_prefix='/api/v1/optimization')
 app.register_blueprint(risk_bp, url_prefix='/api/v1/risk')
 app.register_blueprint(paper_bp, url_prefix='/api/v1/paper-trading')
 app.register_blueprint(strategy_bp, url_prefix='/api/v1/strategies')
+app.register_blueprint(research_bp, url_prefix='/api/v1/research')
 
 # --- MIDDLEWARE ---
 @app.before_request
