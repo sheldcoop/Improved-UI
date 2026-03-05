@@ -5,7 +5,7 @@
  * across 3 tabs: Statistical Profile, Seasonality, and Distribution.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Microscope, Activity, Calendar, BarChart, PlayCircle, AlertCircle } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -15,8 +15,7 @@ import StatisticalProfile from '../components/research/StatisticalProfile';
 import SeasonalityPanel from '../components/research/SeasonalityPanel';
 import DistributionPanel from '../components/research/DistributionPanel';
 import { analyzeStock } from '../services/researchService';
-import { searchInstruments } from '../services/backtestInternal';
-import { useDebounce } from '../hooks/useDebounce';
+import { useInstrumentSearch } from '../hooks/useInstrumentSearch';
 import type { ResearchResponse } from '../services/researchService';
 
 type ResearchTab = 'PROFILE' | 'SEASONALITY' | 'DISTRIBUTION';
@@ -27,31 +26,14 @@ const ResearchLab: React.FC = () => {
     const [symbolSearchQuery, setSymbolSearchQuery] = useState('');
     const [selectedInstrument, setSelectedInstrument] = useState<any>(null);
     const [symbol, setSymbol] = useState('');
-    const [searchResults, setSearchResults] = useState<any[]>([]);
-    const [isSearching, setIsSearching] = useState(false);
     const [timeframe, setTimeframe] = useState('1d');
 
-    // Debounced instrument search (same pattern as Backtest / Paper Trading)
-    const debouncedQuery = useDebounce(symbolSearchQuery, 300);
-    useEffect(() => {
-        if (!debouncedQuery || debouncedQuery.length < 2 || selectedInstrument) {
-            if (!selectedInstrument) setSearchResults([]);
-            return;
-        }
-        const doSearch = async () => {
-            setIsSearching(true);
-            try {
-                const results = await searchInstruments(segment, debouncedQuery);
-                setSearchResults(results);
-            } catch (e) {
-                console.error('Instrument search failed:', e);
-                setSearchResults([]);
-            } finally {
-                setIsSearching(false);
-            }
-        };
-        doSearch();
-    }, [debouncedQuery, segment]);
+    // Generic instrument search hook (debounced + stale-request safe)
+    const { results: searchResults, isSearching } = useInstrumentSearch(
+        symbolSearchQuery,
+        segment,
+        selectedInstrument,
+    );
 
     // Date range
     const [startDate, setStartDate] = useState('');
@@ -113,7 +95,7 @@ const ResearchLab: React.FC = () => {
                         symbolSearchQuery={symbolSearchQuery}
                         setSymbolSearchQuery={setSymbolSearchQuery}
                         searchResults={searchResults}
-                        setSearchResults={setSearchResults}
+                        setSearchResults={() => { }}
                         isSearching={isSearching}
                         selectedInstrument={selectedInstrument}
                         setSelectedInstrument={setSelectedInstrument}

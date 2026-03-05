@@ -1,8 +1,9 @@
 import { useBacktestContext } from '../context/BacktestContext';
 import { useStrategyInit } from './backtest/useStrategyInit';
-import { useInstrumentSearch } from './backtest/useInstrumentSearch';
+import { useInstrumentSearch } from './useInstrumentSearch';
 import { useDataLoader } from './backtest/useDataLoader';
 import { useBacktestRunner } from './backtest/useBacktestRunner';
+import { useEffect } from 'react';
 
 /**
  * Main backtest hook — thin orchestrator.
@@ -14,7 +15,15 @@ export const useBacktest = () => {
 
     // Side-effect hooks (no return value needed)
     useStrategyInit();
-    useInstrumentSearch();
+
+    // Generic instrument search — reads from context, writes back
+    const { results: searchResults, isSearching } = useInstrumentSearch(
+        context.symbolSearchQuery,
+        context.segment,
+        context.selectedInstrument,
+    );
+    useEffect(() => { context.setSearchResults(searchResults); }, [searchResults]);
+    useEffect(() => { context.setIsSearching(isSearching); }, [isSearching]);
 
     // Handler hooks
     const { handleLoadData } = useDataLoader();

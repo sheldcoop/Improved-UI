@@ -56,9 +56,37 @@ export const fetchAndValidateMarketData = async (symbol: string, timeframe: stri
 };
 
 /**
- * Search instruments from the Dhan Scrip Master.
- * Used by MarketDataSelector and PaperTrading for symbol look-up.
+ * Instrument type returned by the Dhan Scrip Master search.
  */
-export const searchInstruments = async (query: string, segment: string = 'NSE_EQ'): Promise<any[]> => {
-    return fetchClient<any[]>(`/market/instruments?q=${encodeURIComponent(query)}&segment=${encodeURIComponent(segment)}`);
+export interface Instrument {
+    symbol: string;
+    display_name: string;
+    security_id: string;
+    instrument_type: string;
+    series?: string;
+}
+
+/**
+ * Search instruments from the Dhan Scrip Master.
+ *
+ * Single source of truth for instrument search across the app.
+ * Includes mock-data fallback when backend is unreachable.
+ *
+ * Args:
+ *     segment: Market segment (e.g. 'NSE_EQ', 'NSE_SME').
+ *     query: Search string (matched against symbol + display_name).
+ *
+ * Returns:
+ *     List of matching instruments.
+ */
+export const searchInstruments = async (segment: string, query: string): Promise<Instrument[]> => {
+    return executeWithFallback<Instrument[]>(
+        `/market/instruments?segment=${encodeURIComponent(segment)}&q=${encodeURIComponent(query)}`,
+        undefined,
+        async () => {
+            // Lightweight mock fallback — returns empty when backend is down
+            const { generateMockInstruments } = await import('./mockData');
+            return generateMockInstruments(query);
+        },
+    );
 };

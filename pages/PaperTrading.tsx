@@ -14,6 +14,7 @@ import {
 } from '../services/paperService';
 import { fetchSavedStrategies, fetchStrategies } from '../services/api';
 import { searchInstruments } from '../services/marketService';
+import { useInstrumentSearch } from '../hooks/useInstrumentSearch';
 
 import { MonitorSetup } from '../components/paper/MonitorSetup';
 import { MonitorList } from '../components/paper/MonitorList';
@@ -83,27 +84,14 @@ const PaperTrading: React.FC = () => {
     const replayIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    useEffect(() => {
-        if (symbolSearchQuery.length >= 2) {
-            const delayDebounceFn = setTimeout(() => {
-                const doSearch = async () => {
-                    setIsSearching(true);
-                    try {
-                        const results = await searchInstruments(symbolSearchQuery, segment);
-                        setSearchResults(results);
-                    } catch (err) {
-                        console.error('Symbol search failed:', err);
-                    } finally {
-                        setIsSearching(false);
-                    }
-                };
-                doSearch();
-            }, 300);
-            return () => clearTimeout(delayDebounceFn);
-        } else {
-            setSearchResults([]);
-        }
-    }, [symbolSearchQuery, segment]);
+    // Instrument search — driven by the generic hook
+    const { results: hookSearchResults, isSearching: hookIsSearching } = useInstrumentSearch(
+        symbolSearchQuery,
+        segment,
+        selectedInstrument,
+    );
+    useEffect(() => { setSearchResults(hookSearchResults); }, [hookSearchResults]);
+    useEffect(() => { setIsSearching(hookIsSearching); }, [hookIsSearching]);
 
     useEffect(() => {
         loadData();
