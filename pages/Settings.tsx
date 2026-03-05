@@ -324,7 +324,7 @@ const Settings: React.FC = () => {
                                             <p className="text-xs text-slate-500">Percentage slippage mathematically applied to simulated trades (e.g. 0.05).</p>
                                         </div>
                                         <div className="flex items-center bg-slate-950 rounded-lg border border-slate-700 px-3">
-                                            <input type="number" step="0.01" value={slippage} onChange={e => setSlippage(e.target.value)} className="w-24 bg-transparent border-none py-2 text-slate-200 focus:ring-0 text-right" />
+                                            <input type="number" step="0.01" min="0" value={slippage} onChange={e => setSlippage(e.target.value)} className="w-24 bg-transparent border-none py-2 text-slate-200 focus:ring-0 text-right" />
                                             <span className="text-slate-500 ml-2">%</span>
                                         </div>
                                     </div>
@@ -336,7 +336,7 @@ const Settings: React.FC = () => {
                                         </div>
                                         <div className="flex items-center bg-slate-950 rounded-lg border border-slate-700 px-3">
                                             <span className="text-slate-500 mr-2">₹</span>
-                                            <input type="number" step="1" value={commission} onChange={e => setCommission(e.target.value)} className="w-24 bg-transparent border-none py-2 text-slate-200 focus:ring-0 text-right" />
+                                            <input type="number" step="1" min="0" value={commission} onChange={e => setCommission(e.target.value)} className="w-24 bg-transparent border-none py-2 text-slate-200 focus:ring-0 text-right" />
                                         </div>
                                     </div>
 

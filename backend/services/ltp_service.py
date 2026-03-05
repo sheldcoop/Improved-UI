@@ -166,12 +166,18 @@ def refresh_all_positions() -> list[dict]:
 
         paper_store.update_position_ltp(pos["id"], ltp, pnl_abs, pnl_pct, indicators)
 
+        slippage_pct = float(paper_store.get_setting("slippage", "0.0"))
+        commission   = float(paper_store.get_setting("commission", "20.0"))
+
         if _is_sl_hit(pos["side"], ltp, sl_price):
-            logger.info(f"Stop-loss hit for {pos['symbol']} @ ₹{ltp:.2f} (SL=₹{sl_price})")
-            paper_store.close_position(pos["id"], ltp, exit_reason="SL")
+            # Apply exit slippage: LONG exits at a worse (lower) price
+            exit_price = round(ltp * (1 - slippage_pct / 100), 2)
+            logger.info(f"Stop-loss hit for {pos['symbol']} @ ₹{ltp:.2f} (SL=₹{sl_price}, slipped exit ₹{exit_price:.2f})")
+            paper_store.close_position(pos["id"], exit_price, exit_reason="SL", commission=commission)
 
         elif _is_tp_hit(pos["side"], ltp, tp_price):
-            logger.info(f"Take-profit hit for {pos['symbol']} @ ₹{ltp:.2f} (TP=₹{tp_price})")
-            paper_store.close_position(pos["id"], ltp, exit_reason="TP")
+            exit_price = round(ltp * (1 - slippage_pct / 100), 2)
+            logger.info(f"Take-profit hit for {pos['symbol']} @ ₹{ltp:.2f} (TP=₹{tp_price}, slipped exit ₹{exit_price:.2f})")
+            paper_store.close_position(pos["id"], exit_price, exit_reason="TP", commission=commission)
 
     return paper_store.get_positions()

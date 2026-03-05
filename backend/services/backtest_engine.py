@@ -144,10 +144,23 @@ class BacktestEngine:
         # Apply stop-loss, take-profit, and trailing stop when configured
         if sl_pct > 0:
             pf_kwargs["sl_stop"] = sl_pct
+            # upon_stop_exit: "close" (default) checks stop against bar close only.
+            # "next_open" exits at the next bar's open — more realistic for daily data.
+            # "stop" exits at the stop price (intrabar simulation using high/low).
+            # We use "stop" so that a breach of the SL/TP level within a candle
+            # (detectable via high/low) triggers exit at the stop price, not close.
+            pf_kwargs["upon_stop_exit"] = "stop"
         if tp_pct > 0:
             pf_kwargs["tp_stop"] = tp_pct
-        if use_trailing and sl_pct > 0:
-            pf_kwargs["sl_trail"] = True
+            pf_kwargs["upon_stop_exit"] = "stop"
+        if use_trailing:
+            if sl_pct > 0:
+                pf_kwargs["sl_trail"] = True
+            else:
+                logger.warning(
+                    "useTrailingStop=True but stopLossPct=0 — trailing stop requires a non-zero "
+                    "stopLossPct to anchor the initial stop. TSL will NOT be applied."
+                )
         try:
             pf = vbt.Portfolio.from_signals(
                 close=close_price,
@@ -207,7 +220,9 @@ class BacktestEngine:
         trades = format_trade_records(pf)
 
         # Monthly returns extracted down to a 1-line helper function
-        monthly_returns_data = BacktestEngine._compute_monthly_returns(returns_series)
+        monthly_returns_data, monthly_err = BacktestEngine._compute_monthly_returns(returns_series)
+        if monthly_err:
+            metrics["alerts"].append({"type": "warning", "msg": monthly_err})
 
         # pfStats / advStats for the raw tabs
         try:
@@ -245,13 +260,17 @@ class BacktestEngine:
     @staticmethod
     def _build_equity_curve(pf: vbt.Portfolio) -> tuple[list[dict], pd.Series]:
         """Build the equity curve payload and return the associated returns series."""
-        equity       = pf.value()
+        equity         = pf.value()
         returns_series = pf.returns() if callable(pf.returns) else pf.returns
-        dd_pct       = (pf.drawdown() if callable(pf.drawdown) else pf.drawdown) * 100
-        equity_curve = [
-            {"date": str(d), "value": round(v, 2), "drawdown": round(abs(dd_pct.loc[d]), 2)}
-            for d, v in equity.items()
-        ]
+        dd_pct         = (pf.drawdown() if callable(pf.drawdown) else pf.drawdown) * 100
+        equity_curve   = []
+        for d, v in equity.items():
+            try:
+                dd_val = round(abs(dd_pct.loc[d]), 2)
+            except KeyError:
+                logger.debug(f"Drawdown index miss for date {d} — using 0.0")
+                dd_val = 0.0
+            equity_curve.append({"date": str(d), "value": round(v, 2), "drawdown": dd_val})
         return equity_curve, returns_series
 
     @staticmethod
@@ -264,14 +283,16 @@ class BacktestEngine:
             dt_stats = pf.drawdowns.stats()
             avg_dd_dur = dt_stats.get("Avg Drawdown Duration", 0)
             avg_dd_duration = f"{avg_dd_dur.days}d" if hasattr(avg_dd_dur, "days") else f"{int(avg_dd_dur)}d"
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"Could not compute avg drawdown duration (defaulting to 0d): {exc}")
             avg_dd_duration = "0d"
 
         try:
             tr_stats = pf.trades.stats()
             expectancy = round(float(tr_stats.get("Expectancy", 0)), 2)
             max_consec = int(tr_stats.get("Max Loss Streak", 0))
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"Could not compute trade stats (expectancy/max_consec defaulting to 0): {exc}")
             expectancy = 0.0
             max_consec = 0
 
@@ -296,26 +317,28 @@ class BacktestEngine:
         max_dd_pct = round(abs(float(pf_stats_raw.get("Max Drawdown [%]", 0))), 2)
         calmar = round(cagr / max_dd_pct, 2) if max_dd_pct > 0 else 0.0
 
-        def _safe_float(val: object, default: float = 0.0) -> float:
+        def _safe_float(val: object, default: float = 0.0, name: str = "") -> float:
             """Convert a VBT stat value (may be Series) to a plain Python float."""
             try:
                 if hasattr(val, "iloc"):  # pd.Series from universe portfolios
                     val = val.iloc[0]
                 return float(val) if val is not None else default
-            except Exception:
+            except Exception as exc:
+                if name:
+                    logger.warning(f"Metric '{name}' could not be parsed (defaulting to {default}): {exc}")
                 return default
 
         metrics = {
-            "totalReturnPct": round(_safe_float(total_return_pct), 2),
-            "sharpeRatio":    round(_safe_float(pf_stats_raw.get("Sharpe Ratio")), 2),
-            "maxDrawdownPct": round(abs(_safe_float(pf_stats_raw.get("Max Drawdown [%]"))), 2),
-            "winRate":        round(_safe_float(pf_stats_raw.get("Win Rate [%]")), 1),
-            "profitFactor":   round(_safe_float(pf_stats_raw.get("Profit Factor")), 2),
-            "totalTrades":    int(_safe_float(pf_stats_raw.get("Total Trades"))),
-            "omegaRatio":     round(_safe_float(pf_stats_raw.get("Omega Ratio")), 2),
-            "volatility":     round(_safe_float(pf_stats_raw.get("Volatility (Ann.) [%]")), 1),
+            "totalReturnPct": round(_safe_float(total_return_pct, name="totalReturnPct"), 2),
+            "sharpeRatio":    round(_safe_float(pf_stats_raw.get("Sharpe Ratio"), name="sharpeRatio"), 2),
+            "maxDrawdownPct": round(abs(_safe_float(pf_stats_raw.get("Max Drawdown [%]"), name="maxDrawdownPct")), 2),
+            "winRate":        round(_safe_float(pf_stats_raw.get("Win Rate [%]"), name="winRate"), 1),
+            "profitFactor":   round(_safe_float(pf_stats_raw.get("Profit Factor"), name="profitFactor"), 2),
+            "totalTrades":    int(_safe_float(pf_stats_raw.get("Total Trades"), name="totalTrades")),
+            "omegaRatio":     round(_safe_float(pf_stats_raw.get("Omega Ratio"), name="omegaRatio"), 2),
+            "volatility":     round(_safe_float(pf_stats_raw.get("Volatility (Ann.) [%]"), name="volatility"), 1),
             "cagr":           cagr,
-            "sortinoRatio":   round(_safe_float(pf_stats_raw.get("Sortino Ratio")), 2),
+            "sortinoRatio":   round(_safe_float(pf_stats_raw.get("Sortino Ratio"), name="sortinoRatio"), 2),
             "calmarRatio":    calmar,
             "expectancy":     expectancy,
             "consecutiveLosses": max_consec,
@@ -336,16 +359,24 @@ class BacktestEngine:
         return clean_metrics
 
     @staticmethod
-    def _compute_monthly_returns(returns_series: pd.Series) -> list[dict]:
-        """Aggregate daily returns into cleanly formatted monthly returns."""
-        data = []
+    def _compute_monthly_returns(returns_series: pd.Series) -> tuple[list[dict], str | None]:
+        """Aggregate daily returns into cleanly formatted monthly returns.
+
+        Returns:
+            Tuple of (monthly_data, error_message_or_None).
+            error_message is set when computation fails so the caller can
+            surface a diagnostic alert to the user instead of silently
+            returning an empty list.
+        """
+        data: list[dict] = []
+        error_msg: str | None = None
         try:
             try:
                 monthly_resampled = returns_series.resample("ME").apply(lambda x: (1 + x).prod() - 1)
             except ValueError:
                 # Fallback for pandas < 2.2.0
                 monthly_resampled = returns_series.resample("M").apply(lambda x: (1 + x).prod() - 1)
-                
+
             for date, ret in monthly_resampled.items():
                 data.append({
                     "year": date.year,
@@ -353,8 +384,9 @@ class BacktestEngine:
                     "returnPct": round(ret * 100, 2),
                 })
         except Exception as exc:
-            logger.warning(f"Failed to calculate monthly returns: {exc}")
-        return data
+            error_msg = f"Monthly returns could not be computed: {exc}"
+            logger.warning(error_msg)
+        return data, error_msg
 
     @staticmethod
     def _compute_advanced_metrics(

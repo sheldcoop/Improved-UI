@@ -71,8 +71,8 @@ const MetricBox: React.FC<{ label: string; value: string; subValue?: string; goo
 
 // helper to format numbers safely (used elsewhere too)
 const safeToFixed = (val: number | null | undefined, decimals: number = 2): string => {
-  if (val === null || val === undefined || isNaN(val)) {
-    return '0.00';
+  if (val === null || val === undefined || isNaN(val) || !isFinite(val)) {
+    return 'N/A';
   }
   return val.toFixed(decimals);
 };
@@ -160,11 +160,13 @@ const Results: React.FC = () => {
   };
 
   // Helper for safe numeric formatting
+  // Returns 'N/A' for null/undefined/NaN/Infinity so the user can distinguish
+  // "metric unavailable" from a genuine 0.00 result (F1/F2 fix).
   const formatMetric = (val: any, decimals: number = 2) => {
-    if (val === undefined || val === null || val === 'Infinity' || val === '-Infinity' || isNaN(Number(val))) {
-      return '0.00';
-    }
-    return Number(val).toFixed(decimals);
+    if (val === undefined || val === null) return 'N/A';
+    const n = Number(val);
+    if (isNaN(n) || !isFinite(n)) return 'N/A';
+    return n.toFixed(decimals);
   };
 
   // Log alerts to debug console on load

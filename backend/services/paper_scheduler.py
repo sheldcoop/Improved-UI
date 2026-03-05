@@ -75,12 +75,20 @@ def _run_monitor_job(monitor_id: str) -> None:
         logger.error(f"Signal check failed for monitor {monitor_id}: {exc}", exc_info=True)
         return
 
+    # Load friction settings so paper trading matches backtest assumptions
+    slippage_pct = float(paper_store.get_setting("slippage", "0.0"))   # e.g. 0.05 means 0.05%
+    commission   = float(paper_store.get_setting("commission", "20.0")) # flat ₹ per order
+
     if signal == "BUY":
-        # Compute SL/TP prices from percentage config
+        # Apply entry slippage — for a LONG we pay more (price moves against us on fill).
+        # Entry commission is embedded in avg_price so it reduces PnL automatically.
+        entry_price = round(ltp * (1 + slippage_pct / 100) + commission / max(qty, 1), 2)
+
+        # Compute SL/TP prices from percentage config (anchored on raw LTP, not slipped price)
         sl_pct = monitor.get("sl_pct")
         tp_pct = monitor.get("tp_pct")
         tsl_pct = monitor.get("config", {}).get("tslPct")
-        
+
         sl_price = round(ltp * (1 - sl_pct / 100), 2) if sl_pct else None
         tp_price = round(ltp * (1 + tp_pct / 100), 2) if tp_pct else None
 
@@ -97,7 +105,7 @@ def _run_monitor_job(monitor_id: str) -> None:
             "symbol":      symbol,
             "side":        "LONG",
             "qty":         qty,
-            "avg_price":   ltp,
+            "avg_price":   entry_price,
             "ltp":         ltp,
             "pnl":         0.0,
             "pnl_pct":     0.0,
@@ -107,11 +115,19 @@ def _run_monitor_job(monitor_id: str) -> None:
             "indicators":  current_indicators,
         }
         paper_store.save_position(position)
-        logger.info(f"Paper BUY: {symbol} {qty} units @ ₹{ltp:.2f}")
+        logger.info(
+            f"Paper BUY: {symbol} {qty} units @ ₹{ltp:.2f} "
+            f"(slipped entry ₹{entry_price:.2f}, commission ₹{commission:.0f})"
+        )
 
     elif signal == "SELL" and existing:
-        paper_store.close_position(existing["id"], ltp, exit_reason="SIGNAL")
-        logger.info(f"Paper SELL: {symbol} closed @ ₹{ltp:.2f}")
+        # Apply exit slippage — for a LONG exit we receive less.
+        exit_price = round(ltp * (1 - slippage_pct / 100), 2)
+        paper_store.close_position(existing["id"], exit_price, exit_reason="SIGNAL", commission=commission)
+        logger.info(
+            f"Paper SELL: {symbol} closed @ ₹{ltp:.2f} "
+            f"(slipped exit ₹{exit_price:.2f}, commission ₹{commission:.0f})"
+        )
 
 
 # ---------------------------------------------------------------------------

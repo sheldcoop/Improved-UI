@@ -35,9 +35,14 @@ def run_monte_carlo():
         if simulations < 1 or simulations > 10000:
             return jsonify({"status": "error", "message": "simulations must be between 1 and 10000"}), 400
 
-        logger.info(f"Running Monte Carlo: {simulations} sims, {vol_mult}x vol, symbol={symbol}")
+        use_fat_tails = bool(data.get("useFatTails", False))
+        logger.info(f"Running Monte Carlo: {simulations} sims, {vol_mult}x vol, symbol={symbol}, fat_tails={use_fat_tails}")
         seed = data.get("seed")
-        results = MonteCarloEngine.run(simulations, vol_mult, request.headers, symbol, seed=int(seed) if seed is not None else None)
+        results = MonteCarloEngine.run(
+            simulations, vol_mult, request.headers, symbol,
+            seed=int(seed) if seed is not None else None,
+            use_fat_tails=use_fat_tails,
+        )
         return jsonify(results), 200
 
     except Exception as exc:

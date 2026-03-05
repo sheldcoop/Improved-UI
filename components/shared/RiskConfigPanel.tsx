@@ -24,7 +24,8 @@ export const RiskConfigPanel: React.FC<RiskConfigPanelProps> = ({
     const inputCls = 'w-full bg-slate-950 border border-slate-700/60 rounded pr-2 text-right py-1.5 text-sm font-mono text-slate-200 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
 
     // Add logic to auto-activate SL if TSL is entered but SL is 0
-    const handleTslChange = (val: number) => {
+    const handleTslChange = (rawVal: number) => {
+        const val = Math.max(0, rawVal);
         onTslChange(val);
         if (val > 0 && slPct === 0) {
             onSlChange(val); // By default, kickstart SL to match TSL if it was off
@@ -43,7 +44,7 @@ export const RiskConfigPanel: React.FC<RiskConfigPanelProps> = ({
                             min="0"
                             step="0.5"
                             value={slPct || ''}
-                            onChange={e => onSlChange(parseFloat(e.target.value) || 0)}
+                            onChange={e => onSlChange(Math.max(0, parseFloat(e.target.value) || 0))}
                             className={inputCls}
                             placeholder="0.0"
                             disabled={disabled}
@@ -59,7 +60,7 @@ export const RiskConfigPanel: React.FC<RiskConfigPanelProps> = ({
                             min="0"
                             step="0.5"
                             value={tslPct || ''}
-                            onChange={e => handleTslChange(parseFloat(e.target.value) || 0)}
+                            onChange={e => handleTslChange(Math.max(0, parseFloat(e.target.value) || 0))}
                             className={inputCls}
                             placeholder="0.0"
                             disabled={disabled}
@@ -75,7 +76,7 @@ export const RiskConfigPanel: React.FC<RiskConfigPanelProps> = ({
                             min="0"
                             step="0.5"
                             value={tpPct || ''}
-                            onChange={e => onTpChange(parseFloat(e.target.value) || 0)}
+                            onChange={e => onTpChange(Math.max(0, parseFloat(e.target.value) || 0))}
                             className={inputCls}
                             placeholder="0.0"
                             disabled={disabled}

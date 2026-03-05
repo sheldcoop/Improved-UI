@@ -109,7 +109,11 @@ class StrategyStore:
 
     @staticmethod
     def _write(strategies: list[dict]) -> None:
-        """Write strategies list to disk (must be called within lock).
+        """Atomically write strategies list to disk (must be called within lock).
+
+        Writes to a .tmp file first, then renames over the target file.
+        This ensures a hard crash mid-write cannot corrupt the live file —
+        os.replace() is atomic on POSIX and near-atomic on Windows.
 
         Args:
             strategies: Full list of strategy dicts to persist.
@@ -118,8 +122,10 @@ class StrategyStore:
             OSError: If the file cannot be written.
         """
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-        with open(DATA_FILE, "w") as f:
+        tmp_file = DATA_FILE + ".tmp"
+        with open(tmp_file, "w") as f:
             json.dump(strategies, f, indent=2)
+        os.replace(tmp_file, DATA_FILE)
 
     @staticmethod
     def _write_direct(strategies: list[dict]) -> None:

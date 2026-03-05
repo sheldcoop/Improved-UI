@@ -32,6 +32,7 @@ import logging
 import uuid
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,7 @@ class ReplayEngine:
         virtual_capital: float,
         slippage: float = 0.05,
         commission: float = 20.0,
+        tsl_pct: Optional[float] = None,
     ) -> dict:
         """Run a full historical replay and return events + summary.
 
@@ -121,6 +123,7 @@ class ReplayEngine:
             next_bar_entry=next_bar_entry,
             slippage=slippage,
             commission=commission,
+            tsl_pct=tsl_pct,
         )
         return {"events": events, "summary": summary}
 
@@ -222,6 +225,7 @@ class ReplayEngine:
         slippage: float,
         commission: float,
         indicators: dict[str, pd.Series] = None,
+        tsl_pct: Optional[float] = None,
     ) -> tuple[list[dict], dict]:
         """Walk the DataFrame bar by bar and emit events.
 

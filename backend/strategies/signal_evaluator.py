@@ -124,9 +124,13 @@ class SignalEvaluator:
             if op == "Crosses Above":    return left.vbt.crossed_above(right)
             if op == "Crosses Below":    return left.vbt.crossed_below(right)
             if op == ">":                return left > right
+            if op == ">=":               return left >= right
             if op == "<":                return left < right
+            if op == "<=":               return left <= right
             if op == "=":                return left == right
-            return False
+            if op == "!=":               return left != right
+            logger.warning(f"Unsupported operator '{op}' in rule — condition will never fire")
+            return pd.Series(False, index=df.index if isinstance(df, pd.DataFrame) else df["close"].index)
 
         except Exception as exc:
             logger.error(f"Condition Eval Error: {exc}")

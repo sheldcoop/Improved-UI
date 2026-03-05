@@ -275,6 +275,10 @@ const StrategyBuilder: React.FC = () => {
                 setRunError('Your code must define a signal_logic(df) function that returns (entries, exits).');
                 return;
             }
+            if (!code.includes('return')) {
+                setRunError('Your signal_logic function has no return statement. It must return (entries, exits).');
+                return;
+            }
         }
 
         // Data quality check before running
@@ -294,8 +298,13 @@ const StrategyBuilder: React.FC = () => {
                 setPendingRun(true);
                 return; // Wait for user to confirm
             }
-        } catch {
-            // Don't block run if health check itself fails
+        } catch (healthErr) {
+            // Health check itself failed — warn the user rather than silently proceeding.
+            // This prevents running a backtest on potentially corrupt/unavailable data.
+            console.warn('Health check failed:', healthErr);
+            setRunError('Data quality check could not be completed. Please verify your data in Data Manager before running, or try again.');
+            setCheckingQuality(false);
+            return;
         } finally {
             setCheckingQuality(false);
         }

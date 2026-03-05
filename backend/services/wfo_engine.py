@@ -74,8 +74,12 @@ class WFOEngine:
         test_m: int,
         fetch_start_dt: datetime,
         collect_signals: bool = False,
+        portfolio_config: dict | None = None,
     ) -> dict:
         """Core Walk-Forward loop shared by run_wfo() and generate_wfo_portfolio()."""
+        # Use user-supplied portfolio config so commission/capital match their real settings.
+        # Fallback to sensible defaults only if nothing was provided.
+        pf_config = portfolio_config or {"commission": 20.0, "initial_capital": 100000}
         wfo_results: list[dict] = []
         all_entries = pd.Series(False, index=df.index) if collect_signals else None
         all_exits = pd.Series(False, index=df.index) if collect_signals else None
@@ -149,9 +153,11 @@ class WFOEngine:
 
                 # Use build_portfolio so open/high/low are forwarded when
                 # SL/TP is configured, matching the reference Colab behaviour.
+                # pf_config carries the user's actual commission/capital settings
+                # instead of hard-coded defaults (FATAL #14 fix).
                 pf = build_portfolio(
                     test_df["close"], entries, exits,
-                    {"commission": 20.0, "initial_capital": 100000},
+                    pf_config,
                     vbt_freq,
                     df=test_df,
                 )
@@ -170,7 +176,7 @@ class WFOEngine:
                 window_result = {
                     "period": f"Window {run_count}: {test_start_dt.date()} to {test_end_dt.date()}",
                     "type": "TEST",
-                    "params": str(best_params),
+                    "params": best_params,  # dict, not str — so frontend can read individual keys
                     "usingFallback": using_fallback,
                     "returnPct": round(float(pf.total_return()) * 100, 2),
                     "sharpe": round(float(pf.sharpe_ratio()), 2),
@@ -194,7 +200,20 @@ class WFOEngine:
                     })
 
             except Exception as e:
-                logger.error(f"Window {run_count} Test Execution Failed: {e}")
+                logger.error(f"Window {run_count} Test Execution Failed: {e}", exc_info=True)
+                # Record the failure so the frontend can show the user which windows failed
+                # instead of silently producing fewer results than expected.
+                wfo_results.append({
+                    "period": f"Window {run_count}: {test_start_dt.date()} to {test_end_dt.date()}",
+                    "type": "FAILED",
+                    "params": best_params,
+                    "usingFallback": using_fallback,
+                    "error": str(e),
+                    "returnPct": None,
+                    "sharpe": None,
+                    "drawdown": None,
+                    "trades": 0,
+                })
 
             current_date += relativedelta(months=test_m)
             run_count += 1
@@ -236,6 +255,7 @@ class WFOEngine:
         loop = WFOEngine._wfo_loop(
             df, strategy_id, ranges, metric, vbt_freq,
             train_m, test_m, fetch_start_dt, collect_signals=False,
+            portfolio_config=wfo_config,
         )
         wfo_results = loop["wfo_results"]
         alerts = AlertManager.analyze_wfo(wfo_results, df)
@@ -269,6 +289,7 @@ class WFOEngine:
         loop = WFOEngine._wfo_loop(
             df, strategy_id, ranges, metric, vbt_freq,
             train_m, test_m, fetch_start_dt, collect_signals=True,
+            portfolio_config=wfo_config,
         )
         param_history = loop["param_history"]
         all_entries = loop["all_entries"]

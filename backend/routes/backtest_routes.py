@@ -57,6 +57,21 @@ def run_backtest():
         except (TypeError, ValueError):
             return jsonify({"status": "error", "message": "stopLossPct and takeProfitPct must be numbers"}), 400
 
+        # Validate slippage and commission — silent negatives / extremes produce wrong PnL
+        slippage_raw = data.get("slippage", 0)
+        commission_raw = data.get("commission", 20)
+        try:
+            slippage_val = float(slippage_raw)
+            commission_val = float(commission_raw)
+            if slippage_val < 0:
+                return jsonify({"status": "error", "message": "slippage must be >= 0"}), 400
+            if slippage_val > 100:
+                return jsonify({"status": "error", "message": "slippage cannot exceed 100%"}), 400
+            if commission_val < 0:
+                return jsonify({"status": "error", "message": "commission must be >= 0"}), 400
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "message": "slippage and commission must be numbers"}), 400
+
         strategy_id = data.get("strategyId")
 
         # --- Build config ---
@@ -68,7 +83,7 @@ def run_backtest():
             if saved:
                 logger.info(f"Loaded Custom Strategy Logic: {saved.get('name')}")
                 for k, v in saved.items():
-                    if k not in config or not config[k]:
+                    if k not in config:  # Only fill MISSING keys — never overwrite explicit zeros
                         config[k] = v
 
         # Apply defaults for missing keys
@@ -121,6 +136,8 @@ def run_backtest():
             try:
                 t_start = _dt.time.fromisoformat(start_time_str)
                 t_end = _dt.time.fromisoformat(end_time_str)
+                if t_start >= t_end:
+                    return jsonify({"status": "error", "message": "startTime must be before endTime"}), 400
                 bar_times = df.index.time
                 df = df[(bar_times >= t_start) & (bar_times <= t_end)]
                 logger.info(f"Session filter applied: {start_time_str}–{end_time_str}, bars remaining: {len(df)}")

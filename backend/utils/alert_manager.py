@@ -7,7 +7,7 @@ class AlertManager:
     """Diagnostic system for detecting common strategy pitfalls and data issues."""
 
     # Configurable alerting thresholds
-    WIN_RATE_OVERFIT_THRESHOLD = 100.0
+    WIN_RATE_OVERFIT_THRESHOLD = 90.0
     MIN_TRADES_REQUIRED = 5
     MAX_SAFE_DRAWDOWN_PCT = 40.0
     MIN_AVG_TRADES_WFO = 3.0

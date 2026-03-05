@@ -180,7 +180,18 @@ export const RuleRow: React.FC<RuleRowProps> = ({ condition, onChange, onRemove 
             {/* RIGHT SIDE */}
             <div className="flex items-center space-x-1 flex-1">
                 <button
-                    onClick={() => onChange({ ...condition, compareType: condition.compareType === 'STATIC' ? 'INDICATOR' : 'STATIC' })}
+                    onClick={() => {
+                        const newType = condition.compareType === 'STATIC' ? 'INDICATOR' : 'STATIC';
+                        // Ensure rightIndicator is always set when switching to INDICATOR mode
+                        // so the backend never receives an undefined indicator field.
+                        onChange({
+                            ...condition,
+                            compareType: newType,
+                            rightIndicator: newType === 'INDICATOR'
+                                ? (condition.rightIndicator ?? IndicatorType.CLOSE)
+                                : condition.rightIndicator,
+                        });
+                    }}
                     className={`text-[10px] px-1 py-1 rounded border ${condition.compareType === 'STATIC' ? 'bg-slate-800 border-slate-600 text-slate-300' : 'bg-purple-900/30 border-purple-500 text-purple-400'}`}
                 >
                     {condition.compareType === 'STATIC' ? '123' : 'IND'}

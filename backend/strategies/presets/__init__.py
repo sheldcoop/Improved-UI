@@ -62,6 +62,11 @@ class StrategyFactory:
         if preset_cls:
             return preset_cls(config)
 
+        # No matching preset and no user-defined logic — strategy will produce 0 signals
+        logger.warning(
+            f"Strategy ID '{strategy_id}' not found in preset registry and has no entryLogic/pythonCode. "
+            "Returning empty DynamicStrategy — no trades will be generated."
+        )
         return DynamicStrategy(config)
 
     @staticmethod

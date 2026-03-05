@@ -306,13 +306,20 @@ def update_position_ltp(position_id: str, ltp: float, pnl: float, pnl_pct: float
             )
 
 
-def close_position(position_id: str, exit_price: float, exit_reason: str = "SIGNAL") -> dict | None:
+def close_position(
+    position_id: str,
+    exit_price: float,
+    exit_reason: str = "SIGNAL",
+    commission: float = 0.0,
+) -> dict | None:
     """Close an open position and record it in trade_history.
 
     Args:
         position_id: Position UUID to close.
-        exit_price: Price at which the position is closed.
+        exit_price: Price at which the position is closed (already slippage-adjusted).
         exit_reason: 'SIGNAL', 'SL', 'TP', or 'MANUAL'.
+        commission: Fixed commission (₹) to deduct from P&L for this exit leg.
+            The entry leg commission should already be reflected in avg_price.
 
     Returns:
         The closed position dict, or None if not found.
@@ -327,9 +334,9 @@ def close_position(position_id: str, exit_price: float, exit_reason: str = "SIGN
         pos = dict(row)
         exit_time = datetime.now().isoformat()
 
-        # Calculate final P&L
+        # Calculate final P&L, deducting exit-leg commission
         multiplier = 1 if pos["side"] == "LONG" else -1
-        pnl = multiplier * (exit_price - pos["avg_price"]) * pos["qty"]
+        pnl = multiplier * (exit_price - pos["avg_price"]) * pos["qty"] - commission
         pnl_pct = (pnl / (pos["avg_price"] * pos["qty"])) * 100
 
         conn.execute("UPDATE positions SET status='CLOSED' WHERE id=?", (position_id,))

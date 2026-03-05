@@ -66,7 +66,7 @@ class MonteCarloEngine:
             sigma = float(log_returns.std())
 
         sigma = sigma * vol_mult
-        days = 252
+        days = 250  # NSE trading days per year (not 252 — NSE averages ~250)
 
         rng = np.random.default_rng(seed)
         # Vectorised GBM: generate normal shocks
@@ -162,7 +162,9 @@ class MonteCarloEngine:
         )
 
         var95 = float(np.percentile(final_returns, 5))
-        below = final_returns[final_returns <= var95]
+        # CVaR (Expected Shortfall): mean of all returns strictly below the VaR threshold.
+        # Using strict < avoids the interpolated percentile boundary being double-counted.
+        below = final_returns[final_returns < var95]
         cvar95 = float(np.mean(below)) if len(below) > 0 else var95
         # Ruin = losing more than 50 % of capital
         ruin_prob = float(np.mean(final_returns < -50.0) * 100.0)
