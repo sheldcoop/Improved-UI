@@ -1,21 +1,24 @@
 """Research Engine — Institutional-grade statistical analysis.
 
-Computes quantitative metrics for a single stock across three analysis
-domains: Statistical Profile, Seasonality & Patterns, and
-Distribution & Normality.
+Computes quantitative metrics for a single stock across four analysis
+domains: Statistical Profile, Seasonality & Patterns,
+Distribution & Normality, and Advanced Analysis (GARCH, HMM, etc.).
 
 Dependencies:
-    numpy, pandas, scipy.stats, statsmodels
+    numpy, pandas, scipy.stats, statsmodels, arch, hmmlearn
 """
 
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
 from scipy import stats as sp_stats
+from statsmodels.tsa.stattools import acf, pacf
+from statsmodels.stats.diagnostic import acorr_ljungbox
 
 logger = logging.getLogger(__name__)
 
@@ -31,15 +34,17 @@ _TRADING_DAYS = 252
 def analyze(
     df: pd.DataFrame,
     benchmark_df: Optional[pd.DataFrame] = None,
+    correlation_dfs: Optional[dict[str, pd.DataFrame]] = None,
 ) -> dict[str, Any]:
     """Run the full research analysis suite.
 
     Args:
         df: OHLCV DataFrame for the target stock (DatetimeIndex, lowercase cols).
         benchmark_df: Optional OHLCV DataFrame for NIFTY 50 benchmark.
+        correlation_dfs: Optional dict of {symbol: OHLCV DataFrame} for correlation matrix.
 
     Returns:
-        Dictionary with keys ``profile``, ``seasonality``, ``distribution``.
+        Dictionary with keys ``profile``, ``seasonality``, ``distribution``, ``advanced``.
     """
     if df is None or df.empty:
         raise ValueError("Cannot analyse empty DataFrame")
@@ -50,11 +55,13 @@ def analyze(
     profile = _compute_profile(close, returns, benchmark_df)
     seasonality = _compute_seasonality(close, returns)
     distribution = _compute_distribution(returns)
+    advanced = _compute_advanced(close, returns, correlation_dfs)
 
     return {
         "profile": profile,
         "seasonality": seasonality,
         "distribution": distribution,
+        "advanced": advanced,
     }
 
 
@@ -303,6 +310,368 @@ def _compute_distribution(returns: pd.Series) -> dict[str, Any]:
         },
         "sampleSize": n,
     }
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Tab 4 — Advanced Analysis
+# ════════════════════════════════════════════════════════════════════════
+
+def _compute_advanced(
+    close: pd.Series,
+    returns: pd.Series,
+    correlation_dfs: Optional[dict[str, pd.DataFrame]] = None,
+) -> dict[str, Any]:
+    """Advanced volatility modelling, regime detection, and correlation.
+
+    Args:
+        close: Daily close price series.
+        returns: Daily percentage returns series.
+        correlation_dfs: Optional dict of {symbol: OHLCV DataFrame} for correlation.
+
+    Returns:
+        Dictionary with garch, acfPacf, rollingVol, regimes, and correlation data.
+    """
+    result: dict[str, Any] = {}
+
+    # 1. GARCH(1,1)
+    result["garch"] = _fit_garch(returns)
+
+    # 2. ACF / PACF on squared returns
+    result["acfPacf"] = _compute_acf_pacf(returns)
+
+    # 3. Rolling Volatility (20d / 60d)
+    result["rollingVol"] = _compute_rolling_vol(returns)
+
+    # 4. Regime Detection (HMM)
+    result["regimes"] = _fit_hmm_regimes(returns)
+
+    # 5. Correlation Matrix
+    result["correlation"] = _compute_correlation(returns, correlation_dfs)
+
+    return result
+
+
+def _fit_garch(returns: pd.Series) -> dict[str, Any]:
+    """Fit GARCH(1,1) model and return parameters + conditional vol.
+
+    Args:
+        returns: Daily returns series.
+
+    Returns:
+        Dictionary with omega, alpha, beta, persistence, conditional vol series,
+        and GARCH-based VaR.
+    """
+    try:
+        from arch import arch_model
+
+        # Scale returns to percentage for numerical stability
+        r_pct = returns * 100
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            model = arch_model(r_pct, vol="Garch", p=1, q=1, dist="normal", mean="Constant")
+            result = model.fit(disp="off", show_warning=False)
+
+        params = result.params
+        omega = float(params.get("omega", 0))
+        alpha = float(params.get("alpha[1]", 0))
+        beta = float(params.get("beta[1]", 0))
+        persistence = alpha + beta
+
+        # Conditional volatility (annualized, back to decimal)
+        cond_vol = result.conditional_volatility / 100  # back to decimal
+        cond_vol_annual = cond_vol * np.sqrt(_TRADING_DAYS)
+
+        # Last 252 points for charting
+        chart_len = min(252, len(cond_vol_annual))
+        vol_series = []
+        for i in range(-chart_len, 0):
+            idx = cond_vol_annual.index[i]
+            date_str = str(idx.date()) if hasattr(idx, "date") else str(idx)
+            vol_series.append({
+                "date": date_str,
+                "condVol": round(float(cond_vol_annual.iloc[i]) * 100, 2),
+            })
+
+        # GARCH-based VaR (95%)
+        last_vol_daily = float(cond_vol.iloc[-1])
+        garch_var_95 = float(returns.mean() - 1.645 * last_vol_daily) * 100
+        hist_var_95 = float(np.percentile(returns, 5)) * 100
+
+        return {
+            "omega": round(omega, 6),
+            "alpha": round(alpha, 4),
+            "beta": round(beta, 4),
+            "persistence": round(persistence, 4),
+            "halfLife": round(np.log(2) / (-np.log(persistence)), 1) if persistence < 1 else None,
+            "conditionalVolSeries": vol_series,
+            "currentCondVol": round(float(cond_vol_annual.iloc[-1]) * 100, 2),
+            "garchVaR95": round(garch_var_95, 4),
+            "historicalVaR95": round(hist_var_95, 4),
+            "logLikelihood": round(float(result.loglikelihood), 2),
+            "aic": round(float(result.aic), 2),
+            "bic": round(float(result.bic), 2),
+            "fitted": True,
+        }
+    except Exception as e:
+        logger.warning(f"GARCH fitting failed: {e}")
+        return {"fitted": False, "error": str(e)}
+
+
+def _compute_acf_pacf(returns: pd.Series, max_lags: int = 20) -> dict[str, Any]:
+    """Compute ACF and PACF on squared returns for volatility clustering diagnostics.
+
+    Args:
+        returns: Daily returns series.
+        max_lags: Maximum number of lags.
+
+    Returns:
+        Dictionary with acf, pacf arrays, confidence bands, and Ljung-Box test.
+    """
+    try:
+        r_sq = (returns ** 2).dropna().values
+        n = len(r_sq)
+        nlags = min(max_lags, n // 2 - 1)
+
+        if nlags < 2:
+            return {"computed": False, "error": "Insufficient data"}
+
+        # ACF with confidence intervals
+        acf_vals, acf_ci = acf(r_sq, nlags=nlags, alpha=0.05)
+        pacf_vals, pacf_ci = pacf(r_sq, nlags=nlags, alpha=0.05, method="ywm")
+
+        conf_bound = 1.96 / np.sqrt(n)
+
+        acf_data = [
+            {"lag": i, "value": round(float(acf_vals[i]), 4)}
+            for i in range(1, len(acf_vals))
+        ]
+        pacf_data = [
+            {"lag": i, "value": round(float(pacf_vals[i]), 4)}
+            for i in range(1, len(pacf_vals))
+        ]
+
+        # Ljung-Box test on squared returns (test for ARCH effects)
+        lb_result = acorr_ljungbox(r_sq, lags=[10], return_df=True)
+        lb_stat = float(lb_result["lb_stat"].iloc[0])
+        lb_pval = float(lb_result["lb_pvalue"].iloc[0])
+
+        return {
+            "computed": True,
+            "acf": acf_data,
+            "pacf": pacf_data,
+            "confidenceBound": round(float(conf_bound), 4),
+            "ljungBox": {
+                "statistic": round(lb_stat, 4),
+                "pValue": lb_pval,
+                "hasArchEffects": lb_pval < 0.05,
+            },
+        }
+    except Exception as e:
+        logger.warning(f"ACF/PACF computation failed: {e}")
+        return {"computed": False, "error": str(e)}
+
+
+def _compute_rolling_vol(returns: pd.Series) -> dict[str, Any]:
+    """Compute 20-day and 60-day rolling annualized volatility.
+
+    Args:
+        returns: Daily returns series.
+
+    Returns:
+        Dictionary with rolling vol time-series and percentile info.
+    """
+    try:
+        vol_20 = returns.rolling(window=20, min_periods=15).std() * np.sqrt(_TRADING_DAYS) * 100
+        vol_60 = returns.rolling(window=60, min_periods=40).std() * np.sqrt(_TRADING_DAYS) * 100
+
+        # Combine into chart-ready series (last 252 points)
+        chart_len = min(252, len(vol_20.dropna()))
+        vol_20_clean = vol_20.dropna()
+        vol_60_clean = vol_60.dropna()
+
+        series = []
+        for i in range(-chart_len, 0):
+            idx = vol_20_clean.index[i]
+            date_str = str(idx.date()) if hasattr(idx, "date") else str(idx)
+            v60 = None
+            if idx in vol_60_clean.index:
+                v60 = round(float(vol_60_clean.loc[idx]), 2)
+            series.append({
+                "date": date_str,
+                "vol20d": round(float(vol_20_clean.iloc[i]), 2),
+                "vol60d": v60,
+            })
+
+        # Current vol percentile rank (20d vol vs full history)
+        current_vol = float(vol_20.iloc[-1]) if not np.isnan(vol_20.iloc[-1]) else 0
+        vol_history = vol_20.dropna().values
+        percentile_rank = float(sp_stats.percentileofscore(vol_history, current_vol))
+
+        return {
+            "series": series,
+            "currentVol20d": round(current_vol, 2),
+            "currentVol60d": round(float(vol_60.iloc[-1]), 2) if not np.isnan(vol_60.iloc[-1]) else None,
+            "volPercentileRank": round(percentile_rank, 1),
+            "volRegime": "HIGH" if percentile_rank > 75 else "LOW" if percentile_rank < 25 else "NORMAL",
+        }
+    except Exception as e:
+        logger.warning(f"Rolling vol computation failed: {e}")
+        return {"series": [], "error": str(e)}
+
+
+def _fit_hmm_regimes(returns: pd.Series, n_states: int = 2) -> dict[str, Any]:
+    """Fit a Hidden Markov Model to detect market regimes.
+
+    Args:
+        returns: Daily returns series.
+        n_states: Number of hidden states (default 2: low-vol, high-vol).
+
+    Returns:
+        Dictionary with state parameters, transition matrix, current regime, and timeline.
+    """
+    try:
+        from hmmlearn.hmm import GaussianHMM
+
+        r = returns.dropna().values.reshape(-1, 1)
+        if len(r) < 60:
+            return {"fitted": False, "error": "Need at least 60 data points"}
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            model = GaussianHMM(
+                n_components=n_states,
+                covariance_type="full",
+                n_iter=200,
+                random_state=42,
+            )
+            model.fit(r)
+
+        hidden_states = model.predict(r)
+        state_probs = model.predict_proba(r)
+
+        # Sort states by volatility (low-vol first)
+        state_vols = [float(np.sqrt(model.covars_[i][0][0])) for i in range(n_states)]
+        sorted_indices = np.argsort(state_vols)
+        label_map = {old: new for new, old in enumerate(sorted_indices)}
+        state_labels = ["Low Volatility", "High Volatility"] if n_states == 2 else \
+                       ["Low Vol", "Medium Vol", "High Vol"]
+
+        # State parameters
+        states = []
+        for new_idx, old_idx in enumerate(sorted_indices):
+            mean_ret = float(model.means_[old_idx][0]) * 100 * _TRADING_DAYS
+            vol = float(np.sqrt(model.covars_[old_idx][0][0])) * 100 * np.sqrt(_TRADING_DAYS)
+            states.append({
+                "id": new_idx,
+                "label": state_labels[new_idx] if new_idx < len(state_labels) else f"State {new_idx}",
+                "annualizedReturn": round(mean_ret, 2),
+                "annualizedVol": round(vol, 2),
+            })
+
+        # Transition matrix (re-ordered)
+        trans_matrix = model.transmat_[np.ix_(sorted_indices, sorted_indices)]
+        trans_data = [
+            [round(float(trans_matrix[i][j]), 4) for j in range(n_states)]
+            for i in range(n_states)
+        ]
+
+        # Current regime
+        current_state_raw = int(hidden_states[-1])
+        current_state = label_map[current_state_raw]
+        current_prob = round(float(state_probs[-1][current_state_raw]), 4)
+
+        # Regime timeline (last 252 points)
+        chart_len = min(252, len(hidden_states))
+        idx_series = returns.dropna().index
+        timeline = []
+        for i in range(-chart_len, 0):
+            idx = idx_series[i]
+            date_str = str(idx.date()) if hasattr(idx, "date") else str(idx)
+            raw_state = int(hidden_states[i])
+            timeline.append({
+                "date": date_str,
+                "regime": label_map[raw_state],
+                "probability": round(float(state_probs[i][raw_state]), 4),
+            })
+
+        return {
+            "fitted": True,
+            "nStates": n_states,
+            "states": states,
+            "transitionMatrix": trans_data,
+            "currentRegime": current_state,
+            "currentRegimeLabel": states[current_state]["label"],
+            "currentProbability": current_prob,
+            "timeline": timeline,
+        }
+    except Exception as e:
+        logger.warning(f"HMM regime detection failed: {e}")
+        return {"fitted": False, "error": str(e)}
+
+
+def _compute_correlation(
+    returns: pd.Series,
+    correlation_dfs: Optional[dict[str, pd.DataFrame]] = None,
+) -> dict[str, Any]:
+    """Compute multi-stock correlation matrix.
+
+    Args:
+        returns: Primary stock daily returns (used as base).
+        correlation_dfs: Dict of {symbol: OHLCV DataFrame} for other stocks.
+
+    Returns:
+        Dictionary with correlation matrix and rolling correlation.
+    """
+    if not correlation_dfs:
+        return {"computed": False, "message": "No correlation symbols provided"}
+
+    try:
+        ret_dict: dict[str, pd.Series] = {"target": returns}
+        for sym, cdf in correlation_dfs.items():
+            if cdf is not None and not cdf.empty:
+                sym_close = cdf["close"].astype(float)
+                ret_dict[sym] = sym_close.pct_change().dropna()
+
+        if len(ret_dict) < 2:
+            return {"computed": False, "message": "Need at least 2 stocks"}
+
+        combined = pd.DataFrame(ret_dict).dropna()
+        if len(combined) < 20:
+            return {"computed": False, "message": "Insufficient overlapping data"}
+
+        # Correlation matrix
+        corr_matrix = combined.corr()
+        symbols = list(corr_matrix.columns)
+        matrix = [
+            [round(float(corr_matrix.iloc[i, j]), 4) for j in range(len(symbols))]
+            for i in range(len(symbols))
+        ]
+
+        # Rolling 60-day correlation (each symbol vs target)
+        rolling_corr: dict[str, list[dict]] = {}
+        for sym in symbols:
+            if sym == "target":
+                continue
+            rc = combined["target"].rolling(window=60, min_periods=30).corr(combined[sym]).dropna()
+            chart_len = min(120, len(rc))
+            rolling_corr[sym] = [
+                {
+                    "date": str(rc.index[i].date()) if hasattr(rc.index[i], "date") else str(rc.index[i]),
+                    "correlation": round(float(rc.iloc[i]), 4),
+                }
+                for i in range(-chart_len, 0)
+            ]
+
+        return {
+            "computed": True,
+            "symbols": symbols,
+            "matrix": matrix,
+            "rollingCorrelation": rolling_corr,
+        }
+    except Exception as e:
+        logger.warning(f"Correlation computation failed: {e}")
+        return {"computed": False, "error": str(e)}
 
 
 # ════════════════════════════════════════════════════════════════════════

@@ -2,11 +2,11 @@
  * ResearchLab.tsx — Quantitative Research Lab page.
  *
  * Provides institutional-grade statistical analysis on any stock
- * across 3 tabs: Statistical Profile, Seasonality, and Distribution.
+ * across 4 tabs: Statistical Profile, Seasonality, Distribution, and Advanced.
  */
 
 import React, { useState } from 'react';
-import { Microscope, Activity, Calendar, BarChart, PlayCircle, AlertCircle } from 'lucide-react';
+import { Microscope, Activity, Calendar, BarChart, PlayCircle, AlertCircle, Zap } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import MarketDataSelector from '../components/MarketDataSelector';
@@ -14,11 +14,12 @@ import DateRangePicker from '../components/DateRangePicker';
 import StatisticalProfile from '../components/research/StatisticalProfile';
 import SeasonalityPanel from '../components/research/SeasonalityPanel';
 import DistributionPanel from '../components/research/DistributionPanel';
+import AdvancedAnalysis from '../components/research/AdvancedAnalysis';
 import { analyzeStock } from '../services/researchService';
 import { useInstrumentSearch } from '../hooks/useInstrumentSearch';
 import type { ResearchResponse } from '../services/researchService';
 
-type ResearchTab = 'PROFILE' | 'SEASONALITY' | 'DISTRIBUTION';
+type ResearchTab = 'PROFILE' | 'SEASONALITY' | 'DISTRIBUTION' | 'ADVANCED';
 
 const ResearchLab: React.FC = () => {
     // Market data selection
@@ -39,6 +40,9 @@ const ResearchLab: React.FC = () => {
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
 
+    // Correlation symbols (comma-separated input for advanced tab)
+    const [corrSymbolsInput, setCorrSymbolsInput] = useState('');
+
     // State
     const [activeTab, setActiveTab] = useState<ResearchTab>('PROFILE');
     const [running, setRunning] = useState(false);
@@ -57,7 +61,8 @@ const ResearchLab: React.FC = () => {
         setRunning(true);
         setError(null);
         try {
-            const res = await analyzeStock({ symbol, startDate, endDate, timeframe });
+            const corrSymbols = corrSymbolsInput.split(',').map(s => s.trim()).filter(Boolean);
+            const res = await analyzeStock({ symbol, startDate, endDate, timeframe, correlationSymbols: corrSymbols });
             setResult(res);
             setActiveTab('PROFILE');
         } catch (e: any) {
@@ -71,6 +76,7 @@ const ResearchLab: React.FC = () => {
         { id: 'PROFILE', label: 'Statistical Profile', icon: <Activity className="w-4 h-4" /> },
         { id: 'SEASONALITY', label: 'Seasonality', icon: <Calendar className="w-4 h-4" /> },
         { id: 'DISTRIBUTION', label: 'Distribution', icon: <BarChart className="w-4 h-4" /> },
+        { id: 'ADVANCED', label: 'Advanced', icon: <Zap className="w-4 h-4" /> },
     ];
 
     return (
@@ -112,6 +118,17 @@ const ResearchLab: React.FC = () => {
                                 endDate={endDate}
                                 setStartDate={setStartDate}
                                 setEndDate={setEndDate}
+                            />
+                        </div>
+                        <div className="flex-1 w-full">
+                            <label className="block text-xs text-slate-500 mb-1">Correlation Symbols (comma-separated)</label>
+                            <input
+                                id="corr-symbols-input"
+                                type="text"
+                                value={corrSymbolsInput}
+                                onChange={(e) => setCorrSymbolsInput(e.target.value)}
+                                placeholder="e.g. HDFCBANK, RELIANCE, INFY"
+                                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
                             />
                         </div>
                         <Button
@@ -169,6 +186,7 @@ const ResearchLab: React.FC = () => {
                         {activeTab === 'PROFILE' && <StatisticalProfile data={result.profile} />}
                         {activeTab === 'SEASONALITY' && <SeasonalityPanel data={result.seasonality} />}
                         {activeTab === 'DISTRIBUTION' && <DistributionPanel data={result.distribution} />}
+                        {activeTab === 'ADVANCED' && <AdvancedAnalysis data={result.advanced} />}
                     </Card>
                 </>
             )}
@@ -178,7 +196,7 @@ const ResearchLab: React.FC = () => {
                 <div className="flex flex-col items-center justify-center h-[40vh] text-slate-500">
                     <Microscope className="w-16 h-16 mb-4 opacity-10" />
                     <p className="text-lg">Select a stock and date range to begin analysis</p>
-                    <p className="text-xs text-slate-600 mt-1">Computes 25+ statistical metrics across 3 analysis domains</p>
+                    <p className="text-xs text-slate-600 mt-1">Computes 40+ statistical metrics across 4 analysis domains</p>
                 </div>
             )}
         </div>

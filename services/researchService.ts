@@ -12,6 +12,7 @@ export interface ResearchRequest {
     startDate: string;
     endDate: string;
     timeframe?: string;
+    correlationSymbols?: string[];
 }
 
 export interface ProfileData {
@@ -70,6 +71,70 @@ export interface DistributionData {
     sampleSize: number;
 }
 
+export interface GarchData {
+    fitted: boolean;
+    error?: string;
+    omega?: number;
+    alpha?: number;
+    beta?: number;
+    persistence?: number;
+    halfLife?: number | null;
+    conditionalVolSeries?: { date: string; condVol: number }[];
+    currentCondVol?: number;
+    garchVaR95?: number;
+    historicalVaR95?: number;
+    logLikelihood?: number;
+    aic?: number;
+    bic?: number;
+}
+
+export interface AcfPacfData {
+    computed: boolean;
+    error?: string;
+    acf?: { lag: number; value: number }[];
+    pacf?: { lag: number; value: number }[];
+    confidenceBound?: number;
+    ljungBox?: { statistic: number; pValue: number; hasArchEffects: boolean };
+}
+
+export interface RollingVolData {
+    series: { date: string; vol20d: number; vol60d: number | null }[];
+    currentVol20d?: number;
+    currentVol60d?: number | null;
+    volPercentileRank?: number;
+    volRegime?: string;
+    error?: string;
+}
+
+export interface RegimeData {
+    fitted: boolean;
+    error?: string;
+    nStates?: number;
+    states?: { id: number; label: string; annualizedReturn: number; annualizedVol: number }[];
+    transitionMatrix?: number[][];
+    currentRegime?: number;
+    currentRegimeLabel?: string;
+    currentProbability?: number;
+    timeline?: { date: string; regime: number; probability: number }[];
+}
+
+export interface CorrelationData {
+    computed: boolean;
+    message?: string;
+    error?: string;
+    symbols?: string[];
+    matrix?: number[][];
+    rollingCorrelation?: Record<string, { date: string; correlation: number }[]>;
+}
+
+export interface AdvancedData {
+    garch: GarchData;
+    acfPacf: AcfPacfData;
+    rollingVol: RollingVolData;
+    regimes: RegimeData;
+    correlation: CorrelationData;
+}
+
 export interface ResearchResponse {
     status: string;
     symbol: string;
@@ -80,13 +145,14 @@ export interface ResearchResponse {
     profile: ProfileData;
     seasonality: SeasonalityData;
     distribution: DistributionData;
+    advanced: AdvancedData;
 }
 
 /**
  * Run quant research analysis on a stock.
  *
  * @param req - Analysis request parameters
- * @returns Full research response with profile, seasonality, and distribution
+ * @returns Full research response with profile, seasonality, distribution, and advanced
  * @throws Error if backend returns an error
  */
 export const analyzeStock = async (req: ResearchRequest): Promise<ResearchResponse> => {
@@ -97,6 +163,7 @@ export const analyzeStock = async (req: ResearchRequest): Promise<ResearchRespon
             startDate: req.startDate,
             endDate: req.endDate,
             timeframe: req.timeframe || '1d',
+            correlationSymbols: req.correlationSymbols || [],
         }),
     });
 };

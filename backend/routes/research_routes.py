@@ -76,9 +76,28 @@ def run_analysis() -> tuple[Any, int]:
         except Exception as e:
             logger.warning(f"Benchmark (NIFTY 50) fetch failed — beta will be None: {e}")
 
+        # ── Fetch correlation symbols (optional) ──────────────────────
+        correlation_symbols = body.get("correlationSymbols", [])
+        correlation_dfs: dict[str, any] = {}
+        for corr_sym in correlation_symbols:
+            corr_sym = corr_sym.strip().upper()
+            if not corr_sym or corr_sym == symbol.upper():
+                continue
+            try:
+                corr_df = fetcher.fetch_historical_data(
+                    symbol=corr_sym,
+                    timeframe=timeframe,
+                    from_date=start_date,
+                    to_date=end_date,
+                )
+                if corr_df is not None and not corr_df.empty:
+                    correlation_dfs[corr_sym] = corr_df
+            except Exception as e:
+                logger.warning(f"Correlation symbol {corr_sym} fetch failed: {e}")
+
         # ── Run analysis ───────────────────────────────────────────────
         logger.info(f"🔬 Running research analysis on {symbol} ({len(df)} bars)")
-        result = analyze(df, benchmark_df=benchmark_df)
+        result = analyze(df, benchmark_df=benchmark_df, correlation_dfs=correlation_dfs)
 
         return jsonify({
             "status": "success",
