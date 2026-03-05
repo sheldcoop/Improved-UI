@@ -32,7 +32,7 @@ const Backtest: React.FC = () => {
     params, capital, slippage, commission, showAdvanced, dataStatus, healthReport,
     isDynamic, wfoConfig, paramRanges, showRanges,
     top5Trials, oosResults, isOosValidating,
-    stopLossPct, stopLossEnabled, takeProfitPct, takeProfitEnabled, trailingStopPct, pyramiding, positionSizing, positionSizeValue,
+    stopLossPct, takeProfitPct, trailingStopPct, pyramiding, positionSizing, positionSizeValue,
     fullReportData, isReportOpen, useLookback, lookbackMonths,
     enableDataSplit, splitRatio
   } = state;
@@ -43,7 +43,7 @@ const Backtest: React.FC = () => {
     setDataStatus, setHealthReport, setRunning, setIsDynamic, setWfoConfig,
     setParamRanges, setShowRanges, setTop5Trials,
     setOosResults, setIsOosValidating,
-    setStopLossPct, setStopLossEnabled, setTakeProfitPct, setTakeProfitEnabled, setTrailingStopPct, setPyramiding, setPositionSizing, setPositionSizeValue,
+    setStopLossPct, setTakeProfitPct, setTrailingStopPct, setPyramiding, setPositionSizing, setPositionSizeValue,
     setFullReportData, setIsReportOpen, setUseLookback, setLookbackMonths,
     setEnableDataSplit, setSplitRatio
   } = setters;
@@ -204,14 +204,10 @@ const Backtest: React.FC = () => {
             customStrategies={customStrategies}
             params={params}
             setParams={setParams}
-            stopLossEnabled={stopLossEnabled}
-            setStopLossEnabled={setStopLossEnabled}
             stopLossPct={stopLossPct}
             setStopLossPct={setStopLossPct}
             trailingStopPct={trailingStopPct}
             setTrailingStopPct={setTrailingStopPct}
-            takeProfitEnabled={takeProfitEnabled}
-            setTakeProfitEnabled={setTakeProfitEnabled}
             takeProfitPct={takeProfitPct}
             setTakeProfitPct={setTakeProfitPct}
             dataStatus={dataStatus}

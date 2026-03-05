@@ -31,6 +31,7 @@ const makeInitialStrategy = (): Strategy => ({
     pythonCode: "def signal_logic(df):\n    # Write custom logic here\n    # Returns: entries (bool series), exits (bool series)\n    sma = vbt.MA.run(df['close'], 20)\n    entries = df['close'] > sma.ma\n    exits = df['close'] < sma.ma\n    return entries, exits",
     stopLossPct: 2.0,
     takeProfitPct: 5.0,
+    trailingStopPct: 0.0,
     useTrailingStop: false,
     pyramiding: 1,
     positionSizing: PositionSizeMode.FIXED_CAPITAL,

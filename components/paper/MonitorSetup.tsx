@@ -4,6 +4,7 @@ import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { StrategyPreset, Strategy, Timeframe } from '../../types';
 import { StrategyPicker } from '../shared/StrategyPicker';
+import { RiskConfigPanel } from '../shared/RiskConfigPanel';
 
 const COMMON_SYMBOLS = [
     'NIFTY 50', 'BANKNIFTY', 'SENSEX',
@@ -13,7 +14,7 @@ const COMMON_SYMBOLS = [
 ];
 
 interface MonitorSetupProps {
-    onStartMonitor: (strategyId: string, slPct: number | null, tpPct: number | null) => Promise<void>;
+    onStartMonitor: (strategyId: string, slPct: number | null, tpPct: number | null, tslPct: number | null) => Promise<void>;
     presets: StrategyPreset[];
     savedStrategies: Strategy[];
     activeMonitorsCount: number;
@@ -33,6 +34,7 @@ export const MonitorSetup: React.FC<MonitorSetupProps> = ({
 
     // Sl/TP Overrides (optional)
     const [slPct, setSlPct] = useState<number | ''>('');
+    const [tslPct, setTslPct] = useState<number | ''>('');
     const [tpPct, setTpPct] = useState<number | ''>('');
 
     const [loading, setLoading] = useState(false);
@@ -60,7 +62,8 @@ export const MonitorSetup: React.FC<MonitorSetupProps> = ({
             await onStartMonitor(
                 selectedStrategyId,
                 slPct === '' ? null : Number(slPct),
-                tpPct === '' ? null : Number(tpPct)
+                tpPct === '' ? null : Number(tpPct),
+                tslPct === '' ? null : Number(tslPct)
             );
         } catch (err: any) {
             setError(err?.message || 'Failed to start monitor');
@@ -92,34 +95,15 @@ export const MonitorSetup: React.FC<MonitorSetupProps> = ({
                 />
             </div>
 
-            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
-                <div>
-                    <label className="text-[10px] text-slate-500 block mb-1">Stop Loss % (Override)</label>
-                    <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={slPct}
-                        onChange={e => setSlPct(e.target.value ? parseFloat(e.target.value) : '')}
-                        disabled={maxMonitors}
-                        placeholder="Strategy default"
-                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 disabled:opacity-50"
-                    />
-                </div>
-                <div>
-                    <label className="text-[10px] text-slate-500 block mb-1">Take Profit % (Override)</label>
-                    <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={tpPct}
-                        onChange={e => setTpPct(e.target.value ? parseFloat(e.target.value) : '')}
-                        disabled={maxMonitors}
-                        placeholder="Strategy default"
-                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 disabled:opacity-50"
-                    />
-                </div>
-            </div>
+            <RiskConfigPanel
+                slPct={slPct === '' ? 0 : slPct}
+                onSlChange={v => setSlPct(v === 0 ? '' : v)}
+                tslPct={tslPct === '' ? 0 : tslPct}
+                onTslChange={v => setTslPct(v === 0 ? '' : v)}
+                tpPct={tpPct === '' ? 0 : tpPct}
+                onTpChange={v => setTpPct(v === 0 ? '' : v)}
+                disabled={maxMonitors}
+            />
 
             {error && (
                 <div className="flex items-center space-x-2 text-xs text-red-400 bg-red-900/20 border border-red-800 rounded p-2">

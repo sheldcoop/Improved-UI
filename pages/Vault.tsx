@@ -28,9 +28,16 @@ const Vault: React.FC = () => {
         try {
             const res = await fetch('/api/paper/runs');
             const data = await res.json();
-            setRuns(data);
+
+            if (res.ok && Array.isArray(data)) {
+                setRuns(data);
+            } else {
+                console.error('Server returned an error or invalid format:', data);
+                setRuns([]); // prevent Crash
+            }
         } catch (err) {
             console.error('Failed to fetch runs:', err);
+            setRuns([]);
         } finally {
             setLoading(false);
         }

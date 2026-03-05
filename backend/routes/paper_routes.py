@@ -35,6 +35,8 @@ def get_settings():
         return jsonify({
             "capitalPct":     float(paper_store.get_setting("capital_pct", "10.0")),
             "virtualCapital": float(paper_store.get_setting("virtual_capital", "100000.0")),
+            "slippage":       float(paper_store.get_setting("slippage", "0.05")),
+            "commission":     float(paper_store.get_setting("commission", "20.0")),
         }), 200
     except Exception as exc:
         logger.error(f"get_settings failed: {exc}", exc_info=True)
@@ -48,6 +50,8 @@ def update_settings():
     Request JSON:
         capitalPct (float): % of capital per trade. Must be 1–100.
         virtualCapital (float): Virtual capital in ₹. Must be > 0. (optional)
+        slippage (float): Execute penalty % per trade. (optional)
+        commission (float): INR flat fee per trade. (optional)
 
     Returns:
         Updated settings JSON (200) or 400 on invalid input.
@@ -56,9 +60,11 @@ def update_settings():
         data = request.json or {}
         capital_pct = data.get("capitalPct")
         virtual_capital = data.get("virtualCapital")
+        slippage = data.get("slippage")
+        commission = data.get("commission")
 
-        if capital_pct is None and virtual_capital is None:
-            return jsonify({"status": "error", "message": "capitalPct or virtualCapital is required"}), 400
+        if capital_pct is None and virtual_capital is None and slippage is None and commission is None:
+            return jsonify({"status": "error", "message": "At least one setting parameter is required"}), 400
 
         if capital_pct is not None:
             if not isinstance(capital_pct, (int, float)) or not (1 <= capital_pct <= 100):
@@ -70,9 +76,21 @@ def update_settings():
                 return jsonify({"status": "error", "message": "virtualCapital must be a positive number"}), 400
             paper_store.set_setting("virtual_capital", str(float(virtual_capital)))
 
+        if slippage is not None:
+            if not isinstance(slippage, (int, float)) or slippage < 0:
+                return jsonify({"status": "error", "message": "slippage must be >= 0"}), 400
+            paper_store.set_setting("slippage", str(float(slippage)))
+
+        if commission is not None:
+            if not isinstance(commission, (int, float)) or commission < 0:
+                return jsonify({"status": "error", "message": "commission must be >= 0"}), 400
+            paper_store.set_setting("commission", str(float(commission)))
+
         return jsonify({
             "capitalPct":     float(paper_store.get_setting("capital_pct", "10.0")),
             "virtualCapital": float(paper_store.get_setting("virtual_capital", "100000.0")),
+            "slippage":       float(paper_store.get_setting("slippage", "0.05")),
+            "commission":     float(paper_store.get_setting("commission", "20.0")),
         }), 200
     except Exception as exc:
         logger.error(f"update_settings failed: {exc}", exc_info=True)
@@ -108,6 +126,7 @@ def create_monitor():
         timeframe (str): Candle interval, e.g. '15min' (required).
         slPct (float): Stop-loss % (optional).
         tpPct (float): Take-profit % (optional).
+        tslPct (float): Trailing Stop-loss % (optional).
 
     Returns:
         201 with monitor dict, 400 on invalid input, 409 if max monitors reached.
@@ -119,6 +138,11 @@ def create_monitor():
         symbol      = data.get("symbol", "").strip().upper()
         strategy_id = data.get("strategyId", "").strip()
         config      = data.get("config", {})
+        
+        # Inject tslPct securely into config JSON to avoid SQLite schema alters
+        if data.get("tslPct") is not None:
+            config["tslPct"] = float(data.get("tslPct"))
+
         timeframe   = data.get("timeframe", "15min").strip()
 
         if not symbol:
@@ -349,6 +373,7 @@ def run_replay():
         toDate (str): YYYY-MM-DD
         slPct (float): Stop-loss %, optional
         tpPct (float): Take-profit %, optional
+        tslPct (float): Trailing Stop-loss %, optional
 
     Returns:
         JSON with 'events' list and 'summary' performance stats.
@@ -362,8 +387,7 @@ def run_replay():
         to_date      = data.get("toDate", "").strip()
         sl_pct       = data.get("slPct")
         tp_pct       = data.get("tpPct")
-        slippage     = data.get("slippage", 0.05)
-        commission   = data.get("commission", 20.0)
+        tsl_pct      = data.get("tslPct")
 
         # ------------------------------------------------------------------
         # Input validation
@@ -382,14 +406,6 @@ def run_replay():
             return jsonify({"status": "error",
                             "message": "fromDate and toDate must be YYYY-MM-DD"}), 400
 
-        try:
-            slippage = float(slippage)
-            commission = float(commission)
-            if slippage < 0 or commission < 0:
-                raise ValueError
-        except (TypeError, ValueError):
-            return jsonify({"status": "error", "message": "slippage and commission must be positive numbers"}), 400
-
         if sl_pct is not None:
             try:
                 sl_pct = float(sl_pct)
@@ -406,8 +422,18 @@ def run_replay():
             except (TypeError, ValueError):
                 return jsonify({"status": "error", "message": "tpPct must be a positive number"}), 400
 
+        if tsl_pct is not None:
+            try:
+                tsl_pct = float(tsl_pct)
+                if tsl_pct <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return jsonify({"status": "error", "message": "tslPct must be a positive number"}), 400
+
         capital_pct     = float(paper_store.get_setting("capital_pct",     "10.0"))
         virtual_capital = float(paper_store.get_setting("virtual_capital", "100000.0"))
+        slippage        = float(paper_store.get_setting("slippage",        "0.05"))
+        commission      = float(paper_store.get_setting("commission",      "20.0"))
 
         # ------------------------------------------------------------------
         # Delegate to ReplayEngine — all simulation logic lives there
@@ -422,6 +448,7 @@ def run_replay():
             to_date=to_date,
             sl_pct=sl_pct,
             tp_pct=tp_pct,
+            tsl_pct=tsl_pct,
             capital_pct=capital_pct,
             virtual_capital=virtual_capital,
             slippage=slippage,

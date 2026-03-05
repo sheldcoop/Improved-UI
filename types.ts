@@ -141,6 +141,7 @@ export interface Strategy {
   // Risk & Sizing
   stopLossPct: number;
   takeProfitPct: number;
+  trailingStopPct?: number;
   useTrailingStop: boolean;
   positionSizing: PositionSizeMode;
   positionSizeValue: number; // e.g., 1 (lot) or 5 (%) or 100000 (cash)

@@ -11,6 +11,7 @@ import pandas as pd
 from services.data_fetcher import DataFetcher
 from services.backtest_engine import BacktestEngine
 from services.strategy_store import StrategyStore
+from services import paper_store
 
 backtest_bp = Blueprint("backtest", __name__)
 logger = logging.getLogger(__name__)
@@ -46,18 +47,12 @@ def run_backtest():
             return jsonify({"status": "error", "message": "Invalid timeframe"}), 400
 
         # Numeric parameter validation
-        slippage_raw = data.get("slippage", 0.05)
-        commission_raw = data.get("commission", 20)
         capital_raw = data.get("initial_capital", 100000)
         try:
-            if float(slippage_raw) < 0:
-                return jsonify({"status": "error", "message": "slippage must be >= 0"}), 400
-            if float(commission_raw) < 0:
-                return jsonify({"status": "error", "message": "commission must be >= 0"}), 400
             if float(capital_raw) <= 0:
                 return jsonify({"status": "error", "message": "initial_capital must be > 0"}), 400
         except (TypeError, ValueError):
-            return jsonify({"status": "error", "message": "slippage, commission, and initial_capital must be numbers"}), 400
+            return jsonify({"status": "error", "message": "initial_capital must be a number"}), 400
 
         # Validate stop-loss / take-profit percentages
         sl_pct_raw = data.get("stopLossPct", 0)
@@ -86,8 +81,8 @@ def run_backtest():
 
         # Apply defaults for missing keys
         defaults = {
-            "slippage": 0.05,
-            "commission": 20,
+            "slippage": float(paper_store.get_setting("slippage", "0.05")),
+            "commission": float(paper_store.get_setting("commission", "20")),
             "initial_capital": 100000,
             "stopLossPct": 0,
             "takeProfitPct": 0,

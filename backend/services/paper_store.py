@@ -283,7 +283,7 @@ def get_position_by_symbol(symbol: str) -> dict | None:
         return dict(row) if row else None
 
 
-def update_position_ltp(position_id: str, ltp: float, pnl: float, pnl_pct: float) -> None:
+def update_position_ltp(position_id: str, ltp: float, pnl: float, pnl_pct: float, indicators: dict | None = None) -> None:
     """Update the live price and P&L of an open position.
 
     Args:
@@ -291,12 +291,19 @@ def update_position_ltp(position_id: str, ltp: float, pnl: float, pnl_pct: float
         ltp: Current last traded price.
         pnl: Absolute P&L in ₹.
         pnl_pct: P&L as percentage.
+        indicators: Optional updated indicators dictionary.
     """
     with _db() as conn:
-        conn.execute(
-            "UPDATE positions SET ltp=?, pnl=?, pnl_pct=? WHERE id=?",
-            (ltp, pnl, pnl_pct, position_id),
-        )
+        if indicators is not None:
+            conn.execute(
+                "UPDATE positions SET ltp=?, pnl=?, pnl_pct=?, indicators=? WHERE id=?",
+                (ltp, pnl, pnl_pct, json.dumps(indicators), position_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE positions SET ltp=?, pnl=?, pnl_pct=? WHERE id=?",
+                (ltp, pnl, pnl_pct, position_id),
+            )
 
 
 def close_position(position_id: str, exit_price: float, exit_reason: str = "SIGNAL") -> dict | None:

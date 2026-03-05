@@ -265,6 +265,13 @@ class ReplayEngine:
             high_price = float(row["high"])
             low_price = float(row["low"])
             
+            # Update peak/trough for TSL
+            if open_pos:
+                if open_pos["side"] == "LONG":
+                    open_pos["peak_price"] = max(open_pos.get("peak_price", open_pos["avg_price"]), high_price)
+                else:
+                    open_pos["peak_price"] = min(open_pos.get("peak_price", open_pos["avg_price"]), low_price)
+            
             ts  = str(df.index[bar_idx])
             is_last_bar = (bar_idx == n - 1)
 
@@ -295,16 +302,29 @@ class ReplayEngine:
                 side = open_pos["side"]
                 exec_price = ltp
 
-                if sl_pct:
-                    if side == "LONG"  and low_price <= open_pos["avg_price"] * (1 - sl_pct / 100):
+                # Resolve active SL criteria based on static or trailing inputs
+                active_sl_price = None
+                if tsl_pct:
+                    if side == "LONG":
+                        active_sl_price = open_pos["peak_price"] * (1 - tsl_pct / 100)
+                    else:
+                        active_sl_price = open_pos["peak_price"] * (1 + tsl_pct / 100)
+                elif sl_pct:
+                    if side == "LONG":
+                        active_sl_price = open_pos["avg_price"] * (1 - sl_pct / 100)
+                    else:
+                        active_sl_price = open_pos["avg_price"] * (1 + sl_pct / 100)
+
+                if active_sl_price:
+                    if side == "LONG" and low_price <= active_sl_price:
                         sl_triggered = True
-                        exec_price = open_pos["avg_price"] * (1 - sl_pct / 100)
-                    elif side == "SHORT" and high_price >= open_pos["avg_price"] * (1 + sl_pct / 100):
+                        exec_price = active_sl_price
+                    elif side == "SHORT" and high_price >= active_sl_price:
                         sl_triggered = True
-                        exec_price = open_pos["avg_price"] * (1 + sl_pct / 100)
+                        exec_price = active_sl_price
 
                 if tp_pct and not sl_triggered:
-                    if side == "LONG"  and high_price >= open_pos["avg_price"] * (1 + tp_pct / 100):
+                    if side == "LONG" and high_price >= open_pos["avg_price"] * (1 + tp_pct / 100):
                         tp_triggered = True
                         exec_price = open_pos["avg_price"] * (1 + tp_pct / 100)
                     elif side == "SHORT" and low_price <= open_pos["avg_price"] * (1 - tp_pct / 100):
@@ -391,6 +411,7 @@ class ReplayEngine:
                     "side":       side,
                     "qty":        qty,
                     "avg_price":  sl_adj_entry,
+                    "peak_price": sl_adj_entry,
                     "entry_time": ts,
                     "indicators": current_indicators,
                 }

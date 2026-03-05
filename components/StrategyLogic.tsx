@@ -2,7 +2,7 @@ import React from 'react';
 import { Layers, Sliders, AlertTriangle, Split } from 'lucide-react';
 import { Strategy } from '../types';
 import StrategyParamInputs from './backtest/StrategyParamInputs';
-import RiskControls from './backtest/RiskControls';
+import { RiskConfigPanel } from './shared/RiskConfigPanel';
 
 /** Compute the calendar date at a given % point between start and end. */
 function computeSplitDate(start: string, end: string, ratioPercent: number): string {
@@ -26,14 +26,10 @@ interface StrategyLogicProps {
     customStrategies: Strategy[];
     params: Record<string, any>;
     setParams: (params: Record<string, any>) => void;
-    stopLossEnabled: boolean;
-    setStopLossEnabled: (enabled: boolean) => void;
     stopLossPct: number;
     setStopLossPct: (pct: number) => void;
     trailingStopPct: number;
     setTrailingStopPct: (pct: number) => void;
-    takeProfitEnabled: boolean;
-    setTakeProfitEnabled: (enabled: boolean) => void;
     takeProfitPct: number;
     setTakeProfitPct: (pct: number) => void;
     dataStatus: string;
@@ -52,9 +48,9 @@ const StrategyLogic: React.FC<StrategyLogicProps> = ({
     strategyId, setStrategyId,
     customStrategies,
     params, setParams,
-    stopLossEnabled, setStopLossEnabled, stopLossPct, setStopLossPct,
+    stopLossPct, setStopLossPct,
     trailingStopPct, setTrailingStopPct,
-    takeProfitEnabled, setTakeProfitEnabled, takeProfitPct, setTakeProfitPct,
+    takeProfitPct, setTakeProfitPct,
     dataStatus, navigate,
     startDate, endDate,
     enableDataSplit, setEnableDataSplit, splitRatio, setSplitRatio,
@@ -138,17 +134,13 @@ const StrategyLogic: React.FC<StrategyLogicProps> = ({
                 </div>
 
                 {/* Row 3: Risk controls — always visible, same grid style as params */}
-                <RiskControls
-                    stopLossEnabled={stopLossEnabled}
-                    setStopLossEnabled={setStopLossEnabled}
-                    stopLossPct={stopLossPct}
-                    setStopLossPct={setStopLossPct}
-                    trailingStopPct={trailingStopPct}
-                    setTrailingStopPct={setTrailingStopPct}
-                    takeProfitEnabled={takeProfitEnabled}
-                    setTakeProfitEnabled={setTakeProfitEnabled}
-                    takeProfitPct={takeProfitPct}
-                    setTakeProfitPct={setTakeProfitPct}
+                <RiskConfigPanel
+                    slPct={stopLossPct}
+                    onSlChange={setStopLossPct}
+                    tslPct={trailingStopPct}
+                    onTslChange={setTrailingStopPct}
+                    tpPct={takeProfitPct}
+                    onTpChange={setTakeProfitPct}
                 />
             </div>
 

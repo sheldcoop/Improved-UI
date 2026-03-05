@@ -3,6 +3,7 @@ import { Save, Trash2, ChevronDown, ChevronRight, RefreshCw, PlayCircle, AlertCi
 import { Strategy, AssetClass, Timeframe, PositionSizeMode, StrategyPreset } from '../../types';
 import type { DataHealthReport } from '../../services/marketService';
 import { StrategyPicker } from '../shared/StrategyPicker';
+import { RiskConfigPanel } from '../shared/RiskConfigPanel';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 
@@ -91,42 +92,15 @@ export const StrategyConfigPanel: React.FC<StrategyConfigPanelProps> = ({
             </Card>
 
             {/* Card 2: Risk Management */}
-            <Card title="Risk Management" className="p-0">
-                <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-2">
-                        <div>
-                            <label className="text-xs text-slate-500 block mb-1">
-                                {strategy.useTrailingStop ? 'Trail Distance %' : 'Stop Loss %'}
-                            </label>
-                            <input
-                                type="number"
-                                min="0"
-                                value={strategy.stopLossPct}
-                                onChange={e => update({ stopLossPct: parseFloat(e.target.value) })}
-                                className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
-                            />
-                        </div>
-                        <div>
-                            <label className="text-xs text-slate-500 block mb-1">Take Profit %</label>
-                            <input
-                                type="number"
-                                min="0"
-                                value={strategy.takeProfitPct}
-                                onChange={e => update({ takeProfitPct: parseFloat(e.target.value) })}
-                                className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
-                            />
-                        </div>
-                    </div>
-                    <label className="flex items-center space-x-2 text-xs text-slate-400 cursor-pointer">
-                        <input
-                            type="checkbox"
-                            checked={strategy.useTrailingStop}
-                            onChange={e => update({ useTrailingStop: e.target.checked })}
-                            className="rounded bg-slate-800 border-slate-600"
-                        />
-                        <span>Trailing Stop Loss</span>
-                    </label>
-                </div>
+            <Card title="Risk Management" className="p-0 border-t border-slate-800">
+                <RiskConfigPanel
+                    slPct={strategy.stopLossPct}
+                    onSlChange={v => update({ stopLossPct: v })}
+                    tslPct={strategy.trailingStopPct || 0}
+                    onTslChange={v => update({ trailingStopPct: v })}
+                    tpPct={strategy.takeProfitPct}
+                    onTpChange={v => update({ takeProfitPct: v })}
+                />
             </Card>
 
             {/* Card 3: Execution */}

@@ -142,11 +142,29 @@ def refresh_all_positions() -> list[dict]:
             continue
 
         pnl_abs, pnl_pct = _calc_pnl(pos["side"], pos["avg_price"], ltp, pos["qty"])
-        paper_store.update_position_ltp(pos["id"], ltp, pnl_abs, pnl_pct)
-
+        
         # Check SL / TP
         sl_price = pos.get("sl_price")
         tp_price = pos.get("tp_price")
+        
+        indicators = pos.get("indicators", {}) or {}
+        tsl_pct = indicators.get("tsl_pct")
+        
+        # Trailing Stop Loss execution modifier
+        if tsl_pct:
+            peak = indicators.get("peak_price", pos["avg_price"])
+            if pos["side"] == "LONG" and ltp > peak:
+                indicators["peak_price"] = ltp
+                new_sl = round(ltp * (1 - tsl_pct / 100), 2)
+                if sl_price is None or new_sl > sl_price:
+                    sl_price = new_sl
+            elif pos["side"] == "SHORT" and ltp < peak:
+                indicators["peak_price"] = ltp
+                new_sl = round(ltp * (1 + tsl_pct / 100), 2)
+                if sl_price is None or new_sl < sl_price:
+                    sl_price = new_sl
+
+        paper_store.update_position_ltp(pos["id"], ltp, pnl_abs, pnl_pct, indicators)
 
         if _is_sl_hit(pos["side"], ltp, sl_price):
             logger.info(f"Stop-loss hit for {pos['symbol']} @ ₹{ltp:.2f} (SL=₹{sl_price})")

@@ -1,1 +1,59 @@
-[]
+[
+  {
+    "assetClass": "EQUITY",
+    "commission": 20,
+    "created": "2026-03-04T23:53:13.347Z",
+    "description": "Buy when RSI is oversold, sell when overbought.",
+    "endTime": "15:30",
+    "entryLogic": {
+      "conditions": [
+        {
+          "compareType": "STATIC",
+          "id": "p1e1",
+          "indicator": "RSI",
+          "operator": "Crosses Below",
+          "period": 14,
+          "value": 30
+        }
+      ],
+      "id": "preset1_entry",
+      "logic": "AND",
+      "type": "GROUP"
+    },
+    "exitLogic": {
+      "conditions": [
+        {
+          "compareType": "STATIC",
+          "id": "p1x1",
+          "indicator": "RSI",
+          "operator": "Crosses Above",
+          "period": 14,
+          "value": 70
+        }
+      ],
+      "id": "preset1_exit",
+      "logic": "AND",
+      "type": "GROUP"
+    },
+    "id": "2e3a5458-0178-4b65-90f1-6038312b95fe",
+    "mode": "VISUAL",
+    "name": "RSI Mean Reversion",
+    "params": {
+      "period": 14,
+      "lower": 30,
+      "upper": 70
+    },
+    "positionSizeValue": 100000,
+    "positionSizing": "Fixed Capital",
+    "pyramiding": 1,
+    "pythonCode": "def signal_logic(df):\n    # Write custom logic here\n    # Returns: entries (bool series), exits (bool series)\n    sma = vbt.MA.run(df['close'], 20)\n    entries = df['close'] > sma.ma\n    exits = df['close'] < sma.ma\n    return entries, exits",
+    "rankingMethod": "No Ranking",
+    "rankingTopN": 5,
+    "slippage": 0.05,
+    "startTime": "09:15",
+    "stopLossPct": 10,
+    "takeProfitPct": 8,
+    "timeframe": "1d",
+    "useTrailingStop": false
+  }
+]

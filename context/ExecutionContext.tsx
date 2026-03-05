@@ -14,10 +14,6 @@ export interface ExecutionContextType {
     setRunning: (val: boolean) => void;
     capital: number;
     setCapital: (val: number) => void;
-    slippage: number;
-    setSlippage: (val: number) => void;
-    commission: number;
-    setCommission: (val: number) => void;
     showAdvanced: boolean;
     setShowAdvanced: (val: boolean) => void;
 
@@ -49,8 +45,6 @@ const load = (key: string, def: any) => {
 export const ExecutionProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [running, setRunning] = useState(false);
     const [capital, setCapital] = useState<number>(() => load('capital', 100000));
-    const [slippage, setSlippage] = useState(0.05);
-    const [commission, setCommission] = useState(20);
     const [showAdvanced, setShowAdvanced] = useState(false);
     const [optResults, setOptResults] = useState<(OptimizationResponse & { wfo: WFOResult[]; period?: string }) | null>(null);
     const [top5Trials, setTop5Trials] = useState<any[]>([]);
@@ -66,8 +60,8 @@ export const ExecutionProvider: React.FC<{ children: ReactNode }> = ({ children 
 
     const value: ExecutionContextType = {
         running, setRunning,
-        capital, setCapital, slippage, setSlippage,
-        commission, setCommission, showAdvanced, setShowAdvanced,
+        capital, setCapital,
+        showAdvanced, setShowAdvanced,
         optResults, setOptResults,
         top5Trials, setTop5Trials, oosResults, setOosResults,
         isOosValidating, setIsOosValidating,

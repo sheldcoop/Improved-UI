@@ -73,6 +73,7 @@ const PaperTrading: React.FC = () => {
     const [replaySelectedStrategyId, setReplaySelectedStrategyId] = useState<string | null>(null);
     const [replayShowSaved, setReplayShowSaved] = useState(false);
     const [replaySlPct, setReplaySlPct] = useState<number | ''>('');
+    const [replayTslPct, setReplayTslPct] = useState<number | ''>('');
     const [replayTpPct, setReplayTpPct] = useState<number | ''>('');
     const [replayStart, setReplayStart] = useState('');
     const [replayEnd, setReplayEnd] = useState('');
@@ -177,7 +178,7 @@ const PaperTrading: React.FC = () => {
     };
 
     // strategyId, slPct, tpPct are now passed directly from MonitorSetup
-    const handleStartLiveMonitor = async (strategyId: string, slPct: number | null, tpPct: number | null) => {
+    const handleStartLiveMonitor = async (strategyId: string, slPct: number | null, tpPct: number | null, tslPct: number | null) => {
         setError(null);
         if (!globalSymbol) {
             throw new Error('Please search and select a symbol from Market Data.');
@@ -190,6 +191,7 @@ const PaperTrading: React.FC = () => {
             timeframe: globalTimeframe,
             slPct,
             tpPct,
+            tslPct,
         };
 
         await startPaperMonitor(monitorData);
@@ -273,7 +275,8 @@ const PaperTrading: React.FC = () => {
                     fromDate: replayStart,
                     toDate: replayEnd,
                     slPct: replaySlPct || undefined,
-                    tpPct: replayTpPct || undefined
+                    tpPct: replayTpPct || undefined,
+                    tslPct: replayTslPct || undefined
                 });
                 setReplayEvents(res.events || []);
                 setReplaySummary(res.summary || null);
@@ -479,6 +482,8 @@ const PaperTrading: React.FC = () => {
                             onToggleSaved={() => setReplayShowSaved(!replayShowSaved)}
                             slPct={replaySlPct}
                             onSlPctChange={setReplaySlPct}
+                            tslPct={replayTslPct}
+                            onTslPctChange={setReplayTslPct}
                             tpPct={replayTpPct}
                             onTpPctChange={setReplayTpPct}
                             startDate={replayStart}

@@ -3,6 +3,7 @@ import { FastForward, Play, Pause, RotateCcw } from 'lucide-react';
 import { Card } from '../ui/Card';
 import { StrategyPicker } from '../shared/StrategyPicker';
 import { DateRangePicker } from '../DateRangePicker';
+import { RiskConfigPanel } from '../shared/RiskConfigPanel';
 import { Strategy, StrategyPreset, Timeframe } from '../../types';
 
 const COMMON_SYMBOLS = [
@@ -24,6 +25,8 @@ interface ReplayPanelProps {
 
     slPct: number | '';
     onSlPctChange: (val: number | '') => void;
+    tslPct: number | '';
+    onTslPctChange: (val: number | '') => void;
     tpPct: number | '';
     onTpPctChange: (val: number | '') => void;
 
@@ -44,6 +47,7 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({
     activePresetId, onPresetChange,
     onLoadSaved, showSaved, onToggleSaved,
     slPct, onSlPctChange,
+    tslPct, onTslPctChange,
     tpPct, onTpPctChange,
     startDate, onStartDateChange,
     endDate, onEndDateChange,
@@ -65,32 +69,15 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({
                 />
             </div>
 
-            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
-                <div>
-                    <label className="text-[10px] text-slate-500 block mb-1">Stop Loss % (Override)</label>
-                    <input
-                        type="number"
-                        min="0" step="0.1"
-                        value={slPct}
-                        onChange={e => onSlPctChange(e.target.value ? parseFloat(e.target.value) : '')}
-                        disabled={isPlaying}
-                        placeholder="Strategy default"
-                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 disabled:opacity-50"
-                    />
-                </div>
-                <div>
-                    <label className="text-[10px] text-slate-500 block mb-1">Take Profit % (Override)</label>
-                    <input
-                        type="number"
-                        min="0" step="0.1"
-                        value={tpPct}
-                        onChange={e => onTpPctChange(e.target.value ? parseFloat(e.target.value) : '')}
-                        disabled={isPlaying}
-                        placeholder="Strategy default"
-                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 disabled:opacity-50"
-                    />
-                </div>
-            </div>
+            <RiskConfigPanel
+                slPct={slPct === '' ? 0 : slPct}
+                onSlChange={v => onSlPctChange(v === 0 ? '' : v)}
+                tslPct={tslPct === '' ? 0 : tslPct}
+                onTslChange={v => onTslPctChange(v === 0 ? '' : v)}
+                tpPct={tpPct === '' ? 0 : tpPct}
+                onTpChange={v => onTpPctChange(v === 0 ? '' : v)}
+                disabled={isPlaying}
+            />
 
             <div className="pt-2 border-t border-slate-800">
                 <DateRangePicker

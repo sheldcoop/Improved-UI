@@ -79,8 +79,17 @@ def _run_monitor_job(monitor_id: str) -> None:
         # Compute SL/TP prices from percentage config
         sl_pct = monitor.get("sl_pct")
         tp_pct = monitor.get("tp_pct")
+        tsl_pct = monitor.get("config", {}).get("tslPct")
+        
         sl_price = round(ltp * (1 - sl_pct / 100), 2) if sl_pct else None
         tp_price = round(ltp * (1 + tp_pct / 100), 2) if tp_pct else None
+
+        if tsl_pct:
+            sl_price = round(ltp * (1 - tsl_pct / 100), 2)
+            if current_indicators is None:
+                current_indicators = {}
+            current_indicators["tsl_pct"] = tsl_pct
+            current_indicators["peak_price"] = ltp
 
         position = {
             "id":          str(uuid.uuid4())[:8],

@@ -174,7 +174,7 @@ PRESET_STRATEGIES = [
 ]
 
 
-@strategy_bp.route("/", methods=["GET", "POST"])
+@strategy_bp.route("", methods=["GET", "POST"])
 def strategies_root():
     """GET: list preset strategies. POST: save a custom strategy."""
     if request.method == "GET":

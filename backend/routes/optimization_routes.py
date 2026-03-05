@@ -8,6 +8,7 @@ import logging
 
 from services.optimizer import OptimizationEngine
 from services.wfo_engine import WFOEngine
+from services import paper_store
 
 optimization_bp = Blueprint("optimization", __name__)
 logger = logging.getLogger(__name__)
@@ -78,6 +79,9 @@ def run_optimization():
         scoring_metric = data.get("scoringMetric", "sharpe")
         reproducible = data.get("reproducible", False)
         config = data.get("config", {})
+        config["slippage"] = float(paper_store.get_setting("slippage", "0.05"))
+        config["commission"] = float(paper_store.get_setting("commission", "20.0"))
+
         risk_ranges = data.get("riskRanges")  # optional second-phase search space
 
         # Optional data split ratio for Phase 2 (0.0 = disabled, 0.7 = 70/30 split)
@@ -196,6 +200,8 @@ def run_oos_validate():
         end_date = data.get("endDate")
         timeframe = data.get("timeframe", "1d")
         config = data.get("config", {})
+        config["slippage"] = float(paper_store.get_setting("slippage", "0.05"))
+        config["commission"] = float(paper_store.get_setting("commission", "20.0"))
         
         if not symbol or not strategy_id or not start_date or not end_date:
             return jsonify({"status": "error", "message": "Missing required fields"}), 400
