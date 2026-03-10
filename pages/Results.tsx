@@ -88,7 +88,7 @@ const Results: React.FC = () => {
   const [activeOosIndex, setActiveOosIndex] = useState(0);
   const [isOOSArray, setIsOOSArray] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'TRADES' | 'DISTRIBUTION' | 'STATS' | 'ADVANCED_STATS'>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'TRADES' | 'DISTRIBUTION' | 'ROLLING' | 'STATS' | 'ADVANCED_STATS'>('OVERVIEW');
   const [distributionData, setDistributionData] = useState<any[]>([]);
 
   // Zoom State
@@ -262,6 +262,7 @@ const Results: React.FC = () => {
             <Button variant={activeTab === 'OVERVIEW' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('OVERVIEW')} icon={<Activity className="w-4 h-4" />}>Overview</Button>
             <Button variant={activeTab === 'TRADES' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('TRADES')} icon={<List className="w-4 h-4" />}>Trades</Button>
             <Button variant={activeTab === 'DISTRIBUTION' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('DISTRIBUTION')} icon={<BarChartIcon className="w-4 h-4" />}>Distribution</Button>
+            <Button variant={activeTab === 'ROLLING' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('ROLLING')} icon={<Activity className="w-4 h-4" />}>Rolling</Button>
             <Button variant={activeTab === 'STATS' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('STATS')} icon={<Activity className="w-4 h-4" />}>Stats</Button>
             <Button variant={activeTab === 'ADVANCED_STATS' ? 'primary' : 'ghost'} size="sm" onClick={() => setActiveTab('ADVANCED_STATS')} icon={<BarChartIcon className="w-4 h-4" />}>Advanced Stats</Button>
           </div>
@@ -539,6 +540,62 @@ const Results: React.FC = () => {
           </div>
         )
       }
+
+      {activeTab === 'ROLLING' && (() => {
+        const rolling = (result as any).rollingMetrics as Array<{ date: string; returnPct: number; sharpe: number }> | undefined;
+        if (!rolling || rolling.length === 0) {
+          return (
+            <Card title="Rolling Performance (3-Month Window)">
+              <div className="flex items-center justify-center h-40 text-slate-500 italic">
+                Not enough data for rolling metrics. Run a longer backtest (at least 6 months).
+              </div>
+            </Card>
+          );
+        }
+        return (
+          <div className="flex flex-col gap-6">
+            <Card title="Rolling 3-Month Return %" className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={rolling} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="rollingRetGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={CONFIG.COLORS.PROFIT} stopOpacity={0.25} />
+                      <stop offset="95%" stopColor={CONFIG.COLORS.PROFIT} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={CONFIG.COLORS.GRID} vertical={false} />
+                  <XAxis dataKey="date" stroke={CONFIG.COLORS.TEXT} tick={{ fontSize: 10 }} tickFormatter={v => v.slice(0, 7)} />
+                  <YAxis stroke={CONFIG.COLORS.TEXT} tick={{ fontSize: 10 }} tickFormatter={v => `${v}%`} />
+                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9', fontSize: 12 }}
+                    formatter={(v: any) => [`${safeToFixed(v, 2)}%`, '3M Return']} />
+                  <Area type="monotone" dataKey="returnPct" stroke={CONFIG.COLORS.PROFIT} strokeWidth={2} fill="url(#rollingRetGrad)" dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </Card>
+            <Card title="Rolling 3-Month Sharpe Ratio" className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={rolling} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="rollingSharpeGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#818cf8" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#818cf8" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={CONFIG.COLORS.GRID} vertical={false} />
+                  <XAxis dataKey="date" stroke={CONFIG.COLORS.TEXT} tick={{ fontSize: 10 }} tickFormatter={v => v.slice(0, 7)} />
+                  <YAxis stroke={CONFIG.COLORS.TEXT} tick={{ fontSize: 10 }} />
+                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f1f5f9', fontSize: 12 }}
+                    formatter={(v: any) => [safeToFixed(v, 2), '3M Sharpe']} />
+                  <Area type="monotone" dataKey="sharpe" stroke="#818cf8" strokeWidth={2} fill="url(#rollingSharpeGrad)" dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </Card>
+            <div className="bg-slate-900 border border-slate-800 rounded-lg p-3 text-xs text-slate-500">
+              Rolling window = 63 bars (~3 months). A strategy with consistent Sharpe across time periods has genuine edge. Sharp drops or sign changes indicate regime sensitivity — the strategy may be overfitted or market-condition dependent.
+            </div>
+          </div>
+        );
+      })()}
     </div >
   );
 };

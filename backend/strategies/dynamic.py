@@ -57,6 +57,8 @@ class DynamicStrategy(BaseStrategy, SignalEvaluator):
         Returns:
             Tuple of (entries, exits, warnings, indicators).
         """
+        # Reset indicator cache so each generate_signals() call is isolated
+        self._reset_indicator_cache()
         entries, exits, warnings_list, indicators = self._compute_signals(df)
 
         # Apply intraday session filter (no-op for daily strategies)
@@ -141,4 +143,16 @@ class DynamicStrategy(BaseStrategy, SignalEvaluator):
 
         entries = _eval(entry_group)
         exits = _eval(exit_group)
+
+        # Warmup truncation: blank signals for the first max_period bars so that
+        # indicator warm-up noise cannot trigger a trade. Without this, RSI(50)
+        # on 200 bars would fire entries on bars 1–49 where RSI is still NaN-derived.
+        if max_period > 0 and not is_universe:
+            entries.iloc[:max_period] = False
+            exits.iloc[:max_period] = False
+            warnings_list.append(
+                f"First {max_period} bars excluded from signals (indicator warmup). "
+                "Use more historical data to gain tradeable bars."
+            )
+
         return entries, exits, warnings_list, {}

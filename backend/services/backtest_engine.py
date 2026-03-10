@@ -82,6 +82,15 @@ class BacktestEngine:
         # Guard against input mutation
         df = df.copy()
 
+        # Minimum bars check — strategies with large indicator periods need enough
+        # bars to warm up AND have tradeable bars afterward. Require at least 50 bars.
+        MIN_BARS = 50
+        if len(df) < MIN_BARS:
+            return {
+                "status": "failed",
+                "error": f"Insufficient data: only {len(df)} bars available. At least {MIN_BARS} bars are required for reliable backtesting."
+            }
+
         # --- 1. CONFIGURATION ---
         slippage = float(config.get("slippage", DEFAULT_SLIPPAGE)) / 100.0
         initial_capital = float(config.get("initial_capital", DEFAULT_CAPITAL))
@@ -224,6 +233,9 @@ class BacktestEngine:
         if monthly_err:
             metrics["alerts"].append({"type": "warning", "msg": monthly_err})
 
+        # Rolling performance metrics (63-bar ≈ 3 months of trading days)
+        rolling_metrics = BacktestEngine._compute_rolling_metrics(returns_series)
+
         # pfStats / advStats for the raw tabs
         try:
             stats = pf.stats()
@@ -246,6 +258,7 @@ class BacktestEngine:
             "equityCurve":    equity_curve,
             "trades":         trades,
             "monthlyReturns": monthly_returns_data,
+            "rollingMetrics": rolling_metrics,
             "startDate":      start_date,
             "endDate":        end_date,
             "pfStats":        pf_stats_result,
@@ -348,12 +361,26 @@ class BacktestEngine:
         clean_metrics = clean_float_values(metrics)
         alerts: list[dict] = AlertManager.analyze_backtest({"metrics": clean_metrics}, df)
 
-        # Inject 0-trade explanation if applicable
+        # Inject 0-trade explanation with signal counts if applicable
         if clean_metrics.get("totalTrades", 0) == 0:
-            alerts.insert(0, {
-                "type": "warning", 
-                "msg": "0 trades executed. Check if your entry logic is reversed, or if indicator conditions ever converged."
-            })
+            try:
+                entry_count = int(pf.orders.count())
+            except Exception:
+                entry_count = -1
+            if entry_count == 0:
+                zero_msg = (
+                    "0 trades executed. Possible causes: "
+                    "(1) entry conditions never fired — check your indicator thresholds; "
+                    "(2) exit fires on the same bar as entry — conditions cancel each other; "
+                    "(3) all signals were inside the warmup period — use more historical data."
+                )
+            else:
+                zero_msg = (
+                    f"0 completed trades despite {entry_count} order attempts. "
+                    "Positions may have been opened but never closed — add exit conditions "
+                    "or a Stop Loss to ensure positions are closed."
+                )
+            alerts.insert(0, {"type": "warning", "msg": zero_msg})
             
         clean_metrics["alerts"] = alerts
         return clean_metrics
@@ -387,6 +414,46 @@ class BacktestEngine:
             error_msg = f"Monthly returns could not be computed: {exc}"
             logger.warning(error_msg)
         return data, error_msg
+
+    @staticmethod
+    def _compute_rolling_metrics(returns_series: pd.Series, window: int = 63) -> list[dict]:
+        """Compute rolling return and Sharpe over a trailing ``window``-bar window.
+
+        Args:
+            returns_series: Daily/bar-level return Series from VBT.
+            window: Rolling window size (default 63 ≈ 3 months of trading days).
+
+        Returns:
+            List of dicts with keys: date, returnPct, sharpe.
+            Only entries where both metrics are non-NaN are included.
+        """
+        data: list[dict] = []
+        try:
+            if returns_series is None or returns_series.empty or len(returns_series) < window:
+                return data
+
+            # Rolling compound return: (1 + r1) * (1 + r2) * ... - 1
+            rolling_ret = (1 + returns_series).rolling(window).apply(lambda x: x.prod() - 1, raw=True)
+
+            # Rolling Sharpe: annualised (252 trading days assumed)
+            rolling_mean = returns_series.rolling(window).mean()
+            rolling_std = returns_series.rolling(window).std()
+            rolling_sharpe = (rolling_mean / rolling_std) * math.sqrt(252)
+
+            for date, ret_val in rolling_ret.items():
+                sharpe_val = rolling_sharpe.get(date, float("nan"))
+                if math.isnan(ret_val) or math.isnan(sharpe_val):
+                    continue
+                if not math.isfinite(ret_val) or not math.isfinite(sharpe_val):
+                    continue
+                data.append({
+                    "date": str(date)[:10],  # YYYY-MM-DD
+                    "returnPct": round(ret_val * 100, 2),
+                    "sharpe": round(float(sharpe_val), 2),
+                })
+        except Exception as exc:
+            logger.warning(f"Rolling metrics computation failed: {exc}")
+        return data
 
     @staticmethod
     def _compute_advanced_metrics(

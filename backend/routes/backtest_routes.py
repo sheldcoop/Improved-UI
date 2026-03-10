@@ -50,10 +50,16 @@ def run_backtest():
         sl_pct_raw = data.get("stopLossPct", 0)
         tp_pct_raw = data.get("takeProfitPct", 0)
         try:
-            if float(sl_pct_raw) < 0:
+            sl_val = float(sl_pct_raw)
+            tp_val = float(tp_pct_raw)
+            if sl_val < 0:
                 return jsonify({"status": "error", "message": "stopLossPct must be >= 0"}), 400
-            if float(tp_pct_raw) < 0:
+            if sl_val > 50:
+                return jsonify({"status": "error", "message": "stopLossPct must be <= 50% (received: {sl_val}%)".format(sl_val=sl_val)}), 400
+            if tp_val < 0:
                 return jsonify({"status": "error", "message": "takeProfitPct must be >= 0"}), 400
+            if tp_val > 300:
+                return jsonify({"status": "error", "message": "takeProfitPct must be <= 300%"}), 400
         except (TypeError, ValueError):
             return jsonify({"status": "error", "message": "stopLossPct and takeProfitPct must be numbers"}), 400
 
@@ -65,10 +71,12 @@ def run_backtest():
             commission_val = float(commission_raw)
             if slippage_val < 0:
                 return jsonify({"status": "error", "message": "slippage must be >= 0"}), 400
-            if slippage_val > 100:
-                return jsonify({"status": "error", "message": "slippage cannot exceed 100%"}), 400
+            if slippage_val > 5:
+                return jsonify({"status": "error", "message": "slippage cannot exceed 5% per trade"}), 400
             if commission_val < 0:
                 return jsonify({"status": "error", "message": "commission must be >= 0"}), 400
+            if commission_val > 10000:
+                return jsonify({"status": "error", "message": "commission (₹/trade) seems unreasonably high — max ₹10,000"}), 400
         except (TypeError, ValueError):
             return jsonify({"status": "error", "message": "slippage and commission must be numbers"}), 400
 
@@ -104,11 +112,11 @@ def run_backtest():
             if key not in config:
                 config[key] = val
 
-        # For daily bars: always execute on the NEXT bar's open after signal fires.
-        # This prevents look-ahead bias — on daily data you can't trade at today's
-        # close the same moment the signal appears (bar isn't closed yet).
-        # Intraday timeframes are exempt — live algos can react within the same bar.
-        if timeframe == "1d" and "nextBarEntry" not in config:
+        # Always execute on the NEXT bar's open after signal fires — for ALL timeframes.
+        # This prevents look-ahead bias: a signal computed on bar N's close cannot
+        # realistically be filled on bar N's close (same bar). Intraday is equally
+        # affected — a 5m bar's close signal can only be filled at bar N+1's open.
+        if "nextBarEntry" not in config:
             config["nextBarEntry"] = True
 
         logger.info(f"Backtest Target: {symbol} [{timeframe}] | Strategy: {strategy_id}")

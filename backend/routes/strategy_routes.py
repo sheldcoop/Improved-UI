@@ -189,6 +189,17 @@ def strategies_root():
     if not name:
         return jsonify({"status": "error", "message": "Strategy name is required"}), 400
 
+    # Validate exit logic for VISUAL mode — empty exit means positions never close
+    mode = data.get("mode", "VISUAL")
+    if mode == "VISUAL":
+        exit_logic = data.get("exitLogic") or {}
+        exit_conditions = exit_logic.get("conditions", [])
+        if not exit_conditions:
+            return jsonify({
+                "status": "error",
+                "message": "Exit logic cannot be empty. Define at least one exit condition, or use a Stop Loss to close positions."
+            }), 400
+
     try:
         saved = StrategyStore.save(data)
         logger.info(f"Saved strategy: {saved.get('name')} ({saved.get('id')})")
@@ -375,15 +386,16 @@ A nested group looks like:
 }
 
 Valid IndicatorType values: "RSI", "SMA", "EMA", "MACD", "MACD Signal", "Bollinger Upper", "Bollinger Lower", "Bollinger Mid", "ATR", "Close Price", "Open Price", "High Price", "Low Price", "Volume"
-Valid Operator values: "Crosses Above", "Crosses Below", ">", "<", "="
+Valid Operator values: "Crosses Above", "Crosses Below", ">", ">=", "<", "<=", "=", "!="
 
 Rules:
 - Use only the valid values listed above, nothing else
 - Always return valid JSON, no markdown code blocks, no explanation, just the JSON object
 - Make logical entry AND exit conditions, do not leave either empty
 - Use unique short ids like "c1", "c2", "g1" etc.
-- For range checks (e.g. RSI between 30 and 70), use two separate conditions combined with AND logic
+- For range checks (e.g. RSI between 30 and 70), use two separate conditions (RSI > 30 AND RSI < 70) combined with AND logic — never use "Between"
 - If the user mentions a crossover, use "Crosses Above" or "Crosses Below"
+- For trend filters (e.g. price above moving average), use ">" with compareType INDICATOR
 """
 
     try:

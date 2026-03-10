@@ -2,13 +2,39 @@
 from __future__ import annotations
 
 import ast
+import signal
 import warnings as _warnings
+from contextlib import contextmanager
 from logging import getLogger
 
 import numpy as np
 import pandas as pd
 import vectorbt as vbt
 import ta
+
+_EXECUTION_TIMEOUT_SECS = 30  # Max seconds allowed for user code to run
+
+
+@contextmanager
+def _timeout(seconds: int):
+    """Context manager that raises TimeoutError after ``seconds`` seconds.
+
+    Uses SIGALRM (Unix only). On non-Unix platforms, falls back to no-op
+    so code still runs but without the timeout guard.
+    """
+    def _handler(signum, frame):
+        raise TimeoutError(f"Code execution exceeded {seconds}s time limit")
+
+    if hasattr(signal, "SIGALRM"):
+        old = signal.signal(signal.SIGALRM, _handler)
+        signal.alarm(seconds)
+        try:
+            yield
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old)
+    else:
+        yield  # Windows — no timeout, best effort
 
 logger = getLogger(__name__)
 
@@ -80,32 +106,36 @@ class PythonSandbox:
         }
 
         try:
-            with _warnings.catch_warnings(record=True) as w:
-                _warnings.simplefilter("always")
-                exec(code, safe_globals)  # noqa: S102
+            with _timeout(_EXECUTION_TIMEOUT_SECS):
+                with _warnings.catch_warnings(record=True) as w:
+                    _warnings.simplefilter("always")
+                    exec(code, safe_globals)  # noqa: S102
 
-                if "signal_logic" not in safe_globals:
-                    logger.error("Code must define a 'signal_logic(df)' function.")
-                    return None, None, [], {}
+                    if "signal_logic" not in safe_globals:
+                        logger.error("Code must define a 'signal_logic(df)' function.")
+                        return None, None, [], {}
 
-                result = safe_globals["signal_logic"](df)
-                captured = [str(x.message) for x in w]
-                
-                indicators = {}
-                if isinstance(result, tuple):
-                    if len(result) >= 4:
-                        entries, exits, _, indicators = result[:4]
-                    elif len(result) == 3:
-                        entries, exits, _ = result
-                    elif len(result) == 2:
-                        entries, exits = result
+                    result = safe_globals["signal_logic"](df)
+                    captured = [str(x.message) for x in w]
+
+                    indicators = {}
+                    if isinstance(result, tuple):
+                        if len(result) >= 4:
+                            entries, exits, _, indicators = result[:4]
+                        elif len(result) == 3:
+                            entries, exits, _ = result
+                        elif len(result) == 2:
+                            entries, exits = result
+                        else:
+                            entries, exits = None, None
                     else:
-                        entries, exits = None, None
-                else:
-                    return None, None, captured, {}
+                        return None, None, captured, {}
 
-            return entries, exits, captured, indicators
+                return entries, exits, captured, indicators
 
+        except TimeoutError as exc:
+            logger.error(f"Code Execution Timeout: {exc}")
+            return None, None, [str(exc)], {}
         except Exception as exc:
             logger.error(f"Code Execution Error: {exc}", exc_info=True)
             return None, None, [], {}

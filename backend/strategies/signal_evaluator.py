@@ -21,6 +21,10 @@ class SignalEvaluator:
     Requires the host class to have a ``config`` attribute (provided by BaseStrategy).
     """
 
+    def _reset_indicator_cache(self) -> None:
+        """Clear the per-call indicator cache. Called at the start of each generate_signals()."""
+        self._indicator_cache: dict[tuple, pd.Series | pd.DataFrame] = {}
+
     def _get_series(
         self,
         df: pd.DataFrame | dict,
@@ -39,6 +43,14 @@ class SignalEvaluator:
         Returns:
             Indicator Series re-indexed to the original timeline.
         """
+        # Cache key: same indicator + period + timeframe on the same df reuses the result.
+        # This prevents RSI(14) from being recomputed 3× when 3 rules reference it.
+        cache_key = (indicator_type, int(period) if period else 14, timeframe or "")
+        if not hasattr(self, "_indicator_cache"):
+            self._indicator_cache: dict[tuple, pd.Series | pd.DataFrame] = {}
+        if cache_key in self._indicator_cache:
+            return self._indicator_cache[cache_key]
+
         if timeframe and timeframe not in ("Curr", "curr", ""):
             if not hasattr(self, "_resampler") or self._resampler is None:
                 self._resampler = TimeframeResampler(df)
@@ -65,6 +77,7 @@ class SignalEvaluator:
             if hasattr(self, "_resampler") and self._resampler is not None:
                 result_series = self._resampler.align_to_base(result_series)
 
+        self._indicator_cache[cache_key] = result_series
         return result_series
 
     def _evaluate_node(
